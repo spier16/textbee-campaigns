@@ -41,4 +41,21 @@ export const ApiEndpoints = {
     customerSupport: () => '/support/customer-support',
     requestAccountDeletion: () => '/support/request-account-deletion',
   },
+  users: {
+    markConversationAsRead: () => '/users/conversations/mark-read',
+    getConversationReadStatuses: () => '/users/conversations/read-statuses',
+    getConversationMetadata: () => '/users/conversations/metadata',
+    archiveConversations: () => '/users/conversations/archive',
+    unarchiveConversations: () => '/users/conversations/unarchive',
+    blockContacts: () => '/users/conversations/block',
+    unblockContacts: () => '/users/conversations/unblock',
+    toggleConversationStar: () => '/users/conversations/star',
+  },
+  campaigns: {
+    templateGroups: () => '/campaigns/template-groups',
+    templateGroup: (id: string) => `/campaigns/template-groups/${id}`,
+    reorderTemplateGroups: () => '/campaigns/template-groups/reorder',
+    templates: () => '/campaigns/templates',
+    template: (id: string) => `/campaigns/templates/${id}`,
+  },
 }

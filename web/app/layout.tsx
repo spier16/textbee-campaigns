@@ -1,7 +1,6 @@
 import { PropsWithChildren } from 'react'
 import '@/styles/main.css'
 import { Metadata } from 'next'
-import Footer from '@/components/shared/footer'
 import { Toaster } from '@/components/ui/toaster'
 import Analytics from '@/components/shared/analytics'
 import { Session } from 'next-auth'
@@ -18,11 +17,10 @@ export default async function RootLayout({ children }: PropsWithChildren) {
   const session: Session | null = await getServerSession(authOptions as any)
 
   return (
-    <html lang='en'>
+    <html lang='en' suppressHydrationWarning>
       <body>
         <main>{children}</main>
         <Analytics user={session?.user} />
-        <Footer />
         <Toaster />
       </body>
     </html>

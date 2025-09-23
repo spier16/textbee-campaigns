@@ -1,7 +1,9 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { User, UserDocument } from './schemas/user.schema'
-import { Model } from 'mongoose'
+import { ConversationReadStatus, ConversationReadStatusDocument } from './schemas/conversation-read-status.schema'
+import { ConversationMetadata, ConversationMetadataDocument } from './schemas/conversation-metadata.schema'
+import { Model, Types } from 'mongoose'
 import { Cron, CronExpression } from '@nestjs/schedule'
 import { MailService } from '../mail/mail.service'
 import { BillingService } from '../billing/billing.service'
@@ -11,6 +13,8 @@ import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(ConversationReadStatus.name) private conversationReadStatusModel: Model<ConversationReadStatusDocument>,
+    @InjectModel(ConversationMetadata.name) private conversationMetadataModel: Model<ConversationMetadataDocument>,
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     private mailService: MailService,
     private billingService: BillingService,
@@ -177,5 +181,147 @@ export class UsersService {
     } catch (error) {
       console.error('Error sending emails to free plan users:', error)
     }
+  }
+
+  async markConversationAsRead(
+    userId: string,
+    normalizedPhoneNumber: string,
+    lastSeenAt: Date = new Date()
+  ) {
+    return await this.conversationReadStatusModel.findOneAndUpdate(
+      { user: new Types.ObjectId(userId), normalizedPhoneNumber },
+      { lastSeenAt },
+      { upsert: true, new: true }
+    )
+  }
+
+  async getConversationReadStatuses(userId: string) {
+    const statuses = await this.conversationReadStatusModel.find({
+      user: new Types.ObjectId(userId)
+    })
+
+    const statusMap: Record<string, Date> = {}
+    statuses.forEach(status => {
+      statusMap[status.normalizedPhoneNumber] = status.lastSeenAt
+    })
+
+    return statusMap
+  }
+
+  async getConversationReadStatus(userId: string, normalizedPhoneNumber: string) {
+    const status = await this.conversationReadStatusModel.findOne({
+      user: new Types.ObjectId(userId),
+      normalizedPhoneNumber
+    })
+
+    return status?.lastSeenAt || null
+  }
+
+  async getConversationMetadata(userId: string) {
+    const metadata = await this.conversationMetadataModel.find({
+      user: new Types.ObjectId(userId)
+    })
+
+    const metadataMap: Record<string, { isArchived: boolean; isBlocked: boolean; isStarred: boolean; archivedAt?: Date }> = {}
+    metadata.forEach(meta => {
+      metadataMap[meta.normalizedPhoneNumber] = {
+        isArchived: meta.isArchived,
+        isBlocked: meta.isBlocked,
+        isStarred: meta.isStarred,
+        archivedAt: meta.archivedAt
+      }
+    })
+
+    return metadataMap
+  }
+
+  async archiveConversations(userId: string, phoneNumbers: string[]) {
+    const operations = phoneNumbers.map(phoneNumber => ({
+      updateOne: {
+        filter: { user: new Types.ObjectId(userId), normalizedPhoneNumber: phoneNumber },
+        update: {
+          $set: {
+            isArchived: true,
+            archivedAt: new Date()
+          }
+        },
+        upsert: true
+      }
+    }))
+
+    await this.conversationMetadataModel.bulkWrite(operations)
+    return { success: true, archivedCount: phoneNumbers.length }
+  }
+
+  async unarchiveConversations(userId: string, phoneNumbers: string[]) {
+    const operations = phoneNumbers.map(phoneNumber => ({
+      updateOne: {
+        filter: { user: new Types.ObjectId(userId), normalizedPhoneNumber: phoneNumber },
+        update: {
+          $set: {
+            isArchived: false,
+            archivedAt: null
+          }
+        },
+        upsert: true
+      }
+    }))
+
+    await this.conversationMetadataModel.bulkWrite(operations)
+    return { success: true, unarchivedCount: phoneNumbers.length }
+  }
+
+  async blockContacts(userId: string, phoneNumbers: string[]) {
+    const operations = phoneNumbers.map(phoneNumber => ({
+      updateOne: {
+        filter: { user: new Types.ObjectId(userId), normalizedPhoneNumber: phoneNumber },
+        update: {
+          $set: {
+            isBlocked: true,
+            blockedAt: new Date(),
+            // When blocking, remove from archived status - spam is separate from archived
+            isArchived: false,
+            archivedAt: null
+          }
+        },
+        upsert: true
+      }
+    }))
+
+    await this.conversationMetadataModel.bulkWrite(operations)
+    return { success: true, blockedCount: phoneNumbers.length }
+  }
+
+  async unblockContacts(userId: string, phoneNumbers: string[]) {
+    const operations = phoneNumbers.map(phoneNumber => ({
+      updateOne: {
+        filter: { user: new Types.ObjectId(userId), normalizedPhoneNumber: phoneNumber },
+        update: {
+          $set: {
+            isBlocked: false,
+            blockedAt: null
+          }
+        },
+        upsert: true
+      }
+    }))
+
+    await this.conversationMetadataModel.bulkWrite(operations)
+    return { success: true, unblockedCount: phoneNumbers.length }
+  }
+
+  async toggleConversationStar(userId: string, phoneNumber: string, isStarred: boolean) {
+    const result = await this.conversationMetadataModel.findOneAndUpdate(
+      { user: new Types.ObjectId(userId), normalizedPhoneNumber: phoneNumber },
+      {
+        $set: {
+          isStarred,
+          starredAt: isStarred ? new Date() : null
+        }
+      },
+      { upsert: true, new: true }
+    )
+
+    return { success: true, isStarred: result.isStarred }
   }
 }
