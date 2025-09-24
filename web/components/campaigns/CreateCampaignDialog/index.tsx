@@ -34,8 +34,9 @@ import {
   MessageTemplateGroup
 } from '@/components/campaigns/types/campaign.types'
 import { SendingScheduleCalendar } from './SendingScheduleCalendar'
+import { SchedulingPreview } from './SchedulingPreview'
 
-// Device interface (from API response)
+// Device interface (from API response) - Extended for tier management
 interface Device {
   _id: string
   brand: string
@@ -43,6 +44,13 @@ interface Device {
   enabled: boolean
   max_hourly_send_rate?: number
   daily_send_limit?: number
+  current_tier?: number
+  messages_sent_today?: number
+  messages_sent_this_hour?: number
+  hourly_counter_reset?: Date
+  daily_counter_reset?: Date
+  last_tier_upgrade?: Date
+  plan_type?: number
 }
 
 // Props interface for the CreateCampaignDialog component
@@ -915,9 +923,23 @@ export function CreateCampaignDialog({
                       </div>
                     )}
                   </div>
+
+                  {/* Scheduling Preview */}
+                  <div className='mt-4'>
+                    <SchedulingPreview
+                      campaignData={campaignData}
+                      contacts={contactSpreadsheets.flatMap(sheet => sheet.contacts || [])}
+                      templates={templateGroups.flatMap(group => group.templates)}
+                      devices={devices}
+                      uniqueContactCount={uniqueContactCount}
+                      onPreviewUpdate={(preview) => {
+                        onCampaignDataChange({ ...campaignData, schedulingPreview: preview })
+                      }}
+                    />
+                  </div>
                 </div>
 
-                {/* Right Column - Sending Schedule */}
+                {/* Right Column - Sending Schedule Calendar */}
                 <div className='flex flex-col h-full overflow-hidden min-h-0'>
                   <Label className='text-sm font-medium mb-2 flex-shrink-0'>Sending Schedule</Label>
                   <div className='flex-1 border rounded-lg p-4 bg-white overflow-hidden min-h-0'>

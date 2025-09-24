@@ -45,6 +45,23 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
     const events: CalendarEvent[] = []
     const now = new Date()
 
+    // Add campaign segments from scheduling preview as events
+    if (campaignData.schedulingPreview?.campaignSegments) {
+      campaignData.schedulingPreview.campaignSegments.forEach((segment, index) => {
+        events.push({
+          id: `campaign-segment-${index}`,
+          title: `📨 ${segment.messageCount} messages`,
+          start: segment.startTime.toISOString(),
+          end: segment.endTime.toISOString(),
+          display: 'block',  // Show as block events rather than background
+          backgroundColor: '#10b981',  // Green for campaign messages
+          borderColor: '#059669',
+          textColor: '#ffffff',
+          className: 'campaign-segment-event'
+        })
+      })
+    }
+
     if (campaignData.scheduleType === 'now') {
       // Shade all time from now through campaign end date
       if (campaignData.campaignEndDate) {
@@ -287,6 +304,16 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
         }
         :global(.fc-toolbar-title) {
           font-size: 0.7rem !important;
+        }
+        :global(.campaign-segment-event) {
+          border-radius: 4px !important;
+          font-weight: 500 !important;
+          font-size: 0.65rem !important;
+          padding: 2px 4px !important;
+          cursor: pointer !important;
+        }
+        :global(.campaign-segment-event:hover) {
+          opacity: 0.8 !important;
         }
       `}</style>
     </div>

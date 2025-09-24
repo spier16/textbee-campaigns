@@ -6,6 +6,7 @@ import { MessageSquare } from 'lucide-react'
 import { useState } from 'react'
 import Overview from './overview'
 import DeviceList from './device-list'
+import UsagePlans from './usage-plans'
 import ApiKeys from './api-keys'
 import Messaging from './messaging'
 import WebhooksSection from './webhooks/webhooks-section'
@@ -41,6 +42,16 @@ export default function DashboardOverview() {
           <DeviceList />
           <ApiKeys />
         </div>
+
+        {console.log('🔧 About to render UsagePlans component')}
+        {(() => {
+          try {
+            return <UsagePlans />
+          } catch (error) {
+            console.error('🔧 UsagePlans component error:', error)
+            return <div className="p-4 border border-red-500 rounded">UsagePlans component failed to render: {String(error)}</div>
+          }
+        })()}
 
         <WebhooksSection />
       </TabsContent>

@@ -31,6 +31,14 @@ export const ApiEndpoints = {
     createWebhook: () => '/webhooks',
     updateWebhook: (id: string) => `/webhooks/${id}`,
     getStats: () => '/gateway/stats',
+
+    // Usage Plan endpoints
+    createUsagePlan: () => '/gateway/usage-plans',
+    getUserUsagePlans: () => '/gateway/usage-plans',
+    getUserUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
+    updateUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
+    deleteUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
+    assignUsagePlan: (deviceId: string) => `/gateway/devices/${deviceId}/assign-plan`,
   },
   billing: {
     currentSubscription: () => '/billing/current-subscription',

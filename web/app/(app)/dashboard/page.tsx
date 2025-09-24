@@ -4,6 +4,7 @@ import DeviceList from './(components)/device-list'
 import WebhooksSection from './(components)/webhooks/webhooks-section'
 import Overview from './(components)/overview'
 import ApiKeys from './(components)/api-keys'
+import UsagePlans from './(components)/usage-plans'
 import { useSession } from 'next-auth/react'
 import { HomeIcon, ArrowUpRightIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -37,6 +38,8 @@ export default function DashboardPage() {
           <DeviceList />
           <ApiKeys />
         </div>
+
+        <UsagePlans />
 
         <WebhooksSection />
       </div>

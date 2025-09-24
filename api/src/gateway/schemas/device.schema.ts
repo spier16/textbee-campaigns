@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose'
 import { Document, Types } from 'mongoose'
 import { User } from '../../users/schemas/user.schema'
+import { UsagePlan } from './usage-plan.schema'
 
 export type DeviceDocument = Device & Document
 
@@ -55,6 +56,33 @@ export class Device {
 
   @Prop({ type: Number, default: 50 })
   daily_send_limit: number
+
+  @Prop({ type: Number, default: 1 })
+  current_tier: number
+
+  @Prop({ type: Date })
+  last_tier_upgrade: Date
+
+  @Prop({ type: Number, default: 0 })
+  messages_sent_today: number
+
+  @Prop({ type: Number, default: 0 })
+  messages_sent_this_hour: number
+
+  @Prop({ type: Date })
+  hourly_counter_reset: Date
+
+  @Prop({ type: Date })
+  daily_counter_reset: Date
+
+  @Prop({ type: Types.ObjectId, ref: UsagePlan.name })
+  usagePlan?: UsagePlan
+
+  @Prop({ type: Date })
+  cooldown_until?: Date
+
+  @Prop({ type: Boolean, default: false })
+  is_on_cooldown?: boolean
 }
 
 export const DeviceSchema = SchemaFactory.createForClass(Device)
