@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Edit, Trash2, Star, Clock, MessageCircle } from 'lucide-react'
+import { Plus, Edit, Trash2, Star, Clock, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
@@ -45,6 +45,7 @@ export default function UsagePlans() {
   const queryClient = useQueryClient()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editingPlan, setEditingPlan] = useState<UsagePlan | null>(null)
+  const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
 
   const {
     data: usagePlans,
@@ -108,6 +109,16 @@ export default function UsagePlans() {
 
   const handleDelete = (planId: string) => {
     deleteUsagePlanMutation.mutate(planId)
+  }
+
+  const togglePlanExpansion = (planId: string) => {
+    const newExpanded = new Set(expandedPlans)
+    if (newExpanded.has(planId)) {
+      newExpanded.delete(planId)
+    } else {
+      newExpanded.add(planId)
+    }
+    setExpandedPlans(newExpanded)
   }
 
   if (error) {
@@ -226,26 +237,39 @@ export default function UsagePlans() {
                 )}
 
                 <div className="space-y-2">
-                  <h4 className="text-sm font-medium">Tiers ({plan.tiers.length})</h4>
-                  <div className="grid gap-2">
-                    {plan.tiers.map((tier) => (
-                      <div key={tier.tier} className="flex items-center justify-between bg-muted/50 p-3 rounded text-sm">
-                        <div className="flex items-center gap-3">
-                          <Badge variant="outline" className="min-w-[60px] justify-center">
-                            Tier {tier.tier}
-                          </Badge>
-                          <div className="flex items-center gap-1 text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            {formatTimeDelay(tier.timeDelayBetweenMessages)}
+                  <button
+                    onClick={() => togglePlanExpansion(plan._id)}
+                    className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors"
+                  >
+                    {expandedPlans.has(plan._id) ? (
+                      <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                    Tiers ({plan.tiers.length})
+                  </button>
+
+                  {expandedPlans.has(plan._id) && (
+                    <div className="grid gap-2">
+                      {plan.tiers.map((tier) => (
+                        <div key={tier.tier} className="flex items-center justify-between bg-muted/50 p-3 rounded text-sm">
+                          <div className="flex items-center gap-3">
+                            <Badge variant="outline" className="min-w-[60px] justify-center">
+                              Tier {tier.tier}
+                            </Badge>
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              <Clock className="h-3 w-3" />
+                              {formatTimeDelay(tier.timeDelayBetweenMessages)}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <MessageCircle className="h-3 w-3" />
+                            {tier.dailyLimit} daily limit
                           </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <MessageCircle className="h-3 w-3" />
-                          {tier.dailyLimit} daily limit
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

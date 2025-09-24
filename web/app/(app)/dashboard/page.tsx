@@ -39,7 +39,9 @@ export default function DashboardPage() {
           <ApiKeys />
         </div>
 
-        <UsagePlans />
+        <div className='grid gap-6 md:grid-cols-2'>
+          <UsagePlans />
+        </div>
 
         <WebhooksSection />
       </div>

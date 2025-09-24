@@ -32,8 +32,20 @@ import { useMutation } from '@tanstack/react-query'
 
 const tierSchema = z.object({
   tier: z.number().min(1),
-  timeDelayBetweenMessages: z.number().min(0),
-  dailyLimit: z.number().min(1),
+  timeDelayBetweenMessages: z.union([z.number().min(30, 'Time delay must be at least 30 seconds'), z.string()]).transform((val) => {
+    if (typeof val === 'string') {
+      const num = parseInt(val)
+      return isNaN(num) ? 30 : num
+    }
+    return val
+  }).refine((val) => val >= 30, { message: 'Time delay must be at least 30 seconds' }),
+  dailyLimit: z.union([z.number().min(1), z.string()]).transform((val) => {
+    if (typeof val === 'string') {
+      const num = parseInt(val)
+      return isNaN(num) || num < 1 ? 1 : num
+    }
+    return val < 1 ? 1 : val
+  }),
 })
 
 const usagePlanSchema = z.object({
@@ -91,7 +103,7 @@ export function CreateUsagePlanDialog({
           name: '',
           description: '',
           tiers: [
-            { tier: 1, timeDelayBetweenMessages: 2, dailyLimit: 50 },
+            { tier: 1, timeDelayBetweenMessages: 30, dailyLimit: 50 },
           ],
           isDefault: false,
         },
@@ -165,7 +177,7 @@ export function CreateUsagePlanDialog({
     const nextTier = fields.length + 1
     append({
       tier: nextTier,
-      timeDelayBetweenMessages: 1,
+      timeDelayBetweenMessages: 30,
       dailyLimit: 100,
     })
   }
@@ -328,14 +340,22 @@ export function CreateUsagePlanDialog({
                               <Input
                                 {...field}
                                 type="number"
-                                min="0"
-                                onChange={(e) =>
-                                  field.onChange(parseInt(e.target.value) || 0)
-                                }
+                                min="30"
+                                value={field.value === '' ? '' : field.value}
+                                onChange={(e) => {
+                                  const value = e.target.value
+                                  if (value === '') {
+                                    field.onChange('')
+                                  } else {
+                                    const numValue = parseInt(value)
+                                    field.onChange(isNaN(numValue) ? 30 : numValue)
+                                  }
+                                }}
+                                onWheel={(e) => e.currentTarget.blur()}
                               />
                             </FormControl>
                             <div className="text-xs text-muted-foreground">
-                              {formatTimeDelay(field.value)}
+                              {typeof field.value === 'number' ? formatTimeDelay(field.value) : 'Enter seconds'}
                             </div>
                             <FormMessage />
                           </FormItem>
@@ -353,9 +373,17 @@ export function CreateUsagePlanDialog({
                                 {...field}
                                 type="number"
                                 min="1"
-                                onChange={(e) =>
-                                  field.onChange(parseInt(e.target.value) || 1)
-                                }
+                                value={field.value === '' ? '' : field.value}
+                                onChange={(e) => {
+                                  const value = e.target.value
+                                  if (value === '') {
+                                    field.onChange('')
+                                  } else {
+                                    const numValue = parseInt(value)
+                                    field.onChange(isNaN(numValue) ? 1 : Math.max(1, numValue))
+                                  }
+                                }}
+                                onWheel={(e) => e.currentTarget.blur()}
                               />
                             </FormControl>
                             <FormMessage />
