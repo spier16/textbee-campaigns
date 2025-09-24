@@ -354,8 +354,14 @@ export function CreateUsagePlanDialog({
                                 onWheel={(e) => e.currentTarget.blur()}
                               />
                             </FormControl>
-                            <div className="text-xs text-muted-foreground">
-                              {typeof field.value === 'number' ? formatTimeDelay(field.value) : 'Enter seconds'}
+                            <div className="text-xs">
+                              {typeof field.value === 'number' && field.value < 30 ? (
+                                <span className="text-red-500 font-medium">Time delay must be at least 30 seconds</span>
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  {typeof field.value === 'number' ? formatTimeDelay(field.value) : 'Enter seconds'}
+                                </span>
+                              )}
                             </div>
                             <FormMessage />
                           </FormItem>
