@@ -180,7 +180,9 @@ export function CreateCampaignDialog({
 
   // Validation functions for each stage
   const validateDetailsStage = () => {
-    return campaignData.selectedContacts.length > 0
+    const hasContacts = campaignData.selectedContacts.length > 0
+    const hasTemplates = campaignData.selectedTemplates.length > 0
+    return hasContacts && hasTemplates
   }
 
   const validateConfigureStage = () => {
@@ -220,9 +222,18 @@ export function CreateCampaignDialog({
       setActiveTab(value)
     } else {
       if (value === 'configure' && !validateDetailsStage()) {
+        const hasContacts = campaignData.selectedContacts.length > 0
+        const hasTemplates = campaignData.selectedTemplates.length > 0
+
+        let description = "Please complete the following: "
+        const missing = []
+        if (!hasContacts) missing.push("select contacts")
+        if (!hasTemplates) missing.push("select message templates")
+        description += missing.join(" and ")
+
         toast({
           title: "Complete required fields",
-          description: "Please select contacts before proceeding.",
+          description,
           variant: "destructive"
         })
       } else if (value === 'preview' && !validateConfigureStage()) {
@@ -252,9 +263,18 @@ export function CreateCampaignDialog({
         setActiveTab(nextTab)
       } else {
         if (nextTab === 'configure' && !validateDetailsStage()) {
+          const hasContacts = campaignData.selectedContacts.length > 0
+          const hasTemplates = campaignData.selectedTemplates.length > 0
+
+          let description = "Please complete the following: "
+          const missing = []
+          if (!hasContacts) missing.push("select contacts")
+          if (!hasTemplates) missing.push("select message templates")
+          description += missing.join(" and ")
+
           toast({
             title: "Complete required fields",
-            description: "Please select contacts before proceeding.",
+            description,
             variant: "destructive"
           })
         } else if (nextTab === 'preview' && !validateConfigureStage()) {
