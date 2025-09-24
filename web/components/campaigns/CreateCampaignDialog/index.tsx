@@ -89,21 +89,65 @@ export function CreateCampaignDialog({
   onCreateCampaign
 }: CreateCampaignDialogProps) {
   const [activeTab, setActiveTab] = useState('details')
-  const [timezoneSearch, setTimezoneSearch] = useState('')
-  const [timezoneDropdownOpen, setTimezoneDropdownOpen] = useState(false)
   const { toast } = useToast()
 
-  // Memoized filtered timezones
-  const filteredTimezones = useMemo(() => {
+  // Memoized timezone options with searchable display format
+  const timezoneOptions = useMemo(() => {
     const allTimezones = Intl.supportedValuesOf('timeZone')
-    if (!timezoneSearch.trim()) {
-      return allTimezones
-    }
-    return allTimezones.filter(tz =>
-      tz.toLowerCase().includes(timezoneSearch.toLowerCase()) ||
-      tz.replace(/_/g, ' ').toLowerCase().includes(timezoneSearch.toLowerCase())
-    )
-  }, [timezoneSearch])
+    return allTimezones.map(tz => {
+      try {
+        const parts = tz.split('/')
+        const city = parts[parts.length - 1].replace(/_/g, ' ')
+        const region = parts.length > 1 ? parts[0].replace(/_/g, ' ') : ''
+
+        // Get GMT offset
+        const date = new Date()
+        const utcTime = date.getTime() + (date.getTimezoneOffset() * 60000)
+        const targetTime = new Date(utcTime + (0)) // Start with UTC
+
+        // Use Intl.DateTimeFormat to get proper offset
+        const formatter = new Intl.DateTimeFormat('en', {
+          timeZone: tz,
+          timeZoneName: 'longOffset'
+        })
+
+        let gmtOffset = ''
+        try {
+          const parts = formatter.formatToParts(new Date())
+          const offsetPart = parts.find(part => part.type === 'timeZoneName')
+          if (offsetPart && offsetPart.value !== 'GMT') {
+            gmtOffset = ` ${offsetPart.value}`
+          }
+        } catch {
+          // Fallback to short timezone name
+          const timeString = new Date().toLocaleTimeString('en-US', {
+            timeZone: tz,
+            timeZoneName: 'short'
+          })
+          const abbreviation = timeString.split(' ').pop() || ''
+          gmtOffset = abbreviation ? ` ${abbreviation}` : ''
+        }
+
+        // Format: "City, Region GMT+X" for better type-to-search
+        const label = region && region !== city
+          ? `${city}, ${region}${gmtOffset}`
+          : `${city}${gmtOffset}`
+
+        return {
+          value: tz,
+          label: label
+        }
+      } catch (e) {
+        // Fallback for invalid timezones
+        const city = tz.split('/').pop()?.replace(/_/g, ' ') || tz
+        return {
+          value: tz,
+          label: city
+        }
+      }
+    })
+    .sort((a, b) => a.label.localeCompare(b.label)) // Sort by city name
+  }, [])
 
   // Date validation function
   const validateDates = (startDate: string, endDate: string) => {
@@ -531,54 +575,25 @@ export function CreateCampaignDialog({
                       <Label className='text-xs text-muted-foreground'>
                         Timezone
                       </Label>
-                      <div className="relative">
-                        <Select
-                          open={timezoneDropdownOpen}
-                          onOpenChange={setTimezoneDropdownOpen}
-                          value={campaignData.timezone}
-                          onValueChange={(value) => {
-                            onCampaignDataChange({ ...campaignData, timezone: value })
-                            setTimezoneDropdownOpen(false)
-                            setTimezoneSearch('')
-                            // Re-validate dates when timezone changes
-                            validateDates(campaignData.campaignStartDate, campaignData.campaignEndDate)
-                          }}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select timezone..." />
-                          </SelectTrigger>
-                          <SelectContent className="max-h-60">
-                            <div className="p-2 border-b">
-                              <Input
-                                placeholder="Search timezones..."
-                                value={timezoneSearch}
-                                onChange={(e) => setTimezoneSearch(e.target.value)}
-                                className="h-8 text-sm"
-                                onClick={(e) => e.stopPropagation()}
-                                onKeyDown={(e) => e.stopPropagation()}
-                                onFocus={(e) => e.stopPropagation()}
-                                autoFocus={false}
-                              />
-                            </div>
-                            <div className="overflow-y-auto max-h-40">
-                              {filteredTimezones.length > 0 ? (
-                                filteredTimezones.map(tz => (
-                                  <SelectItem key={tz} value={tz}>
-                                    {tz.replace(/_/g, ' ')} ({new Date().toLocaleTimeString('en-US', {
-                                      timeZone: tz,
-                                      timeZoneName: 'short'
-                                    }).split(' ').pop()})
-                                  </SelectItem>
-                                ))
-                              ) : (
-                                <div className="py-2 px-3 text-sm text-muted-foreground">
-                                  No timezones found
-                                </div>
-                              )}
-                            </div>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      <Select
+                        value={campaignData.timezone}
+                        onValueChange={(value) => {
+                          onCampaignDataChange({ ...campaignData, timezone: value })
+                          // Re-validate dates when timezone changes
+                          validateDates(campaignData.campaignStartDate, campaignData.campaignEndDate)
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select timezone..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60">
+                          {timezoneOptions.map(tz => (
+                            <SelectItem key={tz.value} value={tz.value}>
+                              {tz.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 

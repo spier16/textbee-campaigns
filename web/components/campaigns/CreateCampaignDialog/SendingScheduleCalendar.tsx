@@ -29,7 +29,7 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
           start: startTime,
           end: endTime,
           display: 'background',
-          backgroundColor: '#dcfce7', // light green
+          backgroundColor: '#3b82f6', // blue
           className: 'send-now-period'
         })
       }
@@ -50,7 +50,7 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
             start: effectiveStart.toISOString(),
             end: campaignEnd.toISOString(),
             display: 'background',
-            backgroundColor: '#dcfce7', // light green
+            backgroundColor: '#3b82f6', // blue
             className: 'scheduled-send-period'
           })
         }
