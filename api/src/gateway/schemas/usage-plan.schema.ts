@@ -39,6 +39,9 @@ export class UsagePlan {
   @Prop({ type: Boolean, default: true })
   isActive: boolean
 
+  @Prop({ type: Boolean, default: false })
+  isTemplate?: boolean
+
   createdAt?: Date
   updatedAt?: Date
 }

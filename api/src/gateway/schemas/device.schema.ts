@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose'
-import { Document, Types } from 'mongoose'
+import { Document, Types, Schema as MongooseSchema } from 'mongoose'
 import { User } from '../../users/schemas/user.schema'
 import { UsagePlan } from './usage-plan.schema'
 
@@ -75,8 +75,8 @@ export class Device {
   @Prop({ type: Date })
   daily_counter_reset: Date
 
-  @Prop({ type: Types.ObjectId, ref: UsagePlan.name })
-  usagePlan?: UsagePlan
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  usagePlan?: Types.ObjectId | string
 
   @Prop({ type: Date })
   cooldown_until?: Date

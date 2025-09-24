@@ -42,7 +42,7 @@ interface Device {
   daily_counter_reset?: string
   is_on_cooldown?: boolean
   cooldown_until?: string
-  usagePlan?: UsagePlan
+  usagePlan?: string // Now just the ID
 }
 
 export default function DeviceList() {
@@ -90,8 +90,10 @@ export default function DeviceList() {
   }
 
   const getCurrentTier = (device: Device) => {
-    if (!device.usagePlan) return null
-    return device.usagePlan.tiers.find(t => t.tier === device.current_tier) || device.usagePlan.tiers[0]
+    if (!device.usagePlan || !usagePlans?.data) return null
+    const plan = usagePlans.data.find(p => p._id === device.usagePlan)
+    if (!plan) return null
+    return plan.tiers.find(t => t.tier === device.current_tier) || plan.tiers[0]
   }
 
   const getUsagePercentage = (device: Device) => {
@@ -239,9 +241,9 @@ export default function DeviceList() {
                                 <DropdownMenuItem
                                   key={plan._id}
                                   onClick={() => handleAssignPlan(device._id, plan._id)}
-                                  disabled={device.usagePlan?._id === plan._id}
+                                  disabled={device.usagePlan === plan._id}
                                 >
-                                  {device.usagePlan?._id === plan._id ? '✓ ' : ''}
+                                  {device.usagePlan === plan._id ? '✓ ' : ''}
                                   Assign "{plan.name}"
                                 </DropdownMenuItem>
                               ))}
@@ -262,7 +264,7 @@ export default function DeviceList() {
                           <div className='flex items-center gap-2'>
                             <span className='text-muted-foreground'>Plan:</span>
                             <Badge variant="outline" className='text-xs'>
-                              {device.usagePlan.name}
+                              {usagePlans?.data?.find(p => p._id === device.usagePlan)?.name || 'Unknown Plan'}
                             </Badge>
                             <span className='text-muted-foreground'>•</span>
                             <span className='text-muted-foreground'>Tier {device.current_tier}</span>

@@ -36,6 +36,91 @@ export class GatewayService {
     private smsQueueService: SmsQueueService,
   ) {}
 
+  private async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
+    if (typeof planId === 'string' && planId.startsWith('template_')) {
+      // Inline template plans to avoid circular dependencies
+      const PREDEFINED_PLANS = [
+        {
+          _id: 'template_verizon_business',
+          name: 'Verizon Business SIM',
+          description: 'Best for high-volume sending',
+          tiers: [
+            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 70 },
+            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 140 },
+            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 280 },
+            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 420 },
+            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 560 },
+            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 700 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'template_verizon_prepaid',
+          name: 'Verizon Prepaid SIM',
+          description: 'Reliable mid-volume option',
+          tiers: [
+            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 20 },
+            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 40 },
+            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 80 },
+            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 120 },
+            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 160 },
+            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 200 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'template_total_wireless',
+          name: 'Total Wireless SIM',
+          description: "Reliable mid-volume option on Verizon's network",
+          tiers: [
+            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },
+            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },
+            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },
+            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },
+            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },
+            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'template_tracfone',
+          name: 'Tracfone SIM',
+          description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
+          tiers: [
+            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },
+            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },
+            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },
+            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },
+            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },
+            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+      ]
+
+      const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
+      return templatePlan ? templatePlan as any : null
+    }
+
+    if (Types.ObjectId.isValid(planId as string)) {
+      return await this.usagePlanModel.findById(planId).exec()
+    }
+
+    return null
+  }
+
   async registerDevice(
     input: RegisterDeviceInputDTO,
     user: User,
@@ -59,7 +144,6 @@ export class GatewayService {
   async getDevicesForUser(user: User): Promise<any> {
     return await this.deviceModel
       .find({ user: user._id })
-      .populate('usagePlan', 'name tiers')
       .exec()
   }
 
@@ -938,7 +1022,7 @@ export class GatewayService {
       return false
     }
 
-    const usagePlan = await this.usagePlanModel.findById(device.usagePlan)
+    const usagePlan = await this.getUsagePlanById(device.usagePlan)
     if (!usagePlan) {
       return false
     }

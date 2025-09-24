@@ -35,6 +35,7 @@ interface UsagePlan {
   tiers: UsagePlanTier[]
   isDefault: boolean
   isActive: boolean
+  isTemplate?: boolean
   createdAt: string
 }
 
@@ -54,21 +55,32 @@ export default function UsagePlans() {
   } = useQuery<{ data: UsagePlan[] }>({
     queryKey: ['usage-plans'],
     queryFn: () => {
-      console.log('🔧 Making API call to:', ApiEndpoints.gateway.getUserUsagePlans())
+      const endpoint = ApiEndpoints.gateway.getUserUsagePlans()
+      console.log('🔧 UsagePlans: Making API call to:', endpoint)
+      console.log('🔧 UsagePlans: NEXT_PUBLIC_API_BASE_URL env var:', process.env.NEXT_PUBLIC_API_BASE_URL)
+      console.log('🔧 UsagePlans: Full URL will be:', `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api/v1'}${endpoint}`)
+
       return httpBrowserClient
-        .get(ApiEndpoints.gateway.getUserUsagePlans())
+        .get(endpoint)
         .then((res) => {
-          console.log('🔧 Usage plans API response:', res.data)
+          console.log('🔧 UsagePlans: API success response:', res)
+          console.log('🔧 UsagePlans: API response data:', res.data)
           return res.data
         })
         .catch((err) => {
-          console.error('🔧 Usage plans API error:', err)
+          console.error('🔧 UsagePlans: API error details:', err)
+          console.error('🔧 UsagePlans: Error response:', err.response)
+          console.error('🔧 UsagePlans: Error status:', err.response?.status)
+          console.error('🔧 UsagePlans: Error message:', err.message)
           throw err
         })
     },
+    retry: false, // Disable retry for debugging
   })
 
   console.log('🔧 Usage plans query state:', { isPending, error, data: usagePlans })
+  console.log('🔧 Usage plans data details:', usagePlans?.data)
+  console.log('🔧 Usage plans length:', usagePlans?.data?.length)
 
   const deleteUsagePlanMutation = useMutation({
     mutationFn: (planId: string) =>
@@ -194,18 +206,30 @@ export default function UsagePlans() {
                         Default
                       </Badge>
                     )}
+                    {plan.isTemplate && (
+                      <Badge variant="outline" className="text-xs">
+                        Template
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setEditingPlan(plan)}
+                      disabled={plan.isTemplate}
+                      title={plan.isTemplate ? "Template plans cannot be edited" : "Edit plan"}
                     >
                       <Edit className="h-4 w-4" />
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="sm">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={plan.isTemplate}
+                          title={plan.isTemplate ? "Template plans cannot be deleted" : "Delete plan"}
+                        >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </AlertDialogTrigger>
@@ -282,6 +306,7 @@ export default function UsagePlans() {
         onOpenChange={setCreateDialogOpen}
         onSuccess={handleCreateSuccess}
         editingPlan={null}
+        existingPlanNames={usagePlans?.data?.map(plan => plan.name) || []}
       />
 
       {editingPlan && (
@@ -290,6 +315,7 @@ export default function UsagePlans() {
           onOpenChange={() => setEditingPlan(null)}
           onSuccess={handleEditSuccess}
           editingPlan={editingPlan}
+          existingPlanNames={usagePlans?.data?.map(plan => plan.name) || []}
         />
       )}
     </Card>

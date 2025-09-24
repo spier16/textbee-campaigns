@@ -24,11 +24,68 @@ import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Plus, Trash2, ArrowUp, ArrowDown, Copy } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
 import { useMutation } from '@tanstack/react-query'
+
+// Pre-defined plan templates
+const PLAN_TEMPLATES = [
+  {
+    name: 'Verizon Business SIM',
+    description: 'Best for high-volume sending',
+    maxDailyLimit: 700,
+    tiers: [
+      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 70 },  // 10%
+      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 140 }, // 20%
+      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 280 }, // 40%
+      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 420 }, // 60%
+      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 560 },  // 80%
+      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 700 },  // 100%
+    ],
+  },
+  {
+    name: 'Verizon Prepaid SIM',
+    description: 'Reliable mid-volume option',
+    maxDailyLimit: 200,
+    tiers: [
+      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 20 },  // 10%
+      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 40 },  // 20%
+      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 80 },  // 40%
+      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 120 }, // 60%
+      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 160 },  // 80%
+      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 200 },  // 100%
+    ],
+  },
+  {
+    name: 'Total Wireless SIM',
+    description: "Reliable mid-volume option on Verizon's network",
+    maxDailyLimit: 150,
+    tiers: [
+      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
+      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
+      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },  // 40%
+      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },  // 60%
+      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },  // 80%
+      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },  // 100%
+    ],
+  },
+  {
+    name: 'Tracfone SIM',
+    description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
+    maxDailyLimit: 150,
+    tiers: [
+      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
+      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
+      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },  // 40%
+      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },  // 60%
+      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },  // 80%
+      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },  // 100%
+    ],
+  },
+]
 
 const tierSchema = z.object({
   tier: z.number().min(1),
@@ -48,14 +105,28 @@ const tierSchema = z.object({
   }),
 })
 
-const usagePlanSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
+const createUsagePlanSchema = (existingNames: string[] = [], currentPlanName?: string) => z.object({
+  name: z.string()
+    .min(1, 'Name is required')
+    .refine((name) => {
+      const normalizedName = name.toLowerCase().trim()
+      const normalizedExisting = existingNames.map(n => n.toLowerCase().trim())
+      const currentNormalized = currentPlanName?.toLowerCase().trim()
+
+      // Allow current name when editing
+      if (currentNormalized && normalizedName === currentNormalized) {
+        return true
+      }
+
+      // Check if name already exists
+      return !normalizedExisting.includes(normalizedName)
+    }, 'A plan with this name already exists'),
   description: z.string().optional(),
   tiers: z.array(tierSchema).min(1, 'At least one tier is required'),
   isDefault: z.boolean().default(false),
 })
 
-type UsagePlanForm = z.infer<typeof usagePlanSchema>
+type UsagePlanForm = z.infer<ReturnType<typeof createUsagePlanSchema>>
 
 interface UsagePlan {
   _id: string
@@ -75,6 +146,7 @@ interface CreateUsagePlanDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   editingPlan?: UsagePlan | null
+  existingPlanNames?: string[]
 }
 
 export function CreateUsagePlanDialog({
@@ -82,9 +154,13 @@ export function CreateUsagePlanDialog({
   onOpenChange,
   onSuccess,
   editingPlan,
+  existingPlanNames = [],
 }: CreateUsagePlanDialogProps) {
   const { toast } = useToast()
   const isEditing = !!editingPlan
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('')
+
+  const usagePlanSchema = createUsagePlanSchema(existingPlanNames, editingPlan?.name)
 
   const form = useForm<UsagePlanForm>({
     resolver: zodResolver(usagePlanSchema),
@@ -196,6 +272,25 @@ export function CreateUsagePlanDialog({
     }
   }
 
+  const applyTemplate = (templateName: string) => {
+    const template = PLAN_TEMPLATES.find(t => t.name === templateName)
+    if (!template) return
+
+    // Reset form fields array to remove existing tiers
+    form.setValue('tiers', [])
+
+    // Set form values
+    form.setValue('name', template.name)
+    form.setValue('description', template.description)
+    form.setValue('tiers', template.tiers)
+    form.setValue('isDefault', false)
+
+    toast({
+      title: 'Template applied',
+      description: `Applied "${template.name}" template with ${template.tiers.length} tiers`,
+    })
+  }
+
   const formatTimeDelay = (seconds: number) => {
     if (seconds === 0) return 'No delay'
     if (seconds < 60) return `${seconds}s`
@@ -221,6 +316,47 @@ export function CreateUsagePlanDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {!isEditing && (
+              <div className="bg-muted/50 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-medium">Quick Start Templates</h3>
+                  <Badge variant="secondary">Pre-configured</Badge>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Choose from our optimized templates or create a custom plan from scratch.
+                </p>
+                <div className="space-y-3">
+                  <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a template (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PLAN_TEMPLATES.map((template) => (
+                        <SelectItem key={template.name} value={template.name}>
+                          <div className="flex flex-col items-start">
+                            <span className="font-medium">{template.name}</span>
+                            <span className="text-sm text-muted-foreground">
+                              {template.description} • {template.maxDailyLimit} texts/day
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedTemplate && (
+                    <Button
+                      type="button"
+                      onClick={() => applyTemplate(selectedTemplate)}
+                      className="w-full gap-2"
+                    >
+                      <Copy className="h-4 w-4" />
+                      Apply "{selectedTemplate}" Template
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-4">
               <FormField
                 control={form.control}
@@ -404,8 +540,8 @@ export function CreateUsagePlanDialog({
               <div className="bg-muted/50 p-4 rounded-lg">
                 <p className="text-sm text-muted-foreground">
                   <strong>How tiers work:</strong> Devices start on Tier 1. When a device exceeds its daily limit,
-                  it moves to the next tier (if available) or goes on cooldown. After 24 hours with zero usage,
-                  the device can advance to the next tier.
+                  it goes on cooldown. After 24 hours with zero usage, the device is taken off cooldown and moves
+                  to the next tier (if available). Messages sent manually (not through campaigns) do not count against daily/hourly limits.
                 </p>
               </div>
             </div>
