@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common'
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
+import { InjectQueue } from '@nestjs/bull'
 import { Model, Types } from 'mongoose'
+import { Queue } from 'bull'
 import {
   MessageTemplateGroup,
   MessageTemplateGroupDocument,
@@ -10,6 +12,16 @@ import {
   MessageTemplateDocument,
 } from './schemas/message-template.schema'
 import {
+  Campaign,
+  CampaignDocument,
+  CampaignStatus,
+} from './schemas/campaign.schema'
+import {
+  CampaignMessage,
+  CampaignMessageDocument,
+  MessageStatus,
+} from './schemas/campaign-message.schema'
+import {
   CreateMessageTemplateGroupDto,
   UpdateMessageTemplateGroupDto,
   CreateMessageTemplateDto,
@@ -17,7 +29,13 @@ import {
   ReorderTemplateGroupsDto,
   MessageTemplateGroupResponseDto,
   MessageTemplateResponseDto,
+  CreateCampaignDto,
+  UpdateCampaignStatusDto,
+  CampaignResponseDto,
 } from './campaigns.dto'
+import { ContactsService } from '../contacts/contacts.service'
+import { User } from '../users/schemas/user.schema'
+import { CampaignQueueService } from './queue/campaign-queue.service'
 
 @Injectable()
 export class CampaignsService {
@@ -26,6 +44,14 @@ export class CampaignsService {
     private messageTemplateGroupModel: Model<MessageTemplateGroupDocument>,
     @InjectModel(MessageTemplate.name)
     private messageTemplateModel: Model<MessageTemplateDocument>,
+    @InjectModel(Campaign.name)
+    private campaignModel: Model<CampaignDocument>,
+    @InjectModel(CampaignMessage.name)
+    private campaignMessageModel: Model<CampaignMessageDocument>,
+    @InjectQueue('campaign-queue')
+    private campaignQueue: Queue,
+    private contactsService: ContactsService,
+    private campaignQueueService: CampaignQueueService,
   ) {}
 
   // Template Groups
@@ -343,6 +369,202 @@ export class CampaignsService {
       content: template.content,
       createdAt: template.createdAt,
       updatedAt: template.updatedAt,
+    }
+  }
+
+  // Campaign Management Methods
+  async createCampaign(
+    user: User,
+    createCampaignDto: CreateCampaignDto,
+  ): Promise<CampaignResponseDto> {
+    // Validate templates exist and belong to user
+    const templates = await this.messageTemplateModel
+      .find({
+        _id: { $in: createCampaignDto.selectedTemplates.map(id => new Types.ObjectId(id)) },
+        userId: new Types.ObjectId(user._id),
+      })
+      .lean()
+
+    if (templates.length !== createCampaignDto.selectedTemplates.length) {
+      throw new BadRequestException('One or more templates not found')
+    }
+
+    // Get contact counts to calculate total messages
+    let totalContacts = 0
+    for (const contactSpreadsheetId of createCampaignDto.selectedContacts) {
+      const contacts = await this.contactsService.getContactsBySpreadsheetId(
+        user._id.toString(),
+        contactSpreadsheetId
+      )
+      totalContacts += contacts.length
+    }
+
+    // Create campaign
+    const campaign = new this.campaignModel({
+      ...createCampaignDto,
+      user: user._id,
+      status: CampaignStatus.DRAFT,
+      totalMessages: totalContacts, // One message per contact (templates rotate)
+      sentMessages: 0,
+      failedMessages: 0,
+      pendingMessages: totalContacts,
+    })
+
+    const savedCampaign = await campaign.save()
+
+    // Generate campaign messages with template rotation
+    await this.generateCampaignMessages(savedCampaign, templates, user)
+
+    return this.formatCampaignResponse(savedCampaign)
+  }
+
+  async getCampaigns(user: User): Promise<CampaignResponseDto[]> {
+    const campaigns = await this.campaignModel
+      .find({ user: user._id })
+      .sort({ createdAt: -1 })
+      .lean()
+
+    return campaigns.map(campaign => this.formatCampaignResponse(campaign))
+  }
+
+  async getCampaign(user: User, campaignId: string): Promise<CampaignResponseDto> {
+    const campaign = await this.campaignModel
+      .findOne({
+        _id: new Types.ObjectId(campaignId),
+        user: user._id,
+      })
+      .lean()
+
+    if (!campaign) {
+      throw new NotFoundException('Campaign not found')
+    }
+
+    return this.formatCampaignResponse(campaign)
+  }
+
+  async updateCampaignStatus(
+    user: User,
+    campaignId: string,
+    updateStatusDto: UpdateCampaignStatusDto,
+  ): Promise<CampaignResponseDto> {
+    const campaign = await this.campaignModel.findOne({
+      _id: new Types.ObjectId(campaignId),
+      user: user._id,
+    })
+
+    if (!campaign) {
+      throw new NotFoundException('Campaign not found')
+    }
+
+    // Handle status transitions
+    const oldStatus = campaign.status
+    campaign.status = updateStatusDto.status
+
+    if (updateStatusDto.status === CampaignStatus.RUNNING && oldStatus === CampaignStatus.DRAFT) {
+      campaign.startedAt = new Date()
+      // Add job to campaign queue for processing
+      await this.campaignQueueService.addCampaignToQueue(
+        campaign._id.toString(),
+        user._id.toString()
+      )
+    } else if (updateStatusDto.status === CampaignStatus.PAUSED) {
+      await this.campaignQueueService.pauseCampaign(campaign._id.toString())
+    } else if (updateStatusDto.status === CampaignStatus.RUNNING && oldStatus === CampaignStatus.PAUSED) {
+      await this.campaignQueueService.resumeCampaign(campaign._id.toString(), user._id.toString())
+    } else if (updateStatusDto.status === CampaignStatus.CANCELLED) {
+      await this.campaignQueueService.cancelCampaign(campaign._id.toString())
+    }
+
+    const updatedCampaign = await campaign.save()
+    return this.formatCampaignResponse(updatedCampaign)
+  }
+
+  async deleteCampaign(user: User, campaignId: string): Promise<void> {
+    const campaign = await this.campaignModel.findOne({
+      _id: new Types.ObjectId(campaignId),
+      user: user._id,
+    })
+
+    if (!campaign) {
+      throw new NotFoundException('Campaign not found')
+    }
+
+    // Can only delete draft or completed campaigns
+    if (![CampaignStatus.DRAFT, CampaignStatus.COMPLETED, CampaignStatus.FAILED, CampaignStatus.CANCELLED].includes(campaign.status)) {
+      throw new BadRequestException('Cannot delete running or paused campaigns')
+    }
+
+    // Delete campaign messages
+    await this.campaignMessageModel.deleteMany({ campaign: campaign._id })
+
+    // Delete campaign
+    await this.campaignModel.deleteOne({ _id: campaign._id })
+  }
+
+  // Private helper methods
+  private async generateCampaignMessages(
+    campaign: CampaignDocument,
+    templates: any[],
+    user: User,
+  ): Promise<void> {
+    const messages: any[] = []
+    let templateIndex = 0
+
+    // Get all contacts from selected spreadsheets
+    for (const contactSpreadsheetId of campaign.selectedContacts) {
+      const contacts = await this.contactsService.getContactsBySpreadsheetId(
+        user._id.toString(),
+        contactSpreadsheetId
+      )
+
+      // Create messages for each contact, rotating through templates
+      for (const contact of contacts) {
+        const template = templates[templateIndex % templates.length]
+
+        messages.push({
+          user: user._id,
+          campaign: campaign._id,
+          templateId: template._id.toString(),
+          templateIndex: templateIndex % templates.length,
+          content: template.content,
+          recipient: contact.phone,
+          contactId: contact._id?.toString() || contactSpreadsheetId,
+          status: MessageStatus.PENDING,
+          priority: 1,
+        })
+
+        templateIndex++
+      }
+    }
+
+    // Batch insert messages
+    if (messages.length > 0) {
+      await this.campaignMessageModel.insertMany(messages)
+    }
+  }
+
+  private formatCampaignResponse(campaign: any): CampaignResponseDto {
+    return {
+      _id: campaign._id.toString(),
+      name: campaign.name,
+      description: campaign.description,
+      status: campaign.status,
+      totalMessages: campaign.totalMessages,
+      sentMessages: campaign.sentMessages,
+      failedMessages: campaign.failedMessages,
+      pendingMessages: campaign.pendingMessages,
+      startedAt: campaign.startedAt,
+      completedAt: campaign.completedAt,
+      lastMessageSentAt: campaign.lastMessageSentAt,
+      createdAt: campaign.createdAt,
+      updatedAt: campaign.updatedAt,
+      selectedContacts: campaign.selectedContacts,
+      selectedTemplates: campaign.selectedTemplates,
+      sendDevices: campaign.sendDevices,
+      scheduleType: campaign.scheduleType,
+      campaignStartDate: campaign.campaignStartDate,
+      campaignEndDate: campaign.campaignEndDate,
+      timezone: campaign.timezone,
     }
   }
 }

@@ -26,15 +26,25 @@ import {
   FileText,
   Copy,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
-import { ContactSpreadsheet } from '@/lib/api/contacts'
+import { ContactSpreadsheet, Contact, contactsApi } from '@/lib/api/contacts'
+import { MessageTemplate, campaignsApi } from '@/lib/api/campaigns'
 import {
   CreateCampaignData,
   DateValidationErrors,
   MessageTemplateGroup
 } from '@/components/campaigns/types/campaign.types'
 import { SendingScheduleCalendar } from './SendingScheduleCalendar'
-import { SchedulingPreview } from './SchedulingPreview'
+
+// Interface for a campaign message preview
+interface CampaignMessagePreview {
+  contact: Contact
+  template: MessageTemplate
+  templateIndex: number
+  processedContent: string
+}
 
 // Device interface (from API response) - Extended for tier management
 interface Device {
@@ -97,6 +107,9 @@ export function CreateCampaignDialog({
   onCreateCampaign
 }: CreateCampaignDialogProps) {
   const [activeTab, setActiveTab] = useState('details')
+  const [messagePreview, setMessagePreview] = useState<CampaignMessagePreview[]>([])
+  const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const { toast } = useToast()
 
   // Memoized timezone options with searchable display format
@@ -156,6 +169,118 @@ export function CreateCampaignDialog({
     })
     .sort((a, b) => a.label.localeCompare(b.label)) // Sort by city name
   }, [])
+
+  // Function to process template variables in message content
+  const processTemplateVariables = (templateContent: string, contact: Contact): string => {
+    let processedContent = templateContent
+
+    // Define variable mappings
+    const variableMap: Record<string, string> = {
+      '{firstName}': contact.firstName || '',
+      '{lastName}': contact.lastName || '',
+      '{phone}': contact.phone || '',
+      '{email}': contact.email || '',
+      '{propertyAddress}': contact.propertyAddress || '',
+      '{propertyCity}': contact.propertyCity || '',
+      '{propertyState}': contact.propertyState || '',
+      '{propertyZip}': contact.propertyZip || '',
+      '{mailingAddress}': contact.mailingAddress || '',
+      '{mailingCity}': contact.mailingCity || '',
+      '{mailingState}': contact.mailingState || '',
+      '{mailingZip}': contact.mailingZip || '',
+      '{fullName}': `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+    }
+
+    // Replace all variables
+    Object.entries(variableMap).forEach(([variable, value]) => {
+      processedContent = processedContent.replace(new RegExp(variable, 'g'), value)
+    })
+
+    return processedContent
+  }
+
+  // Function to generate message preview data
+  const generateMessagePreview = async () => {
+    setPreviewLoading(true)
+    try {
+      const messagePreviews: CampaignMessagePreview[] = []
+
+      // Get selected templates
+      const selectedTemplates: MessageTemplate[] = []
+      for (const templateGroup of templateGroups) {
+        for (const template of templateGroup.templates) {
+          if (campaignData.selectedTemplates.includes(template._id)) {
+            selectedTemplates.push(template)
+          }
+        }
+      }
+
+      if (selectedTemplates.length === 0) {
+        setMessagePreview([])
+        return
+      }
+
+      // Get all contacts from all selected spreadsheets
+      const allContacts: Contact[] = []
+      for (const spreadsheetId of campaignData.selectedContacts) {
+        try {
+          // Get all contacts from each spreadsheet (no limit)
+          let page = 1
+          let hasMore = true
+
+          while (hasMore) {
+            const response = await contactsApi.getContacts({
+              spreadsheetId,
+              limit: 100, // Get in batches of 100
+              page
+            })
+
+            allContacts.push(...response.data)
+            hasMore = response.data.length === 100 // If we got a full batch, there might be more
+            page++
+          }
+        } catch (error) {
+          console.error(`Error fetching contacts for spreadsheet ${spreadsheetId}:`, error)
+        }
+      }
+
+      // Generate message previews with template rotation for ALL contacts
+      let templateIndex = 0
+      for (let i = 0; i < allContacts.length; i++) {
+        const contact = allContacts[i]
+        const template = selectedTemplates[templateIndex % selectedTemplates.length]
+        const processedContent = processTemplateVariables(template.content, contact)
+
+        messagePreviews.push({
+          contact,
+          template,
+          templateIndex: templateIndex % selectedTemplates.length,
+          processedContent
+        })
+
+        templateIndex++
+      }
+
+      setMessagePreview(messagePreviews)
+      setCurrentPreviewIndex(0)
+    } catch (error) {
+      console.error('Error generating message preview:', error)
+      toast({
+        title: 'Preview Error',
+        description: 'Failed to generate message preview. Please try again.',
+        variant: 'destructive'
+      })
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  // Generate preview when tab becomes active and data is available
+  useEffect(() => {
+    if (activeTab === 'preview' && open && campaignData.selectedContacts.length > 0 && campaignData.selectedTemplates.length > 0) {
+      generateMessagePreview()
+    }
+  }, [activeTab, open, campaignData.selectedContacts, campaignData.selectedTemplates, templateGroups])
 
   // Date validation function
   const validateDates = (startDate: string, endDate: string) => {
@@ -234,6 +359,8 @@ export function CreateCampaignDialog({
   const handleClose = () => {
     onOpenChange(false)
     setActiveTab('details')
+    setMessagePreview([])
+    setCurrentPreviewIndex(0)
     onDateValidationChange({ startDateError: '', endDateError: '' })
   }
 
@@ -924,19 +1051,6 @@ export function CreateCampaignDialog({
                     )}
                   </div>
 
-                  {/* Scheduling Preview */}
-                  <div className='mt-4'>
-                    <SchedulingPreview
-                      campaignData={campaignData}
-                      contacts={contactSpreadsheets.flatMap(sheet => sheet.contacts || [])}
-                      templates={templateGroups.flatMap(group => group.templates)}
-                      devices={devices}
-                      uniqueContactCount={uniqueContactCount}
-                      onPreviewUpdate={(preview) => {
-                        onCampaignDataChange({ ...campaignData, schedulingPreview: preview })
-                      }}
-                    />
-                  </div>
                 </div>
 
                 {/* Right Column - Sending Schedule Calendar */}
@@ -949,96 +1063,101 @@ export function CreateCampaignDialog({
               </div>
             </TabsContent>
 
-            <TabsContent value='preview' className='flex-1 overflow-y-auto p-4 min-h-0'>
-              <div className='bg-muted/50 p-4 rounded-lg space-y-4'>
-              <h3 className='text-lg font-semibold'>Campaign Summary</h3>
-              <div className='grid grid-cols-2 gap-4'>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Campaign Name</Label>
-                  <p className='text-sm'>{campaignData.name || 'Not specified'}</p>
+            <TabsContent value='preview' className='flex-1 overflow-hidden p-4 min-h-0'>
+              <div className='h-full flex flex-col'>
+                {/* Campaign Name Header */}
+                <div className='flex-shrink-0 mb-6'>
+                  <h3 className='text-2xl font-semibold text-center'>{campaignData.name || 'Untitled Campaign'}</h3>
                 </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Status</Label>
-                  <p className='text-sm capitalize'>{campaignData.status}</p>
-                </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Selected Contacts</Label>
-                  <p className='text-sm'>
-                    {campaignData.selectedContacts.length} spreadsheet(s) selected
-                    {campaignData.selectedContacts.length > 0 && (
-                      <span className='text-muted-foreground ml-1'>
-                        ({campaignData.selectedContacts.reduce((sum, contactId) => {
-                          const contact = contactSpreadsheets?.find(c => c.id === contactId)
-                          return sum + (contact?.validContactsCount || contact?.contactCount || 0)
-                        }, 0).toLocaleString()} total contacts)
-                      </span>
-                    )}
-                  </p>
-                </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Message Templates</Label>
-                  <p className='text-sm'>
-                    {campaignData.selectedTemplates.length > 0 ? (
-                      `${campaignData.selectedTemplates.length} template(s) selected`
-                    ) : (
-                      'No templates selected'
-                    )}
-                  </p>
-                </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Send Devices</Label>
-                  <p className='text-sm'>{campaignData.sendDevices.length} device(s) selected</p>
-                </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Schedule</Label>
-                  <p className='text-sm'>
-                    {campaignData.scheduleType === 'now' ? 'Start sending immediately' :
-                     campaignData.scheduleType === 'later' && campaignData.scheduledDate && campaignData.scheduledTime ?
-                     `Start sending on ${campaignData.scheduledDate} at ${campaignData.scheduledTime}` :
-                     campaignData.scheduleType === 'windows' && campaignData.sendingWindows.length > 0 ?
-                     `${campaignData.sendingWindows.length} slot window(s) defined` :
-                     campaignData.scheduleType === 'weekday' && Object.entries(campaignData.weekdayWindows).some(([day, dayWindows]) =>
-                       campaignData.weekdayEnabled[day as keyof typeof campaignData.weekdayEnabled] && dayWindows.length > 0) ?
-                     `Weekday windows defined for ${Object.entries(campaignData.weekdayWindows).filter(([day, windows]) =>
-                       campaignData.weekdayEnabled[day as keyof typeof campaignData.weekdayEnabled] && windows.length > 0).length} day(s)` :
-                     'Schedule not set'}
-                  </p>
-                  {campaignData.scheduleType === 'windows' && campaignData.sendingWindows.length > 0 && (
-                    <div className='mt-2'>
-                      <Label className='text-xs text-muted-foreground'>Slot Windows:</Label>
-                      <div className='mt-1 space-y-1'>
-                        {campaignData.sendingWindows.map((window, index) => (
-                          <div key={index} className='text-xs bg-muted/50 p-2 rounded'>
-                            {window.startDate ? new Date(window.startDate).toLocaleDateString() : 'No start date'} {window.startTime || 'No start time'} → {window.endDate ? new Date(window.endDate).toLocaleDateString() : 'No end date'} {window.endTime || 'No end time'}
-                          </div>
-                        ))}
+
+                {/* Message Preview Card */}
+                <div className='flex-1 flex flex-col justify-center items-center min-h-0'>
+                  {previewLoading ? (
+                    <div className='flex flex-col items-center space-y-4'>
+                      <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary'></div>
+                      <p className='text-sm text-muted-foreground'>Generating message preview...</p>
+                    </div>
+                  ) : messagePreview.length === 0 ? (
+                    <div className='text-center space-y-2'>
+                      <p className='text-muted-foreground'>No messages to preview</p>
+                      <p className='text-sm text-muted-foreground'>Select contacts and templates to see message preview</p>
+                    </div>
+                  ) : (
+                    <div className='w-full max-w-lg space-y-4'>
+                      {/* Message Card with Fixed Height */}
+                      <div className='bg-white border border-border rounded-lg p-6 shadow-sm h-[40vh] flex flex-col'>
+                        {(() => {
+                          const currentMessage = messagePreview[currentPreviewIndex]
+                          const contact = currentMessage.contact
+                          const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+
+                          return (
+                            <div className='h-full flex flex-col'>
+                              {/* Recipient Info - Fixed Height */}
+                              <div className='border-b pb-4 flex-shrink-0 h-20 flex flex-col justify-center'>
+                                <h4 className='font-semibold text-lg truncate'>
+                                  {fullName || 'Unknown Contact'}
+                                </h4>
+                                <p className='text-muted-foreground truncate'>{contact.phone}</p>
+                              </div>
+
+                              {/* Header Section - Fixed Height */}
+                              <div className='flex items-center justify-between flex-shrink-0 h-12 pt-4'>
+                                <Label className='text-sm font-medium text-muted-foreground'>Message Preview</Label>
+                                <Badge variant='outline' className='text-xs truncate max-w-[200px]' title={`Template ${currentMessage.templateIndex + 1}: ${currentMessage.template.name}`}>
+                                  Template {currentMessage.templateIndex + 1}: {currentMessage.template.name}
+                                </Badge>
+                              </div>
+
+                              {/* Message Content - Remaining Height with Scroll */}
+                              <div className='bg-muted/50 p-4 rounded-lg border flex-1 overflow-y-auto mt-2'>
+                                <p className='whitespace-pre-wrap text-sm leading-relaxed'>
+                                  {currentMessage.processedContent}
+                                </p>
+                              </div>
+                            </div>
+                          )
+                        })()}
+                      </div>
+
+                      {/* Navigation Controls */}
+                      <div className='flex items-center justify-between'>
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={() => setCurrentPreviewIndex(Math.max(0, currentPreviewIndex - 1))}
+                          disabled={currentPreviewIndex === 0}
+                          className='gap-1'
+                        >
+                          <ChevronLeft className='h-4 w-4' />
+                          Previous
+                        </Button>
+
+                        <span className='text-sm text-muted-foreground'>
+                          {currentPreviewIndex + 1} of {messagePreview.length}
+                        </span>
+
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={() => setCurrentPreviewIndex(Math.min(messagePreview.length - 1, currentPreviewIndex + 1))}
+                          disabled={currentPreviewIndex === messagePreview.length - 1}
+                          className='gap-1'
+                        >
+                          Next
+                          <ChevronRight className='h-4 w-4' />
+                        </Button>
+                      </div>
+
+                      {/* Preview Info */}
+                      <div className='text-center text-xs text-muted-foreground'>
+                        Showing preview of all {messagePreview.length.toLocaleString()} messages
                       </div>
                     </div>
                   )}
-                  {campaignData.scheduleType === 'weekday' && Object.entries(campaignData.weekdayWindows).some(([day, dayWindows]) =>
-                    campaignData.weekdayEnabled[day as keyof typeof campaignData.weekdayEnabled] && dayWindows.length > 0) && (
-                    <div className='mt-2'>
-                      <Label className='text-xs text-muted-foreground'>Weekday Windows:</Label>
-                      <div className='mt-1 space-y-1'>
-                        {Object.entries(campaignData.weekdayWindows).filter(([day, windows]) =>
-                          campaignData.weekdayEnabled[day as keyof typeof campaignData.weekdayEnabled] && windows.length > 0).map(([day, windows]) => (
-                          <div key={day} className='text-xs bg-muted/50 p-2 rounded'>
-                            <span className='font-medium capitalize'>{day}:</span> {windows.map((window, index) =>
-                              `${window.startTime || 'No start'} - ${window.endTime || 'No end'}`
-                            ).join(', ')}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className='col-span-2'>
-                  <Label className='text-sm font-medium text-muted-foreground'>Description</Label>
-                  <p className='text-sm'>{campaignData.description || 'No description provided'}</p>
                 </div>
               </div>
-            </div>
-          </TabsContent>
+            </TabsContent>
         </Tabs>
         </div>
         <DialogFooter className='flex-shrink-0 border-t flex justify-between items-center p-4 pt-3'>
@@ -1077,12 +1196,29 @@ export function CreateCampaignDialog({
               Cancel
             </Button>
             {activeTab === 'preview' && (
-              <Button
-                onClick={onCreateCampaign}
-                disabled={!campaignData.name.trim() || campaignData.selectedContacts.length === 0}
-              >
-                Create Campaign
-              </Button>
+              <div className='flex gap-2'>
+                <Button
+                  variant='outline'
+                  onClick={onCreateCampaign}
+                  disabled={!campaignData.name.trim() || campaignData.selectedContacts.length === 0}
+                >
+                  Save Campaign as Draft
+                </Button>
+                <Button
+                  onClick={() => {
+                    // TODO: Launch campaign functionality will be added later
+                    toast({
+                      title: 'Launch Campaign',
+                      description: 'Campaign launch functionality will be available soon.',
+                      variant: 'default'
+                    })
+                  }}
+                  disabled={true} // Disabled as requested
+                  className='opacity-50 cursor-not-allowed'
+                >
+                  Launch Campaign
+                </Button>
+              </div>
             )}
           </div>
         </DialogFooter>

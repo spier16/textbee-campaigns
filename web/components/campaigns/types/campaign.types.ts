@@ -69,34 +69,6 @@ export interface CreateCampaignData {
   sendingWindows: SendingWindow[]
   weekdayWindows: WeekdayWindows
   weekdayEnabled: WeekdayEnabled
-  schedulingPreview?: SchedulingPreview
-}
-
-// ===== Scheduling Preview Types =====
-
-export interface SchedulingPreview {
-  totalMessages: number
-  estimatedCompletionTime: Date
-  campaignSegments: CampaignSegment[]
-  deviceUtilization: DeviceUtilizationPreview[]
-}
-
-export interface CampaignSegment {
-  campaignId: string
-  campaignName: string
-  startTime: Date
-  endTime: Date
-  messageCount: number
-  deviceIds: string[]
-}
-
-export interface DeviceUtilizationPreview {
-  deviceId: string
-  deviceName: string
-  currentTier: number
-  hourlyCapacity: number
-  dailyCapacity: number
-  scheduledMessages: number
 }
 
 // ===== Calendar Types =====
