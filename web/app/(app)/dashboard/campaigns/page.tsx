@@ -124,15 +124,24 @@ export default function CampaignsPage() {
 
   // Date validation function
   const validateDates = (startDate: string, endDate: string) => {
-    const today = new Date().toISOString().split('T')[0]
+    // Get today's date in the selected timezone (same logic as dialog component)
+    const today = new Date().toLocaleDateString('en-CA', {
+      timeZone: createCampaignData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+    })
     const errors = { startDateError: '', endDateError: '' }
 
     // Don't validate start date if schedule type is 'now' (disabled field)
-    if (createCampaignData.scheduleType !== 'now' && startDate && startDate < today) {
-      errors.startDateError = 'Campaign start date cannot be before today'
+    if (createCampaignData.scheduleType !== 'now' && startDate) {
+      // Use proper date comparison like in dialog component
+      const startDateInTimezone = new Date(startDate + 'T00:00:00')
+      const todayInTimezone = new Date(today + 'T00:00:00')
+
+      if (startDateInTimezone < todayInTimezone) {
+        errors.startDateError = 'Campaign start date cannot be before today'
+      }
     }
 
-    if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
+    if (startDate && endDate && endDate < startDate) {
       errors.endDateError = 'Campaign end date cannot be before start date'
     }
 

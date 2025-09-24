@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -158,12 +158,19 @@ export function CreateCampaignDialog({
     const errors = { startDateError: '', endDateError: '' }
 
     // Don't validate start date if schedule type is 'now' (disabled field)
-    // Allow today's date by checking if startDate is strictly less than today
-    if (campaignData.scheduleType !== 'now' && startDate && new Date(startDate + 'T00:00:00') < new Date(today + 'T00:00:00')) {
-      errors.startDateError = 'Campaign start date cannot be before today'
+    if (campaignData.scheduleType !== 'now' && startDate) {
+      // Convert startDate to the same timezone for proper comparison
+      // Parse the date as if it's in the selected timezone to avoid timezone issues
+      const startDateInTimezone = new Date(startDate + 'T00:00:00')
+      const todayInTimezone = new Date(today + 'T00:00:00')
+
+      if (startDateInTimezone < todayInTimezone) {
+        errors.startDateError = 'Campaign start date cannot be before today'
+      }
     }
 
-    if (startDate && endDate && new Date(endDate + 'T00:00:00') < new Date(startDate + 'T00:00:00')) {
+    // For end date comparison, we can use simple string comparison since both are in YYYY-MM-DD format
+    if (startDate && endDate && endDate < startDate) {
       errors.endDateError = 'Campaign end date cannot be before start date'
     }
 
@@ -171,12 +178,17 @@ export function CreateCampaignDialog({
     return errors.startDateError === '' && errors.endDateError === ''
   }
 
-  // Validate dates when dialog opens or schedule type changes
+  // Validate dates when dialog opens, schedule type changes, or timezone changes
   useEffect(() => {
     if (open) {
-      validateDates(campaignData.campaignStartDate, campaignData.campaignEndDate)
+      // Clear validation errors when switching to "now" schedule type since the field is disabled
+      if (campaignData.scheduleType === 'now') {
+        onDateValidationChange({ startDateError: '', endDateError: '' })
+      } else {
+        validateDates(campaignData.campaignStartDate, campaignData.campaignEndDate)
+      }
     }
-  }, [open, campaignData.scheduleType])
+  }, [open, campaignData.scheduleType, campaignData.timezone || 'default'])
 
   // Validation functions for each stage
   const validateDetailsStage = () => {
@@ -293,6 +305,9 @@ export function CreateCampaignDialog({
       <DialogContent className='w-[90vw] max-w-6xl h-[90vh] overflow-hidden flex flex-col'>
         <DialogHeader className='flex-shrink-0 border-b p-4 pb-3'>
           <DialogTitle>Create New Campaign</DialogTitle>
+          <DialogDescription>
+            Set up a new SMS campaign with contacts, message templates, and sending schedule.
+          </DialogDescription>
         </DialogHeader>
         <div className='flex-1 overflow-hidden min-h-0'>
           <Tabs value={activeTab} onValueChange={handleTabChange} className='h-full flex flex-col'>
@@ -536,16 +551,6 @@ export function CreateCampaignDialog({
 
                   {/* Campaign Start and End Date fields */}
                   <div className='space-y-2'>
-                    {/* Timezone info display */}
-                    <div className='text-xs text-muted-foreground bg-blue-50 p-2 rounded border border-blue-200'>
-                      <strong>Current timezone:</strong> {campaignData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
-                      {' '}({new Date().toLocaleTimeString('en-US', {
-                        timeZone: campaignData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-                        timeZoneName: 'short'
-                      }).split(' ').pop()}) - Today is {new Date().toLocaleDateString('en-CA', {
-                        timeZone: campaignData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
-                      })}
-                    </div>
                     <div className='flex gap-4'>
                       <div className='space-y-1 flex-1'>
                         <Label className='text-xs text-muted-foreground'>

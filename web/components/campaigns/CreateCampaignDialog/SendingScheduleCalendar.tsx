@@ -36,17 +36,12 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
     const second = parts.find(p => p.type === 'second')?.value
 
     const timeString = `${year}-${month}-${day}T${hour}:${minute}:${second}`
-    console.log('🕐 Current time in timezone:', timeString, 'for timezone:', timezone)
     return timeString
   }, [timezone])
 
-  console.log('🕐 SendingScheduleCalendar render - timezone:', timezone)
-  console.log('🕐 SendingScheduleCalendar render - campaignData.timezone:', campaignData.timezone)
-  console.log('🕐 SendingScheduleCalendar render - scheduleType:', campaignData.scheduleType)
 
   // Convert Schedule Send settings to calendar events
   const calendarEvents = useMemo(() => {
-    console.log('📅 useMemo recalculating events - timezone:', timezone)
     const events: CalendarEvent[] = []
     const now = new Date()
 
@@ -79,10 +74,6 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
         const startTime = `${year}-${month}-${day}T${hour}:${minute}:${second}`
         const endTime = `${campaignData.campaignEndDate}T23:59:59`
 
-        console.log('📅 Send now - nowUTC:', nowUTC)
-        console.log('📅 Send now - timezone:', timezone)
-        console.log('📅 Send now - startTime (in timezone):', startTime)
-        console.log('📅 Send now - endTime:', endTime)
 
         const event = {
           id: 'send-now-period',
@@ -94,16 +85,11 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
           className: 'send-now-period'
         }
 
-        console.log('📅 Send now - event:', event)
         events.push(event)
       }
     } else if (campaignData.scheduleType === 'later') {
       // Shade all time from campaign start date through campaign end date, but not before current time
       if (campaignData.campaignStartDate && campaignData.campaignEndDate) {
-        // Parse dates - treat as local dates in the selected timezone
-        const campaignStart = new Date(`${campaignData.campaignStartDate}T00:00:00`)
-        const campaignEnd = new Date(`${campaignData.campaignEndDate}T23:59:59`)
-
         // Check if campaign start date is today in the selected timezone
         const todayInTimezone = new Intl.DateTimeFormat('en-CA', {
           timeZone: timezone,
@@ -113,26 +99,51 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
         }).format(now)
         const isStartDateToday = campaignData.campaignStartDate === todayInTimezone
 
-        console.log('📅 Schedule later - timezone:', timezone)
-        console.log('📅 Schedule later - todayInTimezone:', todayInTimezone)
-        console.log('📅 Schedule later - campaignStartDate:', campaignData.campaignStartDate)
-        console.log('📅 Schedule later - isStartDateToday:', isStartDateToday)
 
-        // Use the later of campaign start time or current time
-        // But if start date is today, use current time to match "Start sending now" behavior
-        const effectiveStart = isStartDateToday ? now : (campaignStart > now ? campaignStart : now)
+        let startTime: string
+        let endTime: string
 
-        if (effectiveStart <= campaignEnd) {
-          events.push({
-            id: 'scheduled-send-period',
-            title: '',
-            start: effectiveStart.toISOString(),
-            end: campaignEnd.toISOString(),
-            display: 'background',
-            backgroundColor: '#3b82f6', // blue
-            className: 'scheduled-send-period'
+        if (isStartDateToday) {
+          // If start date is today, use current time like "Start sending now"
+          const nowUTC = new Date()
+          const formatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone: timezone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
           })
+
+          const parts = formatter.formatToParts(nowUTC)
+          const year = parts.find(p => p.type === 'year')?.value
+          const month = parts.find(p => p.type === 'month')?.value
+          const day = parts.find(p => p.type === 'day')?.value
+          const hour = parts.find(p => p.type === 'hour')?.value
+          const minute = parts.find(p => p.type === 'minute')?.value
+          const second = parts.find(p => p.type === 'second')?.value
+
+          startTime = `${year}-${month}-${day}T${hour}:${minute}:${second}`
+        } else {
+          // Use midnight of the campaign start date in the selected timezone
+          startTime = `${campaignData.campaignStartDate}T00:00:00`
         }
+
+        // End time is always midnight of the end date
+        endTime = `${campaignData.campaignEndDate}T23:59:59`
+
+
+        events.push({
+          id: 'scheduled-send-period',
+          title: '',
+          start: startTime,
+          end: endTime,
+          display: 'background',
+          backgroundColor: '#3b82f6', // blue
+          className: 'scheduled-send-period'
+        })
       }
     } else if (campaignData.scheduleType === 'windows' && campaignData.sendingWindows.length > 0) {
       // Show sending windows as background events, but not before current time
@@ -217,11 +228,9 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
       }
     }
 
-    console.log('📅 Final events array:', events)
     return events
   }, [campaignData, timezone])
 
-  console.log('🔄 About to render FullCalendar with timezone:', timezone)
 
   return (
     <div className="calendar-wrapper" style={{ height: '100%', overflow: 'auto' }}>
