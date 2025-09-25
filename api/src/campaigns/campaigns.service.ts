@@ -34,6 +34,7 @@ import {
   CampaignResponseDto,
 } from './campaigns.dto'
 import { ContactsService } from '../contacts/contacts.service'
+import { GetContactsDto } from '../contacts/contacts.dto'
 import { User } from '../users/schemas/user.schema'
 import { CampaignQueueService } from './queue/campaign-queue.service'
 
@@ -389,15 +390,12 @@ export class CampaignsService {
       throw new BadRequestException('One or more templates not found')
     }
 
-    // Get contact counts to calculate total messages
-    let totalContacts = 0
-    for (const contactSpreadsheetId of createCampaignDto.selectedContacts) {
-      const contacts = await this.contactsService.getContactsBySpreadsheetId(
-        user._id.toString(),
-        contactSpreadsheetId
-      )
-      totalContacts += contacts.length
-    }
+    // Get unique contact count to calculate total messages (deduplicated)
+    const uniqueContactResult = await this.contactsService.getUniqueContactCount(
+      user._id.toString(),
+      createCampaignDto.selectedContacts
+    )
+    const totalContacts = uniqueContactResult.uniqueContactCount
 
     // Create campaign
     const campaign = new this.campaignModel({
@@ -510,31 +508,29 @@ export class CampaignsService {
     const messages: any[] = []
     let templateIndex = 0
 
-    // Get all contacts from selected spreadsheets
-    for (const contactSpreadsheetId of campaign.selectedContacts) {
-      const contacts = await this.contactsService.getContactsBySpreadsheetId(
-        user._id.toString(),
-        contactSpreadsheetId
-      )
+    // Get unique contacts from selected spreadsheets (deduplicated)
+    const uniqueContactsResult = await this.contactsService.getUniqueContacts(
+      user._id.toString(),
+      campaign.selectedContacts
+    )
 
-      // Create messages for each contact, rotating through templates
-      for (const contact of contacts) {
-        const template = templates[templateIndex % templates.length]
+    // Create messages for each unique contact, rotating through templates
+    for (const contact of uniqueContactsResult.data) {
+      const template = templates[templateIndex % templates.length]
 
-        messages.push({
-          user: user._id,
-          campaign: campaign._id,
-          templateId: template._id.toString(),
-          templateIndex: templateIndex % templates.length,
-          content: template.content,
-          recipient: contact.phone,
-          contactId: contact._id?.toString() || contactSpreadsheetId,
-          status: MessageStatus.PENDING,
-          priority: 1,
-        })
+      messages.push({
+        user: user._id,
+        campaign: campaign._id,
+        templateId: template._id.toString(),
+        templateIndex: templateIndex % templates.length,
+        content: template.content,
+        recipient: contact.phone,
+        contactId: contact.id,
+        status: MessageStatus.PENDING,
+        priority: 1,
+      })
 
-        templateIndex++
-      }
+      templateIndex++
     }
 
     // Batch insert messages

@@ -248,34 +248,14 @@ export function CreateCampaignDialog({
         return
       }
 
-      // Get all contacts from all selected spreadsheets
-      const allContacts: Contact[] = []
-      for (const spreadsheetId of campaignData.selectedContacts) {
-        try {
-          // Get all contacts from each spreadsheet (no limit)
-          let page = 1
-          let hasMore = true
+      // Get unique contacts from server-side API (handles deduplication automatically)
+      const response = await contactsApi.getUniqueContacts(campaignData.selectedContacts)
+      const uniqueContacts = response.data
 
-          while (hasMore) {
-            const response = await contactsApi.getContacts({
-              spreadsheetId,
-              limit: 100, // Get in batches of 100
-              page
-            })
-
-            allContacts.push(...response.data)
-            hasMore = response.data.length === 100 // If we got a full batch, there might be more
-            page++
-          }
-        } catch (error) {
-          console.error(`Error fetching contacts for spreadsheet ${spreadsheetId}:`, error)
-        }
-      }
-
-      // Generate message previews with template rotation for ALL contacts
+      // Generate message previews with template rotation for UNIQUE contacts only
       let templateIndex = 0
-      for (let i = 0; i < allContacts.length; i++) {
-        const contact = allContacts[i]
+      for (let i = 0; i < uniqueContacts.length; i++) {
+        const contact = uniqueContacts[i]
         const template = selectedTemplates[templateIndex % selectedTemplates.length]
         const processedContent = processTemplateVariables(template.content, contact)
 
@@ -1191,7 +1171,7 @@ export function CreateCampaignDialog({
 
                         {/* Preview Info - Minimal spacing on tiny screens */}
                         <div className='text-center text-xs text-muted-foreground mb-0'>
-                          Showing preview of all {messagePreview.length.toLocaleString()} messages
+                          Showing preview of all {messagePreview.length.toLocaleString()} unique messages
                         </div>
                       </div>
                     </div>

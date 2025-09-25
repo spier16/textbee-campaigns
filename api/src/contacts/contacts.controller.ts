@@ -292,4 +292,16 @@ export class ContactsController {
     }
     return this.contactsService.getUniqueContactCount(req.user.id, spreadsheetIds)
   }
+
+  @Post('spreadsheets/unique-contacts')
+  @ApiOperation({ summary: 'Get unique contacts across multiple spreadsheets' })
+  async getUniqueContacts(
+    @Request() req,
+    @Body('spreadsheetIds') spreadsheetIds: string[],
+  ) {
+    if (!spreadsheetIds || spreadsheetIds.length === 0) {
+      return { data: [], total: 0 }
+    }
+    return this.contactsService.getUniqueContacts(req.user.id, spreadsheetIds)
+  }
 }

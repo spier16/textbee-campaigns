@@ -950,6 +950,64 @@ export class ContactsService {
     }
   }
 
+  async getUniqueContacts(
+    userId: string,
+    spreadsheetIds: string[],
+  ): Promise<{ data: ContactResponseDto[], total: number }> {
+    const objectIds = spreadsheetIds.map(id => new Types.ObjectId(id))
+
+    // Verify all spreadsheets belong to the user
+    const spreadsheets = await this.contactSpreadsheetModel
+      .find({
+        _id: { $in: objectIds },
+        userId: new Types.ObjectId(userId),
+      })
+      .exec()
+
+    if (spreadsheets.length !== spreadsheetIds.length) {
+      throw new NotFoundException('One or more spreadsheets not found')
+    }
+
+    // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
+    const uniqueContacts = await this.contactGroupMembershipModel.aggregate([
+      {
+        $match: {
+          userId: new Types.ObjectId(userId),
+          groupId: { $in: objectIds },
+        },
+      },
+      {
+        $lookup: {
+          from: 'contacts',
+          localField: 'contactId',
+          foreignField: '_id',
+          as: 'contact',
+        },
+      },
+      {
+        $unwind: '$contact',
+      },
+      {
+        $group: {
+          _id: '$contact.phone', // Group by phone number to get unique contacts
+          contact: { $first: '$contact' }, // Take the first occurrence of each unique phone number
+        },
+      },
+      {
+        $replaceRoot: {
+          newRoot: '$contact',
+        },
+      },
+    ])
+
+    const mappedContacts = uniqueContacts.map(contact => this.mapContactToResponseDto(contact))
+
+    return {
+      data: mappedContacts,
+      total: mappedContacts.length,
+    }
+  }
+
   private mapContactToResponseDto = (contact: ContactDocument): ContactResponseDto => {
     return {
       id: contact._id.toString(),

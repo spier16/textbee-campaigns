@@ -57,6 +57,6 @@ import { UsagePlanService } from './usage-plan.service'
   ],
   controllers: [GatewayController],
   providers: [GatewayService, UsagePlanService, SmsQueueService, SmsQueueProcessor, SmsStatusUpdateTask],
-  exports: [MongooseModule, GatewayService, SmsQueueService],
+  exports: [MongooseModule, GatewayService, SmsQueueService, UsagePlanService],
 })
 export class GatewayModule {}

@@ -46,6 +46,99 @@ export interface UpdateTemplateDto {
   content?: string
 }
 
+export interface SendingWindow {
+  startDate: string
+  startTime: string
+  endDate: string
+  endTime: string
+}
+
+export interface WeekdayWindow {
+  startTime: string
+  endTime: string
+}
+
+export interface WeekdayWindows {
+  monday: WeekdayWindow[]
+  tuesday: WeekdayWindow[]
+  wednesday: WeekdayWindow[]
+  thursday: WeekdayWindow[]
+  friday: WeekdayWindow[]
+  saturday: WeekdayWindow[]
+  sunday: WeekdayWindow[]
+}
+
+export interface WeekdayEnabled {
+  monday: boolean
+  tuesday: boolean
+  wednesday: boolean
+  thursday: boolean
+  friday: boolean
+  saturday: boolean
+  sunday: boolean
+}
+
+export enum CampaignStatus {
+  DRAFT = 'draft',
+  SCHEDULED = 'scheduled',
+  RUNNING = 'running',
+  PAUSED = 'paused',
+  COMPLETED = 'completed',
+  FAILED = 'failed',
+  CANCELLED = 'cancelled'
+}
+
+export enum ScheduleType {
+  NOW = 'now',
+  LATER = 'later',
+  WINDOWS = 'windows',
+  WEEKDAY = 'weekday'
+}
+
+export interface CreateCampaignDto {
+  name: string
+  description?: string
+  selectedContacts: string[]
+  selectedTemplates: string[]
+  sendDevices: string[]
+  scheduleType: ScheduleType
+  scheduledDate?: string
+  scheduledTime?: string
+  campaignStartDate: string
+  campaignEndDate: string
+  timezone: string
+  sendingWindows?: SendingWindow[]
+  weekdayWindows?: WeekdayWindows
+  weekdayEnabled?: WeekdayEnabled
+}
+
+export interface UpdateCampaignStatusDto {
+  status: CampaignStatus
+}
+
+export interface Campaign {
+  _id: string
+  name: string
+  description?: string
+  status: CampaignStatus
+  totalMessages: number
+  sentMessages: number
+  failedMessages: number
+  pendingMessages: number
+  startedAt?: string
+  completedAt?: string
+  lastMessageSentAt?: string
+  createdAt: string
+  updatedAt: string
+  selectedContacts: string[]
+  selectedTemplates: string[]
+  sendDevices: string[]
+  scheduleType: ScheduleType
+  campaignStartDate: string
+  campaignEndDate: string
+  timezone: string
+}
+
 export const campaignsApi = {
   // Template Groups
   async createTemplateGroup(data: CreateTemplateGroupDto): Promise<MessageTemplateGroup> {
@@ -101,5 +194,30 @@ export const campaignsApi = {
 
   async deleteTemplate(id: string): Promise<void> {
     await httpBrowserClient.delete(ApiEndpoints.campaigns.template(id))
+  },
+
+  // Campaigns
+  async createCampaign(data: CreateCampaignDto): Promise<Campaign> {
+    const response = await httpBrowserClient.post(ApiEndpoints.campaigns.campaigns(), data)
+    return response.data
+  },
+
+  async getCampaigns(): Promise<Campaign[]> {
+    const response = await httpBrowserClient.get(ApiEndpoints.campaigns.campaigns())
+    return response.data
+  },
+
+  async getCampaign(id: string): Promise<Campaign> {
+    const response = await httpBrowserClient.get(ApiEndpoints.campaigns.campaign(id))
+    return response.data
+  },
+
+  async updateCampaignStatus(id: string, data: UpdateCampaignStatusDto): Promise<Campaign> {
+    const response = await httpBrowserClient.put(ApiEndpoints.campaigns.campaignStatus(id), data)
+    return response.data
+  },
+
+  async deleteCampaign(id: string): Promise<void> {
+    await httpBrowserClient.delete(ApiEndpoints.campaigns.campaign(id))
   },
 }

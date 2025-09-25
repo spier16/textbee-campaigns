@@ -240,6 +240,11 @@ export const contactsApi = {
     const response = await httpBrowserClient.post('/contacts/spreadsheets/unique-count', { spreadsheetIds })
     return response.data
   },
+
+  async getUniqueContacts(spreadsheetIds: string[]): Promise<GetContactsResponse> {
+    const response = await httpBrowserClient.post('/contacts/spreadsheets/unique-contacts', { spreadsheetIds })
+    return response.data
+  },
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

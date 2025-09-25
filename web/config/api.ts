@@ -65,5 +65,8 @@ export const ApiEndpoints = {
     reorderTemplateGroups: () => '/campaigns/template-groups/reorder',
     templates: () => '/campaigns/templates',
     template: (id: string) => `/campaigns/templates/${id}`,
+    campaigns: () => '/campaigns',
+    campaign: (id: string) => `/campaigns/${id}`,
+    campaignStatus: (id: string) => `/campaigns/${id}/status`,
   },
 }

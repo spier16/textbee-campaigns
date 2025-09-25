@@ -77,7 +77,7 @@ export class CampaignQueueProcessor {
     name: 'schedule-messages',
     concurrency: 10,
   })
-  async scheduleMessages(job: Job<{ campaignId: string }>) {
+  async scheduleMessagesJob(job: Job<{ campaignId: string }>) {
     const { campaignId } = job.data
 
     const campaign = await this.campaignModel.findById(campaignId)
@@ -221,7 +221,7 @@ export class CampaignQueueProcessor {
     return false
   }
 
-  private async canDeviceSendNow(device: DeviceDocument): boolean {
+  private async canDeviceSendNow(device: DeviceDocument): Promise<boolean> {
     try {
       // Check if device is on cooldown
       if (device.is_on_cooldown && device.cooldown_until) {

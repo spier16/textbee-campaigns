@@ -40,7 +40,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { contactsApi, ContactSpreadsheet } from '@/lib/api/contacts'
-import { campaignsApi, MessageTemplateGroup, MessageTemplate, ReorderTemplateGroupsDto } from '@/lib/api/campaigns'
+import { campaignsApi, MessageTemplateGroup, MessageTemplate, ReorderTemplateGroupsDto, Campaign, CreateCampaignDto, CampaignStatus, ScheduleType } from '@/lib/api/campaigns'
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { CreateCampaignDialog } from '@/components/campaigns/CreateCampaignDialog'
@@ -49,23 +49,12 @@ import { TemplateSelectionDialog } from '@/components/campaigns/TemplateSelectio
 import { TemplateItem } from '@/components/campaigns/TemplateItem'
 
 
-interface Campaign {
-  _id: string
-  id: string
-  name: string
-  status: 'active' | 'draft' | 'inactive' | 'completed'
-  contacts: number
-  groups: number
-  dateCreated: string
-  lastSent?: string
-  description?: string
-}
 
 
 
 
 export default function CampaignsPage() {
-  const [selectedMode, setSelectedMode] = useState<'campaigns' | 'active' | 'draft' | 'inactive' | 'completed'>('campaigns')
+  const [selectedMode, setSelectedMode] = useState<'campaigns' | 'running' | 'draft' | 'paused' | 'completed'>('campaigns')
   const [searchQuery, setSearchQuery] = useState('')
   const [displayCount, setDisplayCount] = useState(25)
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a'>('newest')
@@ -82,11 +71,11 @@ export default function CampaignsPage() {
     return {
       name: '',
       description: '',
-      status: 'draft' as 'active' | 'draft' | 'inactive' | 'completed',
+      status: CampaignStatus.DRAFT,
       selectedContacts: [] as string[],
       selectedTemplates: [] as string[], // Changed from messageTemplateGroups to selectedTemplates
       sendDevices: [] as string[],
-      scheduleType: 'now' as 'now' | 'later' | 'windows' | 'weekday',
+      scheduleType: ScheduleType.NOW,
       scheduledDate: '',
       scheduledTime: '',
       campaignStartDate: today, // Default to today in selected timezone
@@ -201,8 +190,6 @@ export default function CampaignsPage() {
     return false
   }
 
-  const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [loading, setLoading] = useState(true)
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
@@ -234,6 +221,14 @@ export default function CampaignsPage() {
   })
 
   const templateGroups = templateGroupsData || []
+
+  // Fetch campaigns from API
+  const { data: campaignsData, refetch: refetchCampaigns, isLoading: campaignsLoading } = useQuery({
+    queryKey: ['campaigns'],
+    queryFn: () => campaignsApi.getCampaigns(),
+  })
+
+  const campaigns = campaignsData || []
 
   // Mutations for template groups
   const createTemplateGroupMutation = useMutation({
@@ -342,12 +337,81 @@ export default function CampaignsPage() {
     },
   })
 
-  // Campaigns will be fetched from API
-  useEffect(() => {
-    // TODO: Replace with actual API call
-    setCampaigns([])
-    setLoading(false)
-  }, [])
+  // Campaign mutations
+  const createCampaignMutation = useMutation({
+    mutationFn: campaignsApi.createCampaign,
+    onSuccess: (campaign) => {
+      refetchCampaigns()
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      toast({
+        title: "Campaign created",
+        description: `Campaign "${campaign.name}" has been saved as a draft.`
+      })
+      setCreateCampaignOpen(false)
+      // Reset form data
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: timezone })
+      const oneMonthLater = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA', { timeZone: timezone })
+
+      setCreateCampaignData({
+        name: '',
+        description: '',
+        status: CampaignStatus.DRAFT,
+        selectedContacts: [],
+        selectedTemplates: [],
+        sendDevices: [],
+        scheduleType: ScheduleType.NOW,
+        scheduledDate: '',
+        scheduledTime: '',
+        campaignStartDate: today,
+        campaignEndDate: oneMonthLater,
+        timezone: timezone,
+        sendingWindows: [],
+        weekdayWindows: {
+          monday: [],
+          tuesday: [],
+          wednesday: [],
+          thursday: [],
+          friday: [],
+          saturday: [],
+          sunday: []
+        },
+        weekdayEnabled: {
+          monday: true,
+          tuesday: true,
+          wednesday: true,
+          thursday: true,
+          friday: true,
+          saturday: false,
+          sunday: false
+        },
+      })
+      setDateValidationErrors({ startDateError: '', endDateError: '' })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error creating campaign",
+        description: error.response?.data?.message || "An error occurred while creating the campaign.",
+        variant: "destructive"
+      })
+    },
+  })
+
+  const deleteCampaignMutation = useMutation({
+    mutationFn: campaignsApi.deleteCampaign,
+    onSuccess: () => {
+      refetchCampaigns()
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error deleting campaign",
+        description: error.response?.data?.message || "An error occurred while deleting the campaign.",
+        variant: "destructive"
+      })
+    },
+  })
+
 
   // Auto-expand groups when templates are selected
   useEffect(() => {
@@ -418,20 +482,20 @@ export default function CampaignsPage() {
           bValue = b.status
           break
         case 'contacts':
-          aValue = a.contacts
-          bValue = b.contacts
+          aValue = a.totalMessages
+          bValue = b.totalMessages
           break
         case 'groups':
-          aValue = a.groups
-          bValue = b.groups
+          aValue = a.selectedContacts.length
+          bValue = b.selectedContacts.length
           break
         case 'dateCreated':
-          aValue = new Date(a.dateCreated).getTime()
-          bValue = new Date(b.dateCreated).getTime()
+          aValue = new Date(a.createdAt).getTime()
+          bValue = new Date(b.createdAt).getTime()
           break
         case 'lastSent':
-          aValue = a.lastSent ? new Date(a.lastSent).getTime() : 0
-          bValue = b.lastSent ? new Date(b.lastSent).getTime() : 0
+          aValue = a.lastMessageSentAt ? new Date(a.lastMessageSentAt).getTime() : 0
+          bValue = b.lastMessageSentAt ? new Date(b.lastMessageSentAt).getTime() : 0
           break
         default:
           return 0
@@ -449,19 +513,19 @@ export default function CampaignsPage() {
     return sorted
   }, [campaigns, selectedMode, searchQuery, campaignSortBy, campaignSortOrder])
 
-  const [totalCampaigns, totalActive, totalDraft, totalInactive, totalCompleted] = useMemo(() => {
+  const [totalCampaigns, totalRunning, totalDraft, totalPaused, totalCompleted] = useMemo(() => {
     const total = campaigns.length
-    const active = campaigns.filter(c => c.status === 'active').length
-    const draft = campaigns.filter(c => c.status === 'draft').length
-    const inactive = campaigns.filter(c => c.status === 'inactive').length
-    const completed = campaigns.filter(c => c.status === 'completed').length
+    const running = campaigns.filter(c => c.status === CampaignStatus.RUNNING).length
+    const draft = campaigns.filter(c => c.status === CampaignStatus.DRAFT).length
+    const paused = campaigns.filter(c => c.status === CampaignStatus.PAUSED).length
+    const completed = campaigns.filter(c => c.status === CampaignStatus.COMPLETED).length
 
-    return [total, active, draft, inactive, completed]
+    return [total, running, draft, paused, completed]
   }, [campaigns])
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedCampaigns(filteredAndSortedCampaigns.map(campaign => campaign.id))
+      setSelectedCampaigns(filteredAndSortedCampaigns.map(campaign => campaign._id))
     } else {
       setSelectedCampaigns([])
     }
@@ -475,7 +539,7 @@ export default function CampaignsPage() {
     }
   }
 
-  const handleCreateCampaign = () => {
+  const handleCreateCampaign = async () => {
     if (!createCampaignData.name.trim()) {
       toast({
         title: "Campaign name required",
@@ -494,62 +558,44 @@ export default function CampaignsPage() {
       return
     }
 
-    const totalContacts = createCampaignData.selectedContacts.reduce((sum, contactId) => {
-      const contact = contactSpreadsheetsData?.find(c => c.id === contactId)
-      return sum + (contact?.validContactsCount || contact?.contactCount || 0)
-    }, 0)
-
-    const newCampaign: Campaign = {
-      _id: Date.now().toString(),
-      id: Date.now().toString(),
-      name: createCampaignData.name,
-      status: createCampaignData.status,
-      contacts: totalContacts,
-      groups: createCampaignData.selectedContacts.length,
-      dateCreated: new Date().toISOString(),
-      description: createCampaignData.description,
+    if (createCampaignData.selectedTemplates.length === 0) {
+      toast({
+        title: "Templates required",
+        description: "Please select at least one message template.",
+        variant: "destructive"
+      })
+      return
     }
 
-    setCampaigns([newCampaign, ...campaigns])
-    setCreateCampaignOpen(false)
-    setDateValidationErrors({ startDateError: '', endDateError: '' })
-    setCreateCampaignData({
-      name: '',
-      description: '',
-      status: 'draft',
-      selectedContacts: [],
-      selectedTemplates: [],
-      sendDevices: [],
-      scheduleType: 'now',
-      scheduledDate: '',
-      scheduledTime: '',
-      campaignStartDate: new Date().toISOString().split('T')[0],
-      campaignEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      sendingWindows: [],
-      weekdayWindows: {
-        monday: [],
-        tuesday: [],
-        wednesday: [],
-        thursday: [],
-        friday: [],
-        saturday: [],
-        sunday: []
-      },
-      weekdayEnabled: {
-        monday: true,
-        tuesday: true,
-        wednesday: true,
-        thursday: true,
-        friday: true,
-        saturday: false,
-        sunday: false
-      },
-    })
+    if (createCampaignData.sendDevices.length === 0) {
+      toast({
+        title: "Devices required",
+        description: "Please select at least one device to send messages from.",
+        variant: "destructive"
+      })
+      return
+    }
 
-    toast({
-      title: "Campaign created",
-      description: "New campaign has been created successfully."
-    })
+    // Prepare the campaign data for API
+    const campaignDto: CreateCampaignDto = {
+      name: createCampaignData.name.trim(),
+      description: createCampaignData.description?.trim() || undefined,
+      selectedContacts: createCampaignData.selectedContacts,
+      selectedTemplates: createCampaignData.selectedTemplates,
+      sendDevices: createCampaignData.sendDevices,
+      scheduleType: createCampaignData.scheduleType,
+      scheduledDate: createCampaignData.scheduledDate || undefined,
+      scheduledTime: createCampaignData.scheduledTime || undefined,
+      campaignStartDate: createCampaignData.campaignStartDate,
+      campaignEndDate: createCampaignData.campaignEndDate,
+      timezone: createCampaignData.timezone,
+      sendingWindows: createCampaignData.sendingWindows?.length > 0 ? createCampaignData.sendingWindows : undefined,
+      weekdayWindows: createCampaignData.weekdayWindows,
+      weekdayEnabled: createCampaignData.weekdayEnabled,
+    }
+
+    // Create the campaign via API
+    await createCampaignMutation.mutateAsync(campaignDto)
   }
 
   const handleDeleteSelectedCampaigns = async () => {
@@ -562,13 +608,21 @@ export default function CampaignsPage() {
       return
     }
 
-    setCampaigns(campaigns.filter(campaign => !selectedCampaigns.includes(campaign.id)))
-    setSelectedCampaigns([])
+    try {
+      // Delete each campaign via API
+      await Promise.all(selectedCampaigns.map(campaignId =>
+        deleteCampaignMutation.mutateAsync(campaignId)
+      ))
 
-    toast({
-      title: "Success",
-      description: `Deleted ${campaignCount} ${campaignText} successfully`
-    })
+      setSelectedCampaigns([])
+
+      toast({
+        title: "Success",
+        description: `Deleted ${campaignCount} ${campaignText} successfully`
+      })
+    } catch (error) {
+      console.error('Error deleting campaigns:', error)
+    }
   }
 
 
@@ -592,15 +646,18 @@ export default function CampaignsPage() {
   const isAllSelected = selectedCampaigns.length === filteredAndSortedCampaigns.length && filteredAndSortedCampaigns.length > 0
   const isSomeSelected = selectedCampaigns.length > 0
 
-  const getStatusDisplay = (status: string) => {
+  const getStatusDisplay = (status: CampaignStatus) => {
     const statusConfig = {
-      active: { dot: 'bg-green-500', text: 'Active' },
-      completed: { dot: 'bg-blue-500', text: 'Completed' },
-      draft: { dot: 'bg-gray-400', text: 'Draft' },
-      inactive: { dot: 'bg-red-500', text: 'Inactive' }
+      [CampaignStatus.DRAFT]: { dot: 'bg-gray-400', text: 'Draft' },
+      [CampaignStatus.SCHEDULED]: { dot: 'bg-yellow-500', text: 'Scheduled' },
+      [CampaignStatus.RUNNING]: { dot: 'bg-green-500', text: 'Running' },
+      [CampaignStatus.PAUSED]: { dot: 'bg-orange-500', text: 'Paused' },
+      [CampaignStatus.COMPLETED]: { dot: 'bg-blue-500', text: 'Completed' },
+      [CampaignStatus.FAILED]: { dot: 'bg-red-500', text: 'Failed' },
+      [CampaignStatus.CANCELLED]: { dot: 'bg-red-400', text: 'Cancelled' }
     }
 
-    const config = statusConfig[status as keyof typeof statusConfig] || { dot: 'bg-gray-400', text: status }
+    const config = statusConfig[status] || { dot: 'bg-gray-400', text: status }
 
     return (
       <div className='flex items-center gap-2'>
@@ -628,16 +685,16 @@ export default function CampaignsPage() {
             Campaigns ({totalCampaigns})
           </Button>
           <Button
-            variant={selectedMode === 'active' ? 'default' : 'ghost'}
+            variant={selectedMode === 'running' ? 'default' : 'ghost'}
             className='w-full justify-start text-sm'
             onClick={() => {
-              setSelectedMode('active')
+              setSelectedMode('running')
               setCurrentPage(1)
               setSearchQuery('')
             }}
           >
             <Users className='mr-2 h-4 w-4' />
-            Active campaigns ({totalActive})
+            Running campaigns ({totalRunning})
           </Button>
           <Button
             variant={selectedMode === 'draft' ? 'default' : 'ghost'}
@@ -652,16 +709,16 @@ export default function CampaignsPage() {
             Draft campaigns ({totalDraft})
           </Button>
           <Button
-            variant={selectedMode === 'inactive' ? 'default' : 'ghost'}
+            variant={selectedMode === 'paused' ? 'default' : 'ghost'}
             className='w-full justify-start text-sm'
             onClick={() => {
-              setSelectedMode('inactive')
+              setSelectedMode('paused')
               setCurrentPage(1)
               setSearchQuery('')
             }}
           >
             <X className='mr-2 h-4 w-4' />
-            Inactive campaigns ({totalInactive})
+            Paused campaigns ({totalPaused})
           </Button>
           <Button
             variant={selectedMode === 'completed' ? 'default' : 'ghost'}
@@ -685,9 +742,9 @@ export default function CampaignsPage() {
           <div className='flex items-center justify-between mb-4'>
             <h2 className='text-lg font-semibold'>
               {selectedMode === 'campaigns' && 'Campaigns'}
-              {selectedMode === 'active' && 'Active campaigns'}
+              {selectedMode === 'running' && 'Running campaigns'}
               {selectedMode === 'draft' && 'Draft campaigns'}
-              {selectedMode === 'inactive' && 'Inactive campaigns'}
+              {selectedMode === 'paused' && 'Paused campaigns'}
               {selectedMode === 'completed' && 'Completed campaigns'}
             </h2>
             <div className='relative w-80'>
@@ -794,7 +851,7 @@ export default function CampaignsPage() {
 
         {/* Table or Empty State */}
         <div className='flex-1 overflow-y-auto'>
-          {loading ? (
+          {campaignsLoading ? (
             <div className='flex items-center justify-center h-full'>
               <div className='text-muted-foreground'>Loading...</div>
             </div>
@@ -879,13 +936,13 @@ export default function CampaignsPage() {
               <tbody>
                 {filteredAndSortedCampaigns.map((campaign) => (
                   <tr
-                    key={campaign.id}
+                    key={campaign._id}
                     className='border-b hover:bg-muted/25 transition-colors'
                   >
                     <td className='p-4'>
                       <Checkbox
-                        checked={selectedCampaigns.includes(campaign.id)}
-                        onCheckedChange={(checked) => handleSelectCampaign(campaign.id, checked as boolean)}
+                        checked={selectedCampaigns.includes(campaign._id)}
+                        onCheckedChange={(checked) => handleSelectCampaign(campaign._id, checked as boolean)}
                       />
                     </td>
                     <td className='p-4'>
@@ -905,16 +962,16 @@ export default function CampaignsPage() {
                       {getStatusDisplay(campaign.status)}
                     </td>
                     <td className='p-4 text-muted-foreground'>
-                      {campaign.contacts.toLocaleString()}
+                      {campaign.totalMessages.toLocaleString()}
                     </td>
                     <td className='p-4 text-muted-foreground'>
-                      {campaign.groups}
+                      {campaign.selectedContacts.length}
                     </td>
                     <td className='p-4 text-muted-foreground'>
                       <div className='flex flex-col'>
-                        <span>{new Date(campaign.dateCreated).toLocaleDateString()}</span>
+                        <span>{new Date(campaign.createdAt).toLocaleDateString()}</span>
                         <span className='text-xs text-muted-foreground'>
-                          {new Date(campaign.dateCreated).toLocaleTimeString('en-US', {
+                          {new Date(campaign.createdAt).toLocaleTimeString('en-US', {
                             hour: 'numeric',
                             minute: '2-digit',
                             hour12: true
@@ -923,11 +980,11 @@ export default function CampaignsPage() {
                       </div>
                     </td>
                     <td className='p-4 text-muted-foreground'>
-                      {campaign.lastSent ? (
+                      {campaign.lastMessageSentAt ? (
                         <div className='flex flex-col'>
-                          <span>{new Date(campaign.lastSent).toLocaleDateString()}</span>
+                          <span>{new Date(campaign.lastMessageSentAt).toLocaleDateString()}</span>
                           <span className='text-xs text-muted-foreground'>
-                            {new Date(campaign.lastSent).toLocaleTimeString('en-US', {
+                            {new Date(campaign.lastMessageSentAt).toLocaleTimeString('en-US', {
                               hour: 'numeric',
                               minute: '2-digit',
                               hour12: true
