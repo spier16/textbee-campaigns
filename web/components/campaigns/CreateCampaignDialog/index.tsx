@@ -110,7 +110,35 @@ export function CreateCampaignDialog({
   const [messagePreview, setMessagePreview] = useState<CampaignMessagePreview[]>([])
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [viewportHeight, setViewportHeight] = useState(0)
   const { toast } = useToast()
+
+  // Track viewport height for dynamic spacing
+  useEffect(() => {
+    const updateViewportHeight = () => setViewportHeight(window.innerHeight)
+    updateViewportHeight()
+    window.addEventListener('resize', updateViewportHeight)
+    return () => window.removeEventListener('resize', updateViewportHeight)
+  }, [])
+
+  // Calculate dynamic spacing based on viewport height
+  const getDynamicSpacing = () => {
+    if (viewportHeight === 0) return { isCompact: false, headerSpacing: 'mb-1 sm:mb-2', tabSpacing: 'p-3 sm:p-4' }
+
+    const isSmallViewport = viewportHeight < 700
+    const isTinyViewport = viewportHeight < 600
+
+    return {
+      isCompact: isSmallViewport,
+      isTiny: isTinyViewport,
+      headerSpacing: isTinyViewport ? 'mb-0.5' : isSmallViewport ? 'mb-1' : 'mb-1 sm:mb-2',
+      tabSpacing: isTinyViewport ? 'p-2' : isSmallViewport ? 'p-3' : 'p-3 sm:p-4',
+      titleHeight: isTinyViewport ? 'h-7' : isSmallViewport ? 'h-8' : 'h-8 sm:h-10',
+      titleText: isTinyViewport ? 'text-sm' : 'text-base sm:text-xl'
+    }
+  }
+
+  const spacing = getDynamicSpacing()
 
   // Memoized timezone options with searchable display format
   const timezoneOptions = useMemo(() => {
@@ -437,8 +465,8 @@ export function CreateCampaignDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='w-[90vw] max-w-6xl h-[90vh] overflow-hidden flex flex-col'>
-        <DialogHeader className='flex-shrink-0 border-b p-4 pb-3'>
+      <DialogContent className='w-[90vw] max-w-6xl h-[90vh] overflow-hidden flex flex-col p-4'>
+        <DialogHeader className='flex-shrink-0 border-b p-2 pb-1'>
           <DialogTitle>Create New Campaign</DialogTitle>
           <DialogDescription>
             Set up a new SMS campaign with contacts, message templates, and sending schedule.
@@ -1063,95 +1091,108 @@ export function CreateCampaignDialog({
               </div>
             </TabsContent>
 
-            <TabsContent value='preview' className='flex-1 overflow-hidden p-4 min-h-0'>
+            <TabsContent value='preview' className={`flex-1 overflow-hidden ${spacing.tabSpacing} min-h-0`}>
               <div className='h-full flex flex-col'>
-                {/* Campaign Name Header */}
-                <div className='flex-shrink-0 mb-6'>
-                  <h3 className='text-2xl font-semibold text-center'>{campaignData.name || 'Untitled Campaign'}</h3>
+                {/* Campaign Name Header - Dynamic Spacing */}
+                <div className={`flex-shrink-0 ${spacing.headerSpacing} ${spacing.titleHeight} flex items-center justify-center px-2`}>
+                  <h3 className={`${spacing.titleText} font-semibold text-center line-clamp-2`}>{campaignData.name || 'Untitled Campaign'}</h3>
                 </div>
 
-                {/* Message Preview Card */}
-                <div className='flex-1 flex flex-col justify-center items-center min-h-0'>
+                {/* Main Content Area - Fills remaining space with guaranteed clearance */}
+                <div className='flex-1 flex flex-col min-h-0' style={{
+                  minHeight: spacing.isTiny ? '200px' : spacing.isCompact ? '250px' : '300px'
+                }}>
                   {previewLoading ? (
-                    <div className='flex flex-col items-center space-y-4'>
+                    <div className='flex-1 flex flex-col items-center justify-center space-y-4'>
                       <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary'></div>
                       <p className='text-sm text-muted-foreground'>Generating message preview...</p>
                     </div>
                   ) : messagePreview.length === 0 ? (
-                    <div className='text-center space-y-2'>
-                      <p className='text-muted-foreground'>No messages to preview</p>
-                      <p className='text-sm text-muted-foreground'>Select contacts and templates to see message preview</p>
+                    <div className='flex-1 flex items-center justify-center'>
+                      <div className='text-center space-y-2'>
+                        <p className='text-muted-foreground'>No messages to preview</p>
+                        <p className='text-sm text-muted-foreground'>Select contacts and templates to see message preview</p>
+                      </div>
                     </div>
                   ) : (
-                    <div className='w-full max-w-lg space-y-4'>
-                      {/* Message Card with Fixed Height */}
-                      <div className='bg-white border border-border rounded-lg p-6 shadow-sm h-[40vh] flex flex-col'>
-                        {(() => {
-                          const currentMessage = messagePreview[currentPreviewIndex]
-                          const contact = currentMessage.contact
-                          const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+                    <div className='flex-1 flex flex-col items-center px-2 sm:px-0 min-h-0'>
+                      {/* Message Card - Responsive sizing with overlap prevention */}
+                      <div className={`w-full max-w-lg flex-1 flex flex-col min-h-0 ${spacing.isTiny ? 'mb-2' : 'mb-3'}`}>
+                        <div className={`bg-white border border-border rounded-lg ${spacing.isTiny ? 'p-1' : 'p-2 sm:p-3'} shadow-sm flex-1 flex flex-col`} style={{
+                          minHeight: spacing.isTiny ? '120px' : spacing.isCompact ? '160px' : '200px',
+                          maxHeight: `calc(100vh - ${spacing.isTiny ? '320px' : spacing.isCompact ? '360px' : '400px'})`
+                        }}>
+                          {(() => {
+                            const currentMessage = messagePreview[currentPreviewIndex]
+                            const contact = currentMessage.contact
+                            const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
 
-                          return (
-                            <div className='h-full flex flex-col'>
-                              {/* Recipient Info - Fixed Height */}
-                              <div className='border-b pb-4 flex-shrink-0 h-20 flex flex-col justify-center'>
-                                <h4 className='font-semibold text-lg truncate'>
-                                  {fullName || 'Unknown Contact'}
-                                </h4>
-                                <p className='text-muted-foreground truncate'>{contact.phone}</p>
-                              </div>
+                            return (
+                              <div className='h-full flex flex-col min-h-0'>
+                                {/* Recipient Info - Responsive Height */}
+                                <div className={`border-b ${spacing.isTiny ? 'pb-1' : 'pb-2 sm:pb-3'} flex-shrink-0 ${spacing.isTiny ? 'h-10' : 'h-14 sm:h-16'} flex flex-col justify-center`}>
+                                  <h4 className={`font-semibold ${spacing.isTiny ? 'text-sm' : 'text-base sm:text-lg'} truncate`}>
+                                    {fullName || 'Unknown Contact'}
+                                  </h4>
+                                  <p className='text-muted-foreground text-xs sm:text-sm truncate'>{contact.phone}</p>
+                                </div>
 
-                              {/* Header Section - Fixed Height */}
-                              <div className='flex items-center justify-between flex-shrink-0 h-12 pt-4'>
-                                <Label className='text-sm font-medium text-muted-foreground'>Message Preview</Label>
-                                <Badge variant='outline' className='text-xs truncate max-w-[200px]' title={`Template ${currentMessage.templateIndex + 1}: ${currentMessage.template.name}`}>
-                                  Template {currentMessage.templateIndex + 1}: {currentMessage.template.name}
-                                </Badge>
-                              </div>
+                                {/* Header Section - Responsive Height */}
+                                <div className={`flex items-center justify-between flex-shrink-0 ${spacing.isTiny ? 'h-6' : 'h-8 sm:h-10'} ${spacing.isTiny ? 'pt-0.5' : 'pt-1 sm:pt-2'}`}>
+                                  <Label className='text-xs font-medium text-muted-foreground'>Message Preview</Label>
+                                  <Badge variant='outline' className={`text-xs truncate ${spacing.isTiny ? 'max-w-[100px]' : 'max-w-[140px] sm:max-w-[180px]'}`} title={`Template ${currentMessage.templateIndex + 1}: ${currentMessage.template.name}`}>
+                                    Template {currentMessage.templateIndex + 1}: {currentMessage.template.name}
+                                  </Badge>
+                                </div>
 
-                              {/* Message Content - Remaining Height with Scroll */}
-                              <div className='bg-muted/50 p-4 rounded-lg border flex-1 overflow-y-auto mt-2'>
-                                <p className='whitespace-pre-wrap text-sm leading-relaxed'>
-                                  {currentMessage.processedContent}
-                                </p>
+                                {/* Message Content - Fills remaining card space */}
+                                <div className={`bg-muted/50 ${spacing.isTiny ? 'p-1' : 'p-2 sm:p-3'} rounded-lg border flex-1 overflow-y-auto mt-1 min-h-0`}>
+                                  <p className='whitespace-pre-wrap text-xs sm:text-sm leading-relaxed break-words'>
+                                    {currentMessage.processedContent}
+                                  </p>
+                                </div>
                               </div>
-                            </div>
-                          )
-                        })()}
+                            )
+                          })()}
+                        </div>
                       </div>
 
-                      {/* Navigation Controls */}
-                      <div className='flex items-center justify-between'>
-                        <Button
-                          variant='outline'
-                          size='sm'
-                          onClick={() => setCurrentPreviewIndex(Math.max(0, currentPreviewIndex - 1))}
-                          disabled={currentPreviewIndex === 0}
-                          className='gap-1'
-                        >
-                          <ChevronLeft className='h-4 w-4' />
-                          Previous
-                        </Button>
+                      {/* Navigation Controls - Dynamic Spacing */}
+                      <div className='w-full max-w-lg flex-shrink-0 -mb-2'>
+                        <div className={`flex items-center justify-between ${spacing.isTiny ? 'mb-0.5' : 'mb-1'} ${spacing.isTiny ? 'h-6' : 'h-8'}`}>
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            onClick={() => setCurrentPreviewIndex(Math.max(0, currentPreviewIndex - 1))}
+                            disabled={currentPreviewIndex === 0}
+                            className={`gap-1 text-xs px-2 ${spacing.isTiny ? 'h-6' : 'h-7 sm:h-8'}`}
+                          >
+                            <ChevronLeft className='h-3 w-3' />
+                            <span className={spacing.isTiny ? 'sr-only' : 'hidden xs:inline'}>Previous</span>
+                            <span className={spacing.isTiny ? 'inline' : 'xs:hidden'}>Prev</span>
+                          </Button>
 
-                        <span className='text-sm text-muted-foreground'>
-                          {currentPreviewIndex + 1} of {messagePreview.length}
-                        </span>
+                          <span className='text-xs text-muted-foreground px-1 sm:px-2'>
+                            {currentPreviewIndex + 1} of {messagePreview.length}
+                          </span>
 
-                        <Button
-                          variant='outline'
-                          size='sm'
-                          onClick={() => setCurrentPreviewIndex(Math.min(messagePreview.length - 1, currentPreviewIndex + 1))}
-                          disabled={currentPreviewIndex === messagePreview.length - 1}
-                          className='gap-1'
-                        >
-                          Next
-                          <ChevronRight className='h-4 w-4' />
-                        </Button>
-                      </div>
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            onClick={() => setCurrentPreviewIndex(Math.min(messagePreview.length - 1, currentPreviewIndex + 1))}
+                            disabled={currentPreviewIndex === messagePreview.length - 1}
+                            className={`gap-1 text-xs px-2 ${spacing.isTiny ? 'h-6' : 'h-7 sm:h-8'}`}
+                          >
+                            <span className={spacing.isTiny ? 'inline' : 'hidden xs:inline'}>Next</span>
+                            <span className={spacing.isTiny ? 'sr-only' : 'xs:hidden'}>Next</span>
+                            <ChevronRight className='h-3 w-3' />
+                          </Button>
+                        </div>
 
-                      {/* Preview Info */}
-                      <div className='text-center text-xs text-muted-foreground'>
-                        Showing preview of all {messagePreview.length.toLocaleString()} messages
+                        {/* Preview Info - Minimal spacing on tiny screens */}
+                        <div className='text-center text-xs text-muted-foreground mb-0'>
+                          Showing preview of all {messagePreview.length.toLocaleString()} messages
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1160,7 +1201,7 @@ export function CreateCampaignDialog({
             </TabsContent>
         </Tabs>
         </div>
-        <DialogFooter className='flex-shrink-0 border-t flex justify-between items-center p-4 pt-3'>
+        <DialogFooter className='flex-shrink-0 border-t flex justify-between items-center min-h-[60px] py-2 px-4'>
           <div className='flex gap-2'>
             {activeTab !== 'details' && (
               <Button
