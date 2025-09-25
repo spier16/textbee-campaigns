@@ -35,6 +35,27 @@ function getVariables(content: string): string[] {
   return Array.from(new Set(matches))
 }
 
+// Component to render text with highlighted variables
+function TemplateContentDisplay({ content }: { content: string }) {
+  const validVariables = ['{firstName}', '{lastName}', '{phone}', '{email}', '{propertyAddress}']
+  const parts = content.split(/(\{[^}]+\})/g)
+
+  return (
+    <span>
+      {parts.map((part, index) => {
+        if (part.match(/^\{[^}]+\}$/) && validVariables.includes(part)) {
+          return (
+            <span key={index} className="text-blue-600 font-medium bg-blue-50 px-1 rounded">
+              {part}
+            </span>
+          )
+        }
+        return part
+      })}
+    </span>
+  )
+}
+
 // Props interface for the ManageTemplatesDialog component
 export interface ManageTemplatesDialogProps {
   // Dialog state
@@ -432,7 +453,7 @@ export function ManageTemplatesDialog({
                               </div>
                             </div>
                             <p className='text-xs text-muted-foreground bg-muted/50 p-2 rounded'>
-                              {template.content}
+                              <TemplateContentDisplay content={template.content} />
                             </p>
                             <div className='text-xs text-muted-foreground'>
                               {(() => {
@@ -549,6 +570,12 @@ export function ManageTemplatesDialog({
                 placeholder='Enter message content (use {firstName}, {lastName}, {phone} for variables)'
                 rows={4}
               />
+              {newTemplate.content && (
+                <div className='text-xs bg-gray-50 p-2 rounded border'>
+                  <div className='text-muted-foreground mb-1'>Preview:</div>
+                  <TemplateContentDisplay content={newTemplate.content} />
+                </div>
+              )}
             </div>
             <div className='text-xs text-muted-foreground'>
               Available variables: {'{firstName}'}, {'{lastName}'}, {'{phone}'}, {'{email}'}, {'{propertyAddress}'}
@@ -603,6 +630,12 @@ export function ManageTemplatesDialog({
                 placeholder='Enter message content (use {firstName}, {lastName}, {phone} for variables)'
                 rows={4}
               />
+              {editingTemplate?.content && (
+                <div className='text-xs bg-gray-50 p-2 rounded border'>
+                  <div className='text-muted-foreground mb-1'>Preview:</div>
+                  <TemplateContentDisplay content={editingTemplate.content} />
+                </div>
+              )}
             </div>
             <div className='text-xs text-muted-foreground'>
               Available variables: {'{firstName}'}, {'{lastName}'}, {'{phone}'}, {'{email}'}, {'{propertyAddress}'}

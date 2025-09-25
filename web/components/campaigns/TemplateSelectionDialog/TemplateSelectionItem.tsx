@@ -1,11 +1,32 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Eye } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 import { MessageTemplate } from '@/components/campaigns/types/campaign.types'
+
+// Component to render text with highlighted variables
+function TemplateContentDisplay({ content }: { content: string }) {
+  const validVariables = ['{firstName}', '{lastName}', '{phone}', '{email}', '{propertyAddress}']
+  const parts = content.split(/(\{[^}]+\})/g)
+
+  return (
+    <span>
+      {parts.map((part, index) => {
+        if (part.match(/^\{[^}]+\}$/) && validVariables.includes(part)) {
+          return (
+            <span key={index} className="text-blue-600 font-medium bg-blue-50 px-1 rounded">
+              {part}
+            </span>
+          )
+        }
+        return part
+      })}
+    </span>
+  )
+}
 
 interface TemplateSelectionItemProps {
   template: MessageTemplate
@@ -19,6 +40,23 @@ export function TemplateSelectionItem({
   onToggle
 }: TemplateSelectionItemProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [isContentTruncated, setIsContentTruncated] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
+
+  // Check if content is actually truncated by comparing scroll width vs client width
+  useEffect(() => {
+    const checkTruncation = () => {
+      if (contentRef.current && !isExpanded) {
+        const element = contentRef.current
+        setIsContentTruncated(element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight)
+      }
+    }
+
+    checkTruncation()
+    // Recheck on window resize in case layout changes
+    window.addEventListener('resize', checkTruncation)
+    return () => window.removeEventListener('resize', checkTruncation)
+  }, [isExpanded, template.content])
 
   return (
     <div className='border border-muted rounded p-2'>
@@ -31,26 +69,34 @@ export function TemplateSelectionItem({
           <div className='flex items-center justify-between'>
             <span className='font-medium text-sm truncate pr-2'>{template.name}</span>
             <div className='flex items-center space-x-2 shrink-0'>
+              {isContentTruncated && (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='p-1 h-6 w-6'
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  title={isExpanded ? 'Hide full content' : 'Show full content'}
+                >
+                  {isExpanded ? (
+                    <EyeOff className='h-3 w-3' />
+                  ) : (
+                    <Eye className='h-3 w-3' />
+                  )}
+                </Button>
+              )}
               <Badge variant='secondary' className='text-xs'>
                 {template.content.length} chars
               </Badge>
-              <Button
-                variant='ghost'
-                size='sm'
-                className='p-1 h-6 w-6'
-                onClick={() => setIsExpanded(!isExpanded)}
-              >
-                <Eye className='h-3 w-3' />
-              </Button>
             </div>
           </div>
           <div
+            ref={contentRef}
             className={`text-xs text-muted-foreground mt-1 transition-all duration-200 ${
               isExpanded ? 'whitespace-pre-wrap break-words' : 'truncate'
             }`}
             style={{ maxHeight: isExpanded ? '200px' : '20px', overflow: isExpanded ? 'auto' : 'hidden' }}
           >
-            {template.content}
+            <TemplateContentDisplay content={template.content} />
           </div>
         </div>
       </div>
