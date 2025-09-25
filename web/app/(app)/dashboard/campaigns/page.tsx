@@ -37,6 +37,8 @@ import {
   Settings,
   FileText,
   Copy,
+  Play,
+  Pause,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { contactsApi, ContactSpreadsheet } from '@/lib/api/contacts'
@@ -58,7 +60,7 @@ export default function CampaignsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [displayCount, setDisplayCount] = useState(25)
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a'>('newest')
-  const [campaignSortBy, setCampaignSortBy] = useState<'name' | 'status' | 'contacts' | 'groups' | 'dateCreated' | 'lastSent'>('dateCreated')
+  const [campaignSortBy, setCampaignSortBy] = useState<'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent'>('dateCreated')
   const [campaignSortOrder, setCampaignSortOrder] = useState<'asc' | 'desc'>('asc')
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
@@ -412,6 +414,28 @@ export default function CampaignsPage() {
     },
   })
 
+  const updateCampaignStatusMutation = useMutation({
+    mutationFn: ({ campaignId, status }: { campaignId: string; status: CampaignStatus }) =>
+      campaignsApi.updateCampaignStatus(campaignId, { status }),
+    onSuccess: (updatedCampaign) => {
+      refetchCampaigns()
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      const statusText = updatedCampaign.status === CampaignStatus.RUNNING ? 'started' :
+                        updatedCampaign.status === CampaignStatus.PAUSED ? 'paused' : 'updated'
+      toast({
+        title: "Campaign updated",
+        description: `Campaign "${updatedCampaign.name}" has been ${statusText}.`
+      })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error updating campaign",
+        description: error.response?.data?.message || "An error occurred while updating the campaign.",
+        variant: "destructive"
+      })
+    },
+  })
+
 
   // Auto-expand groups when templates are selected
   useEffect(() => {
@@ -484,6 +508,10 @@ export default function CampaignsPage() {
         case 'contacts':
           aValue = a.totalMessages
           bValue = b.totalMessages
+          break
+        case 'sent':
+          aValue = a.sentMessages
+          bValue = b.sentMessages
           break
         case 'groups':
           aValue = a.selectedContacts.length
@@ -625,8 +653,30 @@ export default function CampaignsPage() {
     }
   }
 
+  const handleRunCampaign = async (campaignId: string) => {
+    try {
+      await updateCampaignStatusMutation.mutateAsync({
+        campaignId,
+        status: CampaignStatus.RUNNING
+      })
+    } catch (error) {
+      console.error('Error running campaign:', error)
+    }
+  }
 
-  const handleCampaignSort = (column: 'name' | 'status' | 'contacts' | 'groups' | 'dateCreated' | 'lastSent') => {
+  const handlePauseCampaign = async (campaignId: string) => {
+    try {
+      await updateCampaignStatusMutation.mutateAsync({
+        campaignId,
+        status: CampaignStatus.PAUSED
+      })
+    } catch (error) {
+      console.error('Error pausing campaign:', error)
+    }
+  }
+
+
+  const handleCampaignSort = (column: 'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent') => {
     if (campaignSortBy === column) {
       setCampaignSortOrder(campaignSortOrder === 'asc' ? 'desc' : 'asc')
     } else {
@@ -636,7 +686,7 @@ export default function CampaignsPage() {
     setCurrentPage(1)
   }
 
-  const renderSortIcon = (column: 'name' | 'status' | 'contacts' | 'groups' | 'dateCreated' | 'lastSent') => {
+  const renderSortIcon = (column: 'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent') => {
     if (campaignSortBy !== column) return null
     return campaignSortOrder === 'asc' ?
       <ChevronUp className="h-4 w-4 ml-1" /> :
@@ -646,7 +696,7 @@ export default function CampaignsPage() {
   const isAllSelected = selectedCampaigns.length === filteredAndSortedCampaigns.length && filteredAndSortedCampaigns.length > 0
   const isSomeSelected = selectedCampaigns.length > 0
 
-  const getStatusDisplay = (status: CampaignStatus) => {
+  const getStatusDisplay = (status: CampaignStatus, campaignId: string) => {
     const statusConfig = {
       [CampaignStatus.DRAFT]: { dot: 'bg-gray-400', text: 'Draft' },
       [CampaignStatus.SCHEDULED]: { dot: 'bg-yellow-500', text: 'Scheduled' },
@@ -663,6 +713,36 @@ export default function CampaignsPage() {
       <div className='flex items-center gap-2'>
         <div className={`w-2 h-2 rounded-full ${config.dot}`} />
         <span className='text-sm'>{config.text}</span>
+        {status === CampaignStatus.DRAFT && (
+          <Button
+            size='sm'
+            variant='outline'
+            className='ml-2 gap-1'
+            onClick={(e) => {
+              e.stopPropagation()
+              handleRunCampaign(campaignId)
+            }}
+            disabled={updateCampaignStatusMutation.isPending}
+          >
+            <Play className='h-3 w-3' />
+            Run
+          </Button>
+        )}
+        {status === CampaignStatus.RUNNING && (
+          <Button
+            size='sm'
+            variant='outline'
+            className='ml-2 gap-1'
+            onClick={(e) => {
+              e.stopPropagation()
+              handlePauseCampaign(campaignId)
+            }}
+            disabled={updateCampaignStatusMutation.isPending}
+          >
+            <Pause className='h-3 w-3' />
+            Pause
+          </Button>
+        )}
       </div>
     )
   }
@@ -906,6 +986,15 @@ export default function CampaignsPage() {
                   </th>
                   <th
                     className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    onClick={() => handleCampaignSort('sent')}
+                  >
+                    <div className='flex items-center'>
+                      Sent
+                      {renderSortIcon('sent')}
+                    </div>
+                  </th>
+                  <th
+                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
                     onClick={() => handleCampaignSort('groups')}
                   >
                     <div className='flex items-center'>
@@ -959,10 +1048,13 @@ export default function CampaignsPage() {
                       </div>
                     </td>
                     <td className='p-4'>
-                      {getStatusDisplay(campaign.status)}
+                      {getStatusDisplay(campaign.status, campaign._id)}
                     </td>
                     <td className='p-4 text-muted-foreground'>
                       {campaign.totalMessages.toLocaleString()}
+                    </td>
+                    <td className='p-4 text-muted-foreground'>
+                      {campaign.sentMessages.toLocaleString()}
                     </td>
                     <td className='p-4 text-muted-foreground'>
                       {campaign.selectedContacts.length}

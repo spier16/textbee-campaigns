@@ -16,6 +16,7 @@ import { SmsQueueService } from './queue/sms-queue.service'
 import { SmsQueueProcessor } from './queue/sms-queue.processor'
 import { SmsStatusUpdateTask } from './tasks/sms-status-update.task'
 import { UsagePlanService } from './usage-plan.service'
+import { CampaignMessage, CampaignMessageSchema } from '../campaigns/schemas/campaign-message.schema'
 
 @Module({
   imports: [
@@ -35,6 +36,10 @@ import { UsagePlanService } from './usage-plan.service'
       {
         name: UsagePlan.name,
         schema: UsagePlanSchema,
+      },
+      {
+        name: CampaignMessage.name,
+        schema: CampaignMessageSchema,
       },
     ]),
     BullModule.registerQueue({

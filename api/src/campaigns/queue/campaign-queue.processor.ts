@@ -8,6 +8,8 @@ import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../sche
 import { Device, DeviceDocument } from '../../gateway/schemas/device.schema'
 import { SmsQueueService } from '../../gateway/queue/sms-queue.service'
 import { UsagePlanService } from '../../gateway/usage-plan.service'
+import { InjectQueue } from '@nestjs/bull'
+import { Queue } from 'bull'
 
 interface CampaignProcessJob {
   campaignId: string
@@ -24,6 +26,7 @@ export class CampaignQueueProcessor {
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     private smsQueueService: SmsQueueService,
     private usagePlanService: UsagePlanService,
+    @InjectQueue('campaign-queue') private campaignQueue: Queue,
   ) {}
 
   @Process({
@@ -268,33 +271,47 @@ export class CampaignQueueProcessor {
   }
 
   private async queueScheduledMessages(messages: CampaignMessageDocument[]) {
-    // Group messages by device and scheduled time
-    const messageGroups = new Map<string, CampaignMessageDocument[]>()
+    // Prepare messages for SMS queue
+    const queueJobs = []
 
     for (const message of messages) {
-      const key = `${message.assignedDevice}-${message.scheduledTime?.getTime()}`
-      if (!messageGroups.has(key)) {
-        messageGroups.set(key, [])
+      if (!message.assignedDevice || !message.scheduledTime) {
+        this.logger.warn(`Message ${message._id} missing device or scheduled time, skipping`)
+        continue
       }
-      messageGroups.get(key)!.push(message)
+
+      // Create FCM message for the campaign message
+      const fcmMessage = {
+        data: {
+          type: 'SEND_SMS',
+          recipients: message.recipient,
+          message: message.content,
+          messageId: message._id.toString(),
+        },
+        token: '', // Will be filled by device FCM token
+      }
+
+      queueJobs.push({
+        deviceId: message.assignedDevice,
+        campaignMessageId: message._id.toString(),
+        fcmMessage,
+        smsBatchId: message.batchId || `campaign-${message.campaign}-${Date.now()}`,
+        scheduledTime: message.scheduledTime,
+        priority: message.priority || 1,
+      })
     }
 
-    // Queue each group
-    for (const [key, groupMessages] of messageGroups) {
-      const device = groupMessages[0].assignedDevice
-      const scheduledTime = groupMessages[0].scheduledTime
+    // Add jobs to SMS queue with proper delays
+    if (queueJobs.length > 0) {
+      await this.smsQueueService.addCampaignMessagesJobs(queueJobs)
 
-      if (scheduledTime && device) {
-        // TODO: Queue messages for sending through SMS queue
-        // This would integrate with the existing SMS queue system
-        this.logger.debug(`Queued ${groupMessages.length} messages for device ${device} at ${scheduledTime}`)
+      // Mark messages as queued
+      await this.campaignMessageModel.updateMany(
+        { _id: { $in: messages.map(m => m._id) } },
+        { status: MessageStatus.QUEUED }
+      )
 
-        // For now, mark as queued
-        await this.campaignMessageModel.updateMany(
-          { _id: { $in: groupMessages.map(m => m._id) } },
-          { status: MessageStatus.QUEUED }
-        )
-      }
+      this.logger.debug(`Queued ${queueJobs.length} campaign messages for SMS delivery`)
     }
   }
 
@@ -302,9 +319,21 @@ export class CampaignQueueProcessor {
     // Schedule the next processing job for the next available window
     const nextWindow = this.getNextSendingWindow(campaign)
     if (nextWindow) {
-      // Schedule job for next window
-      this.logger.debug(`Rescheduling campaign ${campaign._id} for ${nextWindow}`)
-      // TODO: Schedule job with delay
+      const delay = Math.max(0, nextWindow.getTime() - Date.now())
+
+      this.logger.debug(`Rescheduling campaign ${campaign._id} for ${nextWindow} (delay: ${delay}ms)`)
+
+      // Schedule the campaign to be processed at the next window
+      await this.campaignQueue.add(
+        'schedule-messages',
+        { campaignId: campaign._id.toString() },
+        {
+          delay,
+          attempts: 2,
+          removeOnComplete: 5,
+          removeOnFail: 10,
+        }
+      )
     }
   }
 
@@ -321,8 +350,19 @@ export class CampaignQueueProcessor {
     // Schedule next batch processing in 1 minute
     const delay = 60 * 1000 // 1 minute
 
-    // TODO: Add job to queue with delay
     this.logger.debug(`Scheduling next batch for campaign ${campaign._id} in ${delay}ms`)
+
+    // Schedule the next batch processing
+    await this.campaignQueue.add(
+      'schedule-messages',
+      { campaignId: campaign._id.toString() },
+      {
+        delay,
+        attempts: 2,
+        removeOnComplete: 5,
+        removeOnFail: 10,
+      }
+    )
   }
 
   private async updateCampaignStats(campaign: CampaignDocument) {

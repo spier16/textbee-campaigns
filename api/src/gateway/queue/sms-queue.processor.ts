@@ -8,6 +8,8 @@ import { SMS } from '../schemas/sms.schema'
 import { SMSBatch } from '../schemas/sms-batch.schema'
 import { WebhookService } from 'src/webhook/webhook.service'
 import { Logger } from '@nestjs/common'
+import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../../campaigns/schemas/campaign-message.schema'
+import { UsagePlanService } from '../usage-plan.service'
 
 @Processor('sms')
 export class SmsQueueProcessor {
@@ -17,7 +19,9 @@ export class SmsQueueProcessor {
     @InjectModel(Device.name) private deviceModel: Model<Device>,
     @InjectModel(SMS.name) private smsModel: Model<SMS>,
     @InjectModel(SMSBatch.name) private smsBatchModel: Model<SMSBatch>,
+    @InjectModel(CampaignMessage.name) private campaignMessageModel: Model<CampaignMessageDocument>,
     private webhookService: WebhookService,
+    private usagePlanService: UsagePlanService,
   ) {}
 
   @Process({
@@ -98,5 +102,218 @@ export class SmsQueueProcessor {
 
       throw error
     }
+  }
+
+  @Process({
+    name: 'send-campaign-message',
+    concurrency: 10,
+  })
+  async handleSendCampaignMessage(job: Job<any>) {
+    this.logger.debug(`Processing send-campaign-message job ${job.id}`)
+    const { deviceId, campaignMessageId, fcmMessage, smsBatchId } = job.data
+
+    try {
+      // Get campaign message
+      const campaignMessage = await this.campaignMessageModel.findById(campaignMessageId)
+      if (!campaignMessage) {
+        this.logger.error(`Campaign message ${campaignMessageId} not found`)
+        return
+      }
+
+      // Check if message is still scheduled to be sent
+      if (campaignMessage.status !== MessageStatus.QUEUED) {
+        this.logger.debug(`Campaign message ${campaignMessageId} status is ${campaignMessage.status}, skipping`)
+        return
+      }
+
+      // Get device and check availability
+      const device = await this.deviceModel.findById(deviceId)
+      if (!device) {
+        throw new Error(`Device ${deviceId} not found`)
+      }
+
+      // Re-check device availability before sending
+      const canSend = await this.canDeviceSendNow(device)
+      if (!canSend) {
+        // Reschedule the message for later
+        await this.rescheduleCampaignMessage(campaignMessage, device)
+        return
+      }
+
+      // Update status to sending
+      campaignMessage.status = MessageStatus.SENDING
+      await campaignMessage.save()
+
+      // Update batch status if exists
+      if (smsBatchId) {
+        await this.smsBatchModel
+          .findByIdAndUpdate(smsBatchId, {
+            $set: { status: 'processing' },
+          })
+          .exec()
+      }
+
+      // Send the message
+      const response = await firebaseAdmin.messaging().send(fcmMessage)
+
+      // Update device counters
+      await this.updateDeviceCounters(device)
+
+      // Update campaign message status
+      campaignMessage.status = MessageStatus.SENT
+      campaignMessage.sentAt = new Date()
+      campaignMessage.smsId = response // FCM message ID
+      campaignMessage.batchId = smsBatchId
+      await campaignMessage.save()
+
+      // Update batch if exists
+      if (smsBatchId) {
+        await this.smsBatchModel.findByIdAndUpdate(
+          smsBatchId,
+          {
+            $inc: { successCount: 1 },
+          }
+        )
+      }
+
+      this.logger.debug(`Campaign message ${campaignMessageId} sent successfully`)
+      return response
+
+    } catch (error) {
+      this.logger.error(`Failed to process campaign message job ${job.id}`, error)
+
+      // Update campaign message status
+      const campaignMessage = await this.campaignMessageModel.findById(campaignMessageId)
+      if (campaignMessage) {
+        campaignMessage.status = MessageStatus.FAILED
+        campaignMessage.lastError = error.message
+        campaignMessage.retryCount++
+
+        // Schedule retry if within retry limit
+        if (campaignMessage.retryCount < campaignMessage.maxRetries) {
+          const retryDelay = Math.min(300000, Math.pow(2, campaignMessage.retryCount) * 60000) // Exponential backoff, max 5 minutes
+          campaignMessage.nextRetryAt = new Date(Date.now() + retryDelay)
+          campaignMessage.status = MessageStatus.SCHEDULED
+        }
+
+        await campaignMessage.save()
+      }
+
+      // Update batch if exists
+      if (smsBatchId) {
+        await this.smsBatchModel.findByIdAndUpdate(
+          smsBatchId,
+          {
+            $inc: { failureCount: 1 },
+          }
+        )
+      }
+
+      throw error
+    }
+  }
+
+  /**
+   * Check if device can send message now (re-validates device availability)
+   */
+  private async canDeviceSendNow(device: any): Promise<boolean> {
+    try {
+      // Check if device is on cooldown
+      if (device.is_on_cooldown && device.cooldown_until) {
+        if (new Date() < device.cooldown_until) {
+          return false
+        }
+      }
+
+      // Check current tier limits
+      const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
+      if (!currentTier) {
+        return false
+      }
+
+      // Refresh device data to get latest counters
+      const freshDevice = await this.deviceModel.findById(device._id)
+      if (!freshDevice) {
+        return false
+      }
+
+      // Check if daily limit exceeded
+      if (freshDevice.messages_sent_today >= currentTier.dailyLimit) {
+        this.logger.debug(`Device ${device._id} has reached daily limit: ${freshDevice.messages_sent_today}/${currentTier.dailyLimit}`)
+        return false
+      }
+
+      // Check hourly rate limit
+      const maxHourlyMessages = Math.ceil(3600 / currentTier.timeDelayBetweenMessages)
+      if (freshDevice.messages_sent_this_hour >= maxHourlyMessages) {
+        this.logger.debug(`Device ${device._id} has reached hourly limit: ${freshDevice.messages_sent_this_hour}/${maxHourlyMessages}`)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      this.logger.error(`Error checking device availability:`, error)
+      return false
+    }
+  }
+
+  /**
+   * Update device message counters
+   */
+  private async updateDeviceCounters(device: any) {
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    const currentHour = now.getHours()
+
+    // Reset daily counter if it's a new day
+    if (device.messages_sent_today_date !== today) {
+      device.messages_sent_today = 0
+      device.messages_sent_today_date = today
+    }
+
+    // Reset hourly counter if it's a new hour
+    if (device.messages_sent_this_hour_timestamp !== currentHour) {
+      device.messages_sent_this_hour = 0
+      device.messages_sent_this_hour_timestamp = currentHour
+    }
+
+    // Increment counters
+    await this.deviceModel.findByIdAndUpdate(device._id, {
+      $inc: {
+        sentSMSCount: 1,
+        messages_sent_today: 1,
+        messages_sent_this_hour: 1,
+      },
+      $set: {
+        messages_sent_today_date: today,
+        messages_sent_this_hour_timestamp: currentHour,
+        last_message_sent_at: now,
+      }
+    })
+  }
+
+  /**
+   * Reschedule a campaign message when device is not available
+   */
+  private async rescheduleCampaignMessage(campaignMessage: CampaignMessageDocument, device: any) {
+    const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
+    if (!currentTier) {
+      campaignMessage.status = MessageStatus.FAILED
+      campaignMessage.lastError = 'Device tier not found'
+      await campaignMessage.save()
+      return
+    }
+
+    // Calculate next available slot based on device delay
+    const delayMs = currentTier.timeDelayBetweenMessages * 1000
+    const nextAvailableTime = new Date(Date.now() + delayMs)
+
+    // Update campaign message
+    campaignMessage.status = MessageStatus.SCHEDULED
+    campaignMessage.scheduledTime = nextAvailableTime
+    campaignMessage.lastError = 'Device not available, rescheduled'
+    await campaignMessage.save()
+
+    this.logger.debug(`Rescheduled campaign message ${campaignMessage._id} to ${nextAvailableTime}`)
   }
 }
