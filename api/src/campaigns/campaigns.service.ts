@@ -32,12 +32,19 @@ import {
   CreateCampaignDto,
   UpdateCampaignStatusDto,
   CampaignResponseDto,
+  ProcessTemplatePreviewDto,
+  ProcessedTemplateResponseDto,
+  TemplatePreviewDto,
+  ContactDataDto,
+  TemplateDataDto,
+  HighlightedContentDto,
+  HighlightedSegmentDto,
 } from './campaigns.dto'
 import { ContactsService } from '../contacts/contacts.service'
 import { GetContactsDto } from '../contacts/contacts.dto'
 import { User } from '../users/schemas/user.schema'
 import { CampaignQueueService } from './queue/campaign-queue.service'
-import { processTemplateVariables, ContactData } from './utils/template-processor'
+import { processTemplateVariables, processTemplateVariablesWithHighlighting, ContactData } from './utils/template-processor'
 
 @Injectable()
 export class CampaignsService {
@@ -662,6 +669,131 @@ export class CampaignsService {
       isDeleted: campaign.isDeleted,
       deletedAt: campaign.deletedAt,
       statusBeforeDelete: campaign.statusBeforeDelete,
+    }
+  }
+
+  // Template Preview Processing
+  async processTemplatePreview(
+    user: User,
+    processPreviewDto: ProcessTemplatePreviewDto,
+  ): Promise<ProcessedTemplateResponseDto> {
+    const {
+      templateIds,
+      contactSpreadsheetIds,
+      excludeDnc = true,
+      includePreviouslyMessaged = false,
+      maxPreviewCount = 100,
+      highlightVariables = false,
+    } = processPreviewDto
+
+    // Validate templates exist and belong to user
+    const templates = await this.messageTemplateModel
+      .find({
+        _id: { $in: templateIds.map(id => new Types.ObjectId(id)) },
+        userId: new Types.ObjectId(user._id),
+      })
+      .lean()
+
+    if (templates.length !== templateIds.length) {
+      throw new BadRequestException('One or more templates not found')
+    }
+
+    // Get unique contacts from selected spreadsheets (deduplicated with filters)
+    const uniqueContactsResult = await this.contactsService.getUniqueContacts(
+      user._id.toString(),
+      contactSpreadsheetIds,
+      excludeDnc,
+      includePreviouslyMessaged
+    )
+
+    const uniqueContacts = uniqueContactsResult.data.slice(0, maxPreviewCount)
+
+    // Generate message previews with template rotation for UNIQUE contacts only
+    const previews: TemplatePreviewDto[] = []
+    let templateIndex = 0
+
+    for (let i = 0; i < uniqueContacts.length; i++) {
+      const contact = uniqueContacts[i]
+      const template = templates[templateIndex % templates.length]
+
+      // Convert contact to ContactData format for processing
+      const contactData: ContactData = {
+        id: contact.id,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        phone: contact.phone,
+        email: contact.email,
+        propertyAddress: contact.propertyAddress,
+        propertyCity: contact.propertyCity,
+        propertyState: contact.propertyState,
+        propertyZip: contact.propertyZip,
+        mailingAddress: contact.mailingAddress,
+        mailingCity: contact.mailingCity,
+        mailingState: contact.mailingState,
+        mailingZip: contact.mailingZip,
+      }
+
+      // Process template variables with contact data
+      const processedContent = processTemplateVariables(template.content, contactData)
+
+      // Generate highlighted content if requested
+      let highlightedContentDto: HighlightedContentDto | undefined
+      if (highlightVariables) {
+        const highlightedContent = processTemplateVariablesWithHighlighting(template.content, contactData)
+        highlightedContentDto = {
+          segments: highlightedContent.segments.map(segment => ({
+            text: segment.text,
+            isVariable: segment.isVariable,
+            variableName: segment.variableName,
+            variableType: segment.variableType,
+          })),
+          plainText: highlightedContent.plainText,
+          validationErrors: highlightedContent.validationErrors?.map(error => ({
+            variableName: error.variableName,
+            errorType: error.errorType,
+            message: error.message,
+          })),
+        }
+      }
+
+      // Convert to DTO format
+      const contactDto: ContactDataDto = {
+        id: contact.id,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        phone: contact.phone,
+        email: contact.email,
+        propertyAddress: contact.propertyAddress,
+        propertyCity: contact.propertyCity,
+        propertyState: contact.propertyState,
+        propertyZip: contact.propertyZip,
+        mailingAddress: contact.mailingAddress,
+        mailingCity: contact.mailingCity,
+        mailingState: contact.mailingState,
+        mailingZip: contact.mailingZip,
+      }
+
+      const templateDto: TemplateDataDto = {
+        _id: template._id.toString(),
+        name: template.name,
+        content: template.content,
+      }
+
+      previews.push({
+        contact: contactDto,
+        template: templateDto,
+        templateIndex: templateIndex % templates.length,
+        processedContent,
+        highlightedContent: highlightedContentDto,
+      })
+
+      templateIndex++
+    }
+
+    return {
+      previews,
+      totalContacts: uniqueContactsResult.data.length,
+      templatesUsed: templates.length,
     }
   }
 }

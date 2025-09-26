@@ -31,21 +31,17 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { ContactSpreadsheet, Contact, contactsApi } from '@/lib/api/contacts'
-import { MessageTemplate, campaignsApi } from '@/lib/api/campaigns'
+import { MessageTemplate, campaignsApi, ProcessTemplatePreviewDto, TemplatePreview, HighlightedContent, ValidationError } from '@/lib/api/campaigns'
 import {
   CreateCampaignData,
   DateValidationErrors,
   MessageTemplateGroup
 } from '@/components/campaigns/types/campaign.types'
 import { SendingScheduleCalendar } from './SendingScheduleCalendar'
+import { HighlightedText } from '@/components/campaigns/HighlightedText'
 
-// Interface for a campaign message preview
-interface CampaignMessagePreview {
-  contact: Contact
-  template: MessageTemplate
-  templateIndex: number
-  processedContent: string
-}
+// Type alias for consistency with API response
+type CampaignMessagePreview = TemplatePreview
 
 // Device interface (from API response) - Extended for tier management
 interface Device {
@@ -112,6 +108,8 @@ export function CreateCampaignDialog({
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [viewportHeight, setViewportHeight] = useState(0)
+  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
+
   const { toast } = useToast()
 
   // Track viewport height for dynamic spacing
@@ -199,82 +197,35 @@ export function CreateCampaignDialog({
     .sort((a, b) => a.label.localeCompare(b.label)) // Sort by city name
   }, [])
 
-  // Function to process template variables in message content
-  const processTemplateVariables = (templateContent: string, contact: Contact): string => {
-    let processedContent = templateContent
-
-    // Define variable mappings
-    const variableMap: Record<string, string> = {
-      '{firstName}': contact.firstName || '',
-      '{lastName}': contact.lastName || '',
-      '{phone}': contact.phone || '',
-      '{email}': contact.email || '',
-      '{propertyAddress}': contact.propertyAddress || '',
-      '{propertyCity}': contact.propertyCity || '',
-      '{propertyState}': contact.propertyState || '',
-      '{propertyZip}': contact.propertyZip || '',
-      '{mailingAddress}': contact.mailingAddress || '',
-      '{mailingCity}': contact.mailingCity || '',
-      '{mailingState}': contact.mailingState || '',
-      '{mailingZip}': contact.mailingZip || '',
-      '{fullName}': `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
-    }
-
-    // Replace all variables
-    Object.entries(variableMap).forEach(([variable, value]) => {
-      processedContent = processedContent.replace(new RegExp(variable, 'g'), value)
-    })
-
-    return processedContent
-  }
-
-  // Function to generate message preview data
+  // Function to generate message preview data using backend API
   const generateMessagePreview = async () => {
     setPreviewLoading(true)
     try {
-      const messagePreviews: CampaignMessagePreview[] = []
-
-      // Get selected templates
-      const selectedTemplates: MessageTemplate[] = []
-      for (const templateGroup of templateGroups) {
-        for (const template of templateGroup.templates) {
-          if (campaignData.selectedTemplates.includes(template._id)) {
-            selectedTemplates.push(template)
-          }
-        }
-      }
-
-      if (selectedTemplates.length === 0) {
+      if (campaignData.selectedTemplates.length === 0) {
         setMessagePreview([])
         return
       }
 
-      // Get unique contacts from server-side API (handles deduplication automatically)
-      const response = await contactsApi.getUniqueContacts(
-        campaignData.selectedContacts,
-        campaignData.excludeDnc,
-        campaignData.includePreviouslyMessaged
-      )
-      const uniqueContacts = response.data
-
-      // Generate message previews with template rotation for UNIQUE contacts only
-      let templateIndex = 0
-      for (let i = 0; i < uniqueContacts.length; i++) {
-        const contact = uniqueContacts[i]
-        const template = selectedTemplates[templateIndex % selectedTemplates.length]
-        const processedContent = processTemplateVariables(template.content, contact)
-
-        messagePreviews.push({
-          contact,
-          template,
-          templateIndex: templateIndex % selectedTemplates.length,
-          processedContent
-        })
-
-        templateIndex++
+      if (campaignData.selectedContacts.length === 0) {
+        setMessagePreview([])
+        return
       }
 
-      setMessagePreview(messagePreviews)
+      // Prepare request data for backend API
+      const processPreviewData: ProcessTemplatePreviewDto = {
+        templateIds: campaignData.selectedTemplates,
+        contactSpreadsheetIds: campaignData.selectedContacts,
+        excludeDnc: campaignData.excludeDnc,
+        includePreviouslyMessaged: campaignData.includePreviouslyMessaged,
+        maxPreviewCount: 100, // Limit preview to reasonable number for UI performance
+        highlightVariables: true, // Enable variable highlighting for preview
+      }
+
+      // Call backend API to process template variables
+      const response = await campaignsApi.processTemplatePreview(processPreviewData)
+
+
+      setMessagePreview(response.previews)
       setCurrentPreviewIndex(0)
     } catch (error) {
       console.error('Error generating message preview:', error)
@@ -293,7 +244,7 @@ export function CreateCampaignDialog({
     if (activeTab === 'preview' && open && campaignData.selectedContacts.length > 0 && campaignData.selectedTemplates.length > 0) {
       generateMessagePreview()
     }
-  }, [activeTab, open, campaignData.selectedContacts, campaignData.selectedTemplates, campaignData.excludeDnc, campaignData.includePreviouslyMessaged, templateGroups])
+  }, [activeTab, open, campaignData.selectedContacts, campaignData.selectedTemplates, campaignData.excludeDnc, campaignData.includePreviouslyMessaged])
 
   // Date validation function
   const validateDates = (startDate: string, endDate: string) => {
@@ -375,6 +326,7 @@ export function CreateCampaignDialog({
     setActiveTab('details')
     setMessagePreview([])
     setCurrentPreviewIndex(0)
+    setValidationErrors([])
     onDateValidationChange({ startDateError: '', endDateError: '' })
   }
 
@@ -1173,10 +1125,31 @@ export function CreateCampaignDialog({
 
                                 {/* Message Content - Fills remaining card space */}
                                 <div className={`bg-muted/50 ${spacing.isTiny ? 'p-1' : 'p-2 sm:p-3'} rounded-lg border flex-1 overflow-y-auto mt-1 min-h-0`}>
-                                  <p className='whitespace-pre-wrap text-xs sm:text-sm leading-relaxed break-words'>
-                                    {currentMessage.processedContent}
-                                  </p>
+                                  <HighlightedText
+                                    content={currentMessage.highlightedContent || currentMessage.processedContent}
+                                    className='text-xs sm:text-sm leading-relaxed break-words'
+                                    showHighlighting={!!currentMessage.highlightedContent}
+                                    onValidationErrors={setValidationErrors}
+                                  />
                                 </div>
+
+                                {/* Validation Errors Display */}
+                                {validationErrors.length > 0 && (
+                                  <div className={`mt-2 p-2 bg-red-50 border border-red-200 rounded-lg ${spacing.isTiny ? 'text-xs' : 'text-sm'}`}>
+                                    <div className='flex items-center gap-1 mb-1'>
+                                      <X className='h-4 w-4 text-red-500 flex-shrink-0' />
+                                      <span className='font-medium text-red-800'>Template Validation Errors</span>
+                                    </div>
+                                    <ul className='space-y-1 text-red-700'>
+                                      {validationErrors.map((error, index) => (
+                                        <li key={index} className='flex items-start gap-1'>
+                                          <span className='text-red-500 font-bold text-xs mt-0.5'>•</span>
+                                          <span>{error.message}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
                               </div>
                             )
                           })()}

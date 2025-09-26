@@ -146,6 +146,71 @@ export interface Campaign {
   statusBeforeDelete?: CampaignStatus
 }
 
+// Template Preview Processing interfaces
+export interface ProcessTemplatePreviewDto {
+  templateIds: string[]
+  contactSpreadsheetIds: string[]
+  excludeDnc?: boolean
+  includePreviouslyMessaged?: boolean
+  maxPreviewCount?: number
+  highlightVariables?: boolean
+}
+
+export interface ContactData {
+  id?: string
+  firstName?: string
+  lastName?: string
+  phone: string
+  email?: string
+  propertyAddress?: string
+  propertyCity?: string
+  propertyState?: string
+  propertyZip?: string
+  mailingAddress?: string
+  mailingCity?: string
+  mailingState?: string
+  mailingZip?: string
+}
+
+export interface TemplateData {
+  _id: string
+  name: string
+  content: string
+}
+
+export interface ValidationError {
+  variableName: string
+  errorType: 'missing_field' | 'empty_value' | 'unsupported_variable'
+  message: string
+}
+
+export interface HighlightedSegment {
+  text: string
+  isVariable: boolean
+  variableName?: string
+  variableType?: string
+}
+
+export interface HighlightedContent {
+  segments: HighlightedSegment[]
+  plainText: string
+  validationErrors?: ValidationError[]
+}
+
+export interface TemplatePreview {
+  contact: ContactData
+  template: TemplateData
+  templateIndex: number
+  processedContent: string
+  highlightedContent?: HighlightedContent
+}
+
+export interface ProcessedTemplateResponse {
+  previews: TemplatePreview[]
+  totalContacts: number
+  templatesUsed: number
+}
+
 export const campaignsApi = {
   // Template Groups
   async createTemplateGroup(data: CreateTemplateGroupDto): Promise<MessageTemplateGroup> {
@@ -201,6 +266,11 @@ export const campaignsApi = {
 
   async deleteTemplate(id: string): Promise<void> {
     await httpBrowserClient.delete(ApiEndpoints.campaigns.template(id))
+  },
+
+  async processTemplatePreview(data: ProcessTemplatePreviewDto): Promise<ProcessedTemplateResponse> {
+    const response = await httpBrowserClient.post(ApiEndpoints.campaigns.processTemplatePreview(), data)
+    return response.data
   },
 
   // Campaigns

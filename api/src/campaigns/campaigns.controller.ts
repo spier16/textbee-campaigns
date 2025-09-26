@@ -24,6 +24,8 @@ import {
   CreateCampaignDto,
   UpdateCampaignStatusDto,
   CampaignResponseDto,
+  ProcessTemplatePreviewDto,
+  ProcessedTemplateResponseDto,
 } from './campaigns.dto'
 
 @ApiTags('campaigns')
@@ -143,6 +145,15 @@ export class CampaignsController {
   ): Promise<{ message: string }> {
     await this.campaignsService.deleteTemplate(req.user.id, templateId)
     return { message: 'Template deleted successfully' }
+  }
+
+  @Post('templates/process-preview')
+  @ApiOperation({ summary: 'Process template variables for campaign preview' })
+  async processTemplatePreview(
+    @Request() req,
+    @Body() processPreviewDto: ProcessTemplatePreviewDto,
+  ): Promise<ProcessedTemplateResponseDto> {
+    return this.campaignsService.processTemplatePreview(req.user, processPreviewDto)
   }
 
   // Campaign Management

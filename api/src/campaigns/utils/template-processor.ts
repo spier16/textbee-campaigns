@@ -20,6 +20,34 @@ export interface ContactData {
 }
 
 /**
+ * Interface for a highlighted text segment
+ */
+export interface HighlightedSegment {
+  text: string
+  isVariable: boolean
+  variableName?: string
+  variableType?: string
+}
+
+/**
+ * Interface for validation error information
+ */
+export interface ValidationError {
+  variableName: string
+  errorType: 'missing_field' | 'empty_value' | 'unsupported_variable'
+  message: string
+}
+
+/**
+ * Interface for highlighted content structure
+ */
+export interface HighlightedContent {
+  segments: HighlightedSegment[]
+  plainText: string
+  validationErrors?: ValidationError[]
+}
+
+/**
  * Process template variables in message content by substituting them with contact data
  * @param templateContent The template content with variables like {firstName}
  * @param contact The contact data to substitute variables with
@@ -86,4 +114,152 @@ export function validateTemplateVariables(templateContent: string): string[] {
 
   const usedVariables = extractTemplateVariables(templateContent)
   return usedVariables.filter(variable => !supportedVariables.includes(variable))
+}
+
+/**
+ * Get the variable type/category for highlighting purposes
+ * @param variableName The variable name (without braces)
+ * @returns The variable type category
+ */
+export function getVariableType(variableName: string): string {
+  const nameVariables = ['firstName', 'lastName', 'fullName']
+  const contactVariables = ['phone', 'email']
+  const propertyAddressVariables = ['propertyAddress', 'propertyCity', 'propertyState', 'propertyZip']
+  const mailingAddressVariables = ['mailingAddress', 'mailingCity', 'mailingState', 'mailingZip']
+
+  if (nameVariables.includes(variableName)) return 'name'
+  if (contactVariables.includes(variableName)) return 'contact'
+  if (propertyAddressVariables.includes(variableName)) return 'propertyAddress'
+  if (mailingAddressVariables.includes(variableName)) return 'mailingAddress'
+  return 'other'
+}
+
+/**
+ * Process template variables with highlighting information
+ * @param templateContent The template content with variables like {firstName}
+ * @param contact The contact data to substitute variables with
+ * @returns Highlighted content structure with segments and plain text
+ */
+export function processTemplateVariablesWithHighlighting(
+  templateContent: string,
+  contact: ContactData
+): HighlightedContent {
+  const segments: HighlightedSegment[] = []
+  const validationErrors: ValidationError[] = []
+  let currentPosition = 0
+
+  // Define variable mappings
+  const variableMap: Record<string, string> = {
+    '{firstName}': contact.firstName || '',
+    '{lastName}': contact.lastName || '',
+    '{phone}': contact.phone || '',
+    '{email}': contact.email || '',
+    '{propertyAddress}': contact.propertyAddress || '',
+    '{propertyCity}': contact.propertyCity || '',
+    '{propertyState}': contact.propertyState || '',
+    '{propertyZip}': contact.propertyZip || '',
+    '{mailingAddress}': contact.mailingAddress || '',
+    '{mailingCity}': contact.mailingCity || '',
+    '{mailingState}': contact.mailingState || '',
+    '{mailingZip}': contact.mailingZip || '',
+    '{fullName}': `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+  }
+
+  // Define supported variables for validation
+  const supportedVariables = [
+    'firstName', 'lastName', 'phone', 'email', 'fullName',
+    'propertyAddress', 'propertyCity', 'propertyState', 'propertyZip',
+    'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip'
+  ]
+
+  // Find all variable occurrences with their positions
+  const variableRegex = /\{([^}]+)\}/g
+  const matches: Array<{ match: RegExpExecArray; variable: string; value: string }> = []
+
+  let match
+  while ((match = variableRegex.exec(templateContent)) !== null) {
+    const variableWithBraces = match[0]
+    const variableName = match[1]
+    let value = ''
+
+    // Check if variable is supported
+    if (!supportedVariables.includes(variableName)) {
+      validationErrors.push({
+        variableName,
+        errorType: 'unsupported_variable',
+        message: `Variable '${variableName}' is not supported. Supported variables: ${supportedVariables.join(', ')}`
+      })
+    } else {
+      value = variableMap[variableWithBraces] || ''
+
+      // Check if value is empty
+      if (!value || value.trim() === '') {
+        validationErrors.push({
+          variableName,
+          errorType: 'empty_value',
+          message: `Variable '${variableName}' has no value for this contact`
+        })
+      }
+    }
+
+    matches.push({
+      match,
+      variable: variableName,
+      value
+    })
+  }
+
+  // Process the template content segment by segment
+  for (let i = 0; i < matches.length; i++) {
+    const { match, variable, value } = matches[i]
+
+    // Add any plain text before this variable
+    if (match.index > currentPosition) {
+      const plainText = templateContent.slice(currentPosition, match.index)
+      if (plainText.length > 0) {
+        segments.push({
+          text: plainText,
+          isVariable: false
+        })
+      }
+    }
+
+    // Add the variable segment
+    segments.push({
+      text: value,
+      isVariable: true,
+      variableName: variable,
+      variableType: getVariableType(variable)
+    })
+
+    currentPosition = match.index + match[0].length
+  }
+
+  // Add any remaining plain text after the last variable
+  if (currentPosition < templateContent.length) {
+    const remainingText = templateContent.slice(currentPosition)
+    if (remainingText.length > 0) {
+      segments.push({
+        text: remainingText,
+        isVariable: false
+      })
+    }
+  }
+
+  // If no variables were found, treat the entire content as plain text
+  if (matches.length === 0) {
+    segments.push({
+      text: templateContent,
+      isVariable: false
+    })
+  }
+
+  // Generate plain text version for compatibility
+  const plainText = segments.map(segment => segment.text).join('')
+
+  return {
+    segments,
+    plainText,
+    validationErrors: validationErrors.length > 0 ? validationErrors : undefined
+  }
 }
