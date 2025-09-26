@@ -10,6 +10,7 @@ import { WebhookService } from 'src/webhook/webhook.service'
 import { Logger } from '@nestjs/common'
 import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../../campaigns/schemas/campaign-message.schema'
 import { UsagePlanService } from '../usage-plan.service'
+import { GatewayService } from '../gateway.service'
 
 @Processor('sms')
 export class SmsQueueProcessor {
@@ -22,6 +23,7 @@ export class SmsQueueProcessor {
     @InjectModel(CampaignMessage.name) private campaignMessageModel: Model<CampaignMessageDocument>,
     private webhookService: WebhookService,
     private usagePlanService: UsagePlanService,
+    private gatewayService: GatewayService,
   ) {}
 
   @Process({
@@ -52,11 +54,46 @@ export class SmsQueueProcessor {
         `SMS Job ${job.id} completed, success: ${response.successCount}, failures: ${response.failureCount}`,
       )
 
-      // Update device SMS count
+      // Update device SMS count and daily usage counters with proper reset logic
+      const now = new Date()
+      const today = now.toISOString().split('T')[0]
+      const currentHour = now.getHours()
+
+      // Get current device state to check reset needs
+      const currentDevice = await this.deviceModel.findById(deviceId)
+      let updateData: any = {
+        $inc: {
+          sentSMSCount: response.successCount,
+        },
+        $set: {}
+      }
+
+      // Handle daily counter reset
+      const lastDailyReset = currentDevice.daily_counter_reset
+      const needsDailyReset = !lastDailyReset || lastDailyReset.toISOString().split('T')[0] !== today
+
+      if (needsDailyReset) {
+        updateData.$set.messages_sent_today = response.successCount
+        updateData.$set.daily_counter_reset = now
+      } else {
+        updateData.$inc.messages_sent_today = response.successCount
+      }
+
+      // Handle hourly counter reset
+      const lastHourlyReset = currentDevice.hourly_counter_reset
+      const needsHourlyReset = !lastHourlyReset ||
+        lastHourlyReset.toISOString().split('T')[0] !== today ||
+        lastHourlyReset.getHours() !== currentHour
+
+      if (needsHourlyReset) {
+        updateData.$set.messages_sent_this_hour = response.successCount
+        updateData.$set.hourly_counter_reset = now
+      } else {
+        updateData.$inc.messages_sent_this_hour = response.successCount
+      }
+
       await this.deviceModel
-        .findByIdAndUpdate(deviceId, {
-          $inc: { sentSMSCount: response.successCount },
-        })
+        .findByIdAndUpdate(deviceId, updateData)
         .exec()
 
       // Update batch status
@@ -109,8 +146,8 @@ export class SmsQueueProcessor {
     concurrency: 10,
   })
   async handleSendCampaignMessage(job: Job<any>) {
-    this.logger.debug(`Processing send-campaign-message job ${job.id}`)
-    const { deviceId, campaignMessageId, fcmMessage, smsBatchId } = job.data
+    this.logger.debug(`Processing send-campaign-message job ${job.id} for device ${job.data.deviceId} and message ${job.data.campaignMessageId}`)
+    const { deviceId, campaignMessageId } = job.data
 
     try {
       // Get campaign message
@@ -126,57 +163,35 @@ export class SmsQueueProcessor {
         return
       }
 
-      // Get device and check availability
-      const device = await this.deviceModel.findById(deviceId)
-      if (!device) {
-        throw new Error(`Device ${deviceId} not found`)
-      }
-
-      // Re-check device availability before sending
-      const canSend = await this.canDeviceSendNow(device)
-      if (!canSend) {
-        // Reschedule the message for later
-        await this.rescheduleCampaignMessage(campaignMessage, device)
-        return
-      }
-
       // Update status to sending
       campaignMessage.status = MessageStatus.SENDING
       await campaignMessage.save()
 
-      // Update batch status if exists
-      if (smsBatchId) {
-        await this.smsBatchModel
-          .findByIdAndUpdate(smsBatchId, {
-            $set: { status: 'processing' },
-          })
-          .exec()
+      // Use the same GatewayService method that manual messaging uses
+      const smsData = {
+        message: campaignMessage.content,
+        recipients: [campaignMessage.recipient],
+        smsBody: campaignMessage.content,
+        receivers: [campaignMessage.recipient]
       }
 
-      // Send the message
-      const response = await firebaseAdmin.messaging().send(fcmMessage)
+      this.logger.debug(`Sending campaign message via GatewayService: ${campaignMessage.content} to ${campaignMessage.recipient}`)
 
-      // Update device counters
-      await this.updateDeviceCounters(device)
+      // Send using the exact same service method as manual messaging
+      const response = await this.gatewayService.sendSMS(deviceId, smsData)
 
       // Update campaign message status
       campaignMessage.status = MessageStatus.SENT
       campaignMessage.sentAt = new Date()
-      campaignMessage.smsId = response // FCM message ID
-      campaignMessage.batchId = smsBatchId
+      campaignMessage.smsId = response?.data?.smsBatchId || 'unknown' // Use SMS batch ID from response
       await campaignMessage.save()
 
-      // Update batch if exists
-      if (smsBatchId) {
-        await this.smsBatchModel.findByIdAndUpdate(
-          smsBatchId,
-          {
-            $inc: { successCount: 1 },
-          }
-        )
-      }
+      this.logger.debug(`Campaign message ${campaignMessageId} status updated to SENT in database`)
 
-      this.logger.debug(`Campaign message ${campaignMessageId} sent successfully`)
+      // Update campaign stats after message is sent
+      await this.updateCampaignStatsAfterSend(campaignMessage)
+
+      this.logger.debug(`Campaign message ${campaignMessageId} sent successfully via GatewayService`)
       return response
 
     } catch (error) {
@@ -197,16 +212,6 @@ export class SmsQueueProcessor {
         }
 
         await campaignMessage.save()
-      }
-
-      // Update batch if exists
-      if (smsBatchId) {
-        await this.smsBatchModel.findByIdAndUpdate(
-          smsBatchId,
-          {
-            $inc: { failureCount: 1 },
-          }
-        )
       }
 
       throw error
@@ -315,5 +320,29 @@ export class SmsQueueProcessor {
     await campaignMessage.save()
 
     this.logger.debug(`Rescheduled campaign message ${campaignMessage._id} to ${nextAvailableTime}`)
+  }
+
+  /**
+   * Update campaign statistics after a message is sent
+   */
+  private async updateCampaignStatsAfterSend(campaignMessage: CampaignMessageDocument) {
+    try {
+      const Campaign = this.campaignMessageModel.db.model('Campaign')
+
+      // Increment sent count and decrement pending count
+      await Campaign.findByIdAndUpdate(campaignMessage.campaign, {
+        $inc: {
+          sentMessages: 1,
+          pendingMessages: -1
+        },
+        $set: {
+          lastMessageSentAt: new Date()
+        }
+      })
+
+      this.logger.debug(`Updated campaign ${campaignMessage.campaign} stats: incremented sentMessages`)
+    } catch (error) {
+      this.logger.error('Error updating campaign stats after send:', error)
+    }
   }
 }

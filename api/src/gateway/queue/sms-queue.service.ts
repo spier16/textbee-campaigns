@@ -108,8 +108,6 @@ export class SmsQueueService {
     messages: Array<{
       deviceId: string
       campaignMessageId: string
-      fcmMessage: Message
-      smsBatchId: string
       scheduledTime: Date
       priority: number
     }>
@@ -119,13 +117,23 @@ export class SmsQueueService {
     for (const message of messages) {
       const delay = Math.max(0, message.scheduledTime.getTime() - now.getTime())
 
-      await this.addCampaignMessageJob(
-        message.deviceId,
-        message.campaignMessageId,
-        message.fcmMessage,
-        message.smsBatchId,
-        message.priority,
-        delay
+      await this.smsQueue.add(
+        'send-campaign-message',
+        {
+          deviceId: message.deviceId,
+          campaignMessageId: message.campaignMessageId,
+        },
+        {
+          priority: message.priority,
+          attempts: 3, // More retries for campaign messages
+          delay,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
+          },
+          removeOnComplete: 50,
+          removeOnFail: 100,
+        },
       )
     }
   }

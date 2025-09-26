@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsObject, IsNumber, IsBoolean } from 'class-validator'
+import { IsString, IsOptional, IsEnum, IsObject, IsNumber, IsBoolean, IsArray } from 'class-validator'
 import { ApiProperty } from '@nestjs/swagger'
 
 export class UploadSpreadsheetDto {
@@ -240,6 +240,22 @@ export class UpdateContactDto {
   @IsOptional()
   @IsBoolean()
   dnc?: boolean
+}
+
+export class CreateGroupDto {
+  @ApiProperty({ description: 'Group name' })
+  @IsString()
+  name: string
+
+  @ApiProperty({ description: 'Group description', required: false })
+  @IsOptional()
+  @IsString()
+  description?: string
+
+  @ApiProperty({ description: 'Array of contact IDs to include in the group' })
+  @IsArray()
+  @IsString({ each: true })
+  contactIds: string[]
 }
 
 export class GetContactsDto {

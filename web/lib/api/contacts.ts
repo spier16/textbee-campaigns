@@ -111,6 +111,12 @@ export interface Contact {
   dncUpdatedAt?: string
 }
 
+export interface CreateGroupData {
+  name: string
+  description?: string
+  contactIds: string[]
+}
+
 export interface GetContactsParams {
   search?: string
   sortBy?: 'newest' | 'oldest' | 'firstName' | 'lastName' | 'phone' | 'email'
@@ -243,6 +249,11 @@ export const contactsApi = {
 
   async getUniqueContacts(spreadsheetIds: string[]): Promise<GetContactsResponse> {
     const response = await httpBrowserClient.post('/contacts/spreadsheets/unique-contacts', { spreadsheetIds })
+    return response.data
+  },
+
+  async createGroup(data: CreateGroupData): Promise<ContactSpreadsheet> {
+    const response = await httpBrowserClient.post('/contacts/groups', data)
     return response.data
   },
 }

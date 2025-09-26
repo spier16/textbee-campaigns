@@ -26,7 +26,8 @@ import {
   CreateTemplateDto,
   GetContactsDto,
   UpdateContactDto,
-  CreateContactDto
+  CreateContactDto,
+  CreateGroupDto
 } from './contacts.dto'
 import { Response as ExpressResponse } from 'express'
 
@@ -218,12 +219,21 @@ export class ContactsController {
     return this.contactsService.getContacts(req.user.id, query)
   }
 
+  @Post('groups')
+  @ApiOperation({ summary: 'Create a new contact group' })
+  async createGroup(
+    @Request() req,
+    @Body() createGroupData: CreateGroupDto,
+  ) {
+    return this.contactsService.createGroup(req.user.id, createGroupData)
+  }
+
   @Get('stats')
   @ApiOperation({ summary: 'Get contact statistics' })
   async getStats(@Request() req) {
     const { totalContacts } = await this.contactsService.getSpreadsheets(req.user.id, {})
     const { total: totalSpreadsheets } = await this.contactsService.getSpreadsheets(req.user.id, {})
-    
+
     return {
       totalContacts,
       totalSpreadsheets,

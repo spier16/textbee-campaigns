@@ -19,7 +19,8 @@ import {
   GetContactsDto,
   ContactResponseDto,
   UpdateContactDto,
-  CreateContactDto
+  CreateContactDto,
+  CreateGroupDto
 } from './contacts.dto'
 
 @Injectable()
@@ -1029,6 +1030,73 @@ export class ContactsService {
       mailingZip: contact.mailingZip,
       dnc: contact.dnc,
       dncUpdatedAt: contact.dncUpdatedAt?.toISOString(),
+    }
+  }
+
+  async createGroup(
+    userId: string,
+    createGroupData: CreateGroupDto,
+  ): Promise<ContactSpreadsheetResponseDto> {
+    try {
+      // Validate that all contact IDs exist and belong to the user
+      const contactObjectIds = createGroupData.contactIds.map(id => new Types.ObjectId(id))
+      const existingContacts = await this.contactModel
+        .find({
+          _id: { $in: contactObjectIds },
+          userId: new Types.ObjectId(userId),
+        })
+        .exec()
+
+      if (existingContacts.length !== createGroupData.contactIds.length) {
+        throw new BadRequestException('One or more contacts not found or do not belong to you')
+      }
+
+      // Generate unique group name if needed
+      const uniqueGroupName = await this.generateUniqueFileName(userId, createGroupData.name)
+
+      // Create a "virtual" spreadsheet for the custom group
+      const groupSpreadsheet = new this.contactSpreadsheetModel({
+        userId: new Types.ObjectId(userId),
+        originalFileName: uniqueGroupName,
+        contactCount: existingContacts.length,
+        uploadDate: new Date(),
+        fileContent: JSON.stringify({
+          type: 'custom_group',
+          name: createGroupData.name,
+          description: createGroupData.description,
+          contactIds: createGroupData.contactIds,
+        }), // Store metadata about the custom group
+        fileSize: 0, // No actual file size
+        status: 'processed', // Mark as processed immediately
+        validContactsCount: existingContacts.length,
+        nonDncCount: existingContacts.filter(contact => contact.dnc !== true).length,
+        dncCount: existingContacts.filter(contact => contact.dnc === true).length,
+      })
+
+      const savedGroup = await groupSpreadsheet.save()
+
+      // Create memberships for all contacts in the group
+      const memberships = existingContacts.map(contact => ({
+        userId: new Types.ObjectId(userId),
+        contactId: contact._id,
+        groupId: savedGroup._id,
+        wasNewContact: false, // These are existing contacts
+      }))
+
+      await this.contactGroupMembershipModel.insertMany(memberships)
+
+      // Return the group as a spreadsheet response
+      const stats = {
+        validContactsCount: existingContacts.length,
+        nonDncCount: existingContacts.filter(contact => contact.dnc !== true).length,
+        dncCount: existingContacts.filter(contact => contact.dnc === true).length,
+      }
+      return this.mapToResponseDto(savedGroup, stats)
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error
+      }
+      throw new BadRequestException(`Failed to create group: ${error.message}`)
     }
   }
 

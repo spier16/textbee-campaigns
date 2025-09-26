@@ -35,8 +35,9 @@ import {
   Plus,
   RefreshCw,
   Eye,
+  UserPlus,
 } from 'lucide-react'
-import { contactsApi, ContactSpreadsheet, Contact, downloadBlob } from '@/lib/api/contacts'
+import { contactsApi, ContactSpreadsheet, Contact, downloadBlob, CreateGroupData } from '@/lib/api/contacts'
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus } from '@/lib/utils'
@@ -762,6 +763,16 @@ export default function ContactsPage() {
     mailingZip: '',
   })
 
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const [createGroupData, setCreateGroupData] = useState({
+    name: '',
+    description: '',
+    selectedContacts: [] as string[],
+  })
+  const [availableContacts, setAvailableContacts] = useState<Contact[]>([])
+  const [loadingAvailableContacts, setLoadingAvailableContacts] = useState(false)
+  const [contactSearchQuery, setContactSearchQuery] = useState('')
+
   const [files, setFiles] = useState<ContactSpreadsheet[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
@@ -856,6 +867,51 @@ export default function ContactsPage() {
     }
   }
 
+  // Normalize phone number by removing all non-digits
+  const normalizePhoneForSearch = useCallback((phone: string): string => {
+    return phone.replace(/\D/g, '')
+  }, [])
+
+  // Flexible search function for contacts
+  const searchContacts = useCallback((contacts: Contact[], query: string): Contact[] => {
+    if (!query.trim()) return contacts
+
+    const searchTerms = query.toLowerCase()
+      .replace(/,/g, ' ') // Replace commas with spaces
+      .split(/\s+/) // Split by whitespace
+      .filter(term => term.length > 0)
+
+    return contacts.filter(contact => {
+      // Create searchable strings for the contact
+      const firstName = (contact.firstName || '').toLowerCase()
+      const lastName = (contact.lastName || '').toLowerCase()
+      const fullName = `${firstName} ${lastName}`.trim()
+      const reversedName = `${lastName} ${firstName}`.trim()
+      const phone = contact.phone
+      const normalizedPhone = normalizePhoneForSearch(phone)
+
+      // For each search term, check if it matches any part of the contact
+      return searchTerms.every(term => {
+        // Check if term is likely a phone number (contains only digits)
+        const isPhoneSearch = /^\d+$/.test(term)
+
+        if (isPhoneSearch) {
+          // For phone searches, check if the normalized phone contains the term
+          return normalizedPhone.includes(term)
+        } else {
+          // For name searches, check various combinations
+          return (
+            firstName.includes(term) ||
+            lastName.includes(term) ||
+            fullName.includes(term) ||
+            reversedName.includes(term) ||
+            phone.includes(term) // Also check original phone format
+          )
+        }
+      })
+    })
+  }, [normalizePhoneForSearch])
+
   // Use files/contacts directly since API handles filtering and sorting for most cases
   // But apply client-side sorting for Status column since it's not handled by backend
   const filteredAndSortedFiles = useMemo(() => {
@@ -875,6 +931,11 @@ export default function ContactsPage() {
     }
     return files
   }, [files, spreadsheetSortBy, spreadsheetSortOrder])
+
+  // Filter available contacts based on search query
+  const filteredAvailableContacts = useMemo(() => {
+    return searchContacts(availableContacts, contactSearchQuery)
+  }, [availableContacts, contactSearchQuery, searchContacts])
 
   const filteredAndSortedContacts = useMemo(() => {
     // The API handles all sorting now
@@ -960,6 +1021,91 @@ export default function ContactsPage() {
       return
     }
     createContactMutation.mutate(createContactData)
+  }
+
+  const createGroupMutation = useMutation({
+    mutationFn: async (data: CreateGroupData) => {
+      return contactsApi.createGroup(data)
+    },
+    onSuccess: (newGroup) => {
+      toast({
+        title: "Group created",
+        description: "New contact group has been created successfully."
+      })
+      setCreateGroupOpen(false)
+      setCreateGroupData({
+        name: '',
+        description: '',
+        selectedContacts: [],
+      })
+      // Refresh spreadsheets list and stats
+      if (selectedMode === 'spreadsheets') {
+        loadSpreadsheets()
+      }
+      loadStats()
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to create group",
+        description: error.response?.data?.message || error.message || "An error occurred while creating the group.",
+        variant: "destructive"
+      })
+    }
+  })
+
+  const handleCreateGroup = () => {
+    if (!createGroupData.name.trim()) {
+      toast({
+        title: "Group name required",
+        description: "Please enter a name for the group.",
+        variant: "destructive"
+      })
+      return
+    }
+    if (createGroupData.selectedContacts.length === 0) {
+      toast({
+        title: "No contacts selected",
+        description: "Please select at least one contact for the group.",
+        variant: "destructive"
+      })
+      return
+    }
+    createGroupMutation.mutate({
+      name: createGroupData.name,
+      description: createGroupData.description || undefined,
+      contactIds: createGroupData.selectedContacts,
+    })
+  }
+
+  const loadAvailableContacts = async () => {
+    setLoadingAvailableContacts(true)
+    setContactSearchQuery('') // Clear search when loading contacts
+    try {
+      const response = await contactsApi.getContacts({
+        limit: 1000, // Get a large number of contacts
+        sortBy: 'firstName',
+        sortOrder: 'asc',
+      })
+      setAvailableContacts(response.data)
+    } catch (error) {
+      console.error('Error loading available contacts:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to load contacts for group selection',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoadingAvailableContacts(false)
+    }
+  }
+
+  const handleToggleContactInGroup = (contactId: string, checked: boolean) => {
+    setCreateGroupData(prev => ({
+      ...prev,
+      selectedContacts: checked
+        ? [...prev.selectedContacts, contactId]
+        : prev.selectedContacts.filter(id => id !== contactId)
+    }))
   }
 
   const deleteContactsMutation = useMutation({
@@ -1383,6 +1529,136 @@ export default function ContactsPage() {
                     <Upload className='h-4 w-4' />
                     {uploading ? 'Uploading...' : 'Upload contacts'}
                   </Button>
+                  <Dialog open={createGroupOpen} onOpenChange={setCreateGroupOpen}>
+                    <DialogTrigger asChild>
+                      <Button className='gap-2' variant='outline' onClick={loadAvailableContacts}>
+                        <UserPlus className='h-4 w-4' />
+                        Create group
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className='max-w-3xl max-h-[80vh] overflow-hidden flex flex-col'>
+                      <DialogHeader>
+                        <DialogTitle>Create New Contact Group</DialogTitle>
+                      </DialogHeader>
+                      <div className='flex-1 flex flex-col overflow-hidden'>
+                        <div className='space-y-4 flex-shrink-0'>
+                          <div>
+                            <Label htmlFor="group-name" className='text-sm font-medium'>
+                              Group Name <span className='text-red-500'>*</span>
+                            </Label>
+                            <Input
+                              id="group-name"
+                              value={createGroupData.name}
+                              onChange={(e) => setCreateGroupData(prev => ({ ...prev, name: e.target.value }))}
+                              placeholder="Enter group name"
+                              className='mt-1'
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="group-description" className='text-sm font-medium'>
+                              Description (optional)
+                            </Label>
+                            <Textarea
+                              id="group-description"
+                              value={createGroupData.description}
+                              onChange={(e) => setCreateGroupData(prev => ({ ...prev, description: e.target.value }))}
+                              placeholder="Enter group description"
+                              className='mt-1'
+                              rows={2}
+                            />
+                          </div>
+                        </div>
+
+                        <div className='mt-6 flex-1 flex flex-col overflow-hidden'>
+                          <div className='flex items-center justify-between mb-4'>
+                            <Label className='text-sm font-medium'>
+                              Select Contacts <span className='text-red-500'>*</span>
+                            </Label>
+                            <div className='text-sm text-muted-foreground'>
+                              {createGroupData.selectedContacts.length} selected
+                            </div>
+                          </div>
+
+                          {/* Search input */}
+                          <div className='mb-4'>
+                            <div className='relative'>
+                              <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+                              <Input
+                                placeholder='Search by name or phone number...'
+                                value={contactSearchQuery}
+                                onChange={(e) => setContactSearchQuery(e.target.value)}
+                                className='pl-10'
+                              />
+                            </div>
+                            {contactSearchQuery && (
+                              <div className='text-xs text-muted-foreground mt-1'>
+                                Showing {filteredAvailableContacts.length} of {availableContacts.length} contacts
+                              </div>
+                            )}
+                          </div>
+
+                          <div className='flex-1 border rounded-md overflow-hidden'>
+                            {loadingAvailableContacts ? (
+                              <div className='flex items-center justify-center h-full py-8'>
+                                <div className='text-muted-foreground'>Loading contacts...</div>
+                              </div>
+                            ) : availableContacts.length === 0 ? (
+                              <div className='flex items-center justify-center h-full py-8'>
+                                <div className='text-muted-foreground'>No contacts available</div>
+                              </div>
+                            ) : filteredAvailableContacts.length === 0 ? (
+                              <div className='flex items-center justify-center h-full py-8'>
+                                <div className='text-muted-foreground'>No contacts match your search</div>
+                              </div>
+                            ) : (
+                              <div className='h-full overflow-y-auto'>
+                                <div className='divide-y'>
+                                  {filteredAvailableContacts.map((contact) => {
+                                    const displayName = contact.firstName || contact.lastName
+                                      ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+                                      : contact.phone
+
+                                    return (
+                                      <div key={contact.id} className='flex items-center space-x-3 p-3 hover:bg-muted/50'>
+                                        <Checkbox
+                                          checked={createGroupData.selectedContacts.includes(contact.id)}
+                                          onCheckedChange={(checked) => handleToggleContactInGroup(contact.id, checked as boolean)}
+                                        />
+                                        <div className='flex-1'>
+                                          <div className='font-medium'>{displayName}</div>
+                                          {contact.firstName && (
+                                            <div className='text-sm text-muted-foreground'>{contact.phone}</div>
+                                          )}
+                                          {contact.email && (
+                                            <div className='text-sm text-muted-foreground'>{contact.email}</div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          variant='outline'
+                          onClick={() => setCreateGroupOpen(false)}
+                          disabled={createGroupMutation.isPending}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleCreateGroup}
+                          disabled={createGroupMutation.isPending || !createGroupData.name.trim() || createGroupData.selectedContacts.length === 0}
+                        >
+                          {createGroupMutation.isPending ? 'Creating...' : 'Create Group'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                   <input
                     ref={fileInputRef}
                     type='file'
