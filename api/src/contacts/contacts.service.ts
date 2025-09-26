@@ -6,6 +6,9 @@ import { ContactSpreadsheet, ContactSpreadsheetDocument } from './schemas/contac
 import { Contact, ContactDocument } from './schemas/contact.schema'
 import { ContactTemplate, ContactTemplateDocument } from './schemas/contact-template.schema'
 import { ContactGroupMembership, ContactGroupMembershipDocument } from './schemas/contact-group-membership.schema'
+import { SMS, SMSDocument } from '../gateway/schemas/sms.schema'
+import { SMSType } from '../gateway/sms-type.enum'
+import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
 import {
   UploadSpreadsheetDto,
   GetSpreadsheetsDto,
@@ -34,6 +37,10 @@ export class ContactsService {
     private contactTemplateModel: Model<ContactTemplateDocument>,
     @InjectModel(ContactGroupMembership.name)
     private contactGroupMembershipModel: Model<ContactGroupMembershipDocument>,
+    @InjectModel(SMS.name)
+    private smsModel: Model<SMSDocument>,
+    @InjectModel(Device.name)
+    private deviceModel: Model<DeviceDocument>,
   ) {}
 
   async uploadSpreadsheet(
@@ -892,6 +899,8 @@ export class ContactsService {
   async getUniqueContactCount(
     userId: string,
     spreadsheetIds: string[],
+    excludeDnc: boolean = true,
+    includePreviouslyMessaged: boolean = false,
   ): Promise<{ uniqueContactCount: number }> {
     const objectIds = spreadsheetIds.map(id => new Types.ObjectId(id))
 
@@ -915,10 +924,9 @@ export class ContactsService {
       })
       .exec()
 
-    console.log(`Debug: Found ${membershipCount} memberships for user ${userId} in groups ${spreadsheetIds}`)
 
-    // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
-    const uniqueContacts = await this.contactGroupMembershipModel.aggregate([
+    // Build aggregation pipeline with conditional filtering
+    const pipeline: any[] = [
       {
         $match: {
           userId: new Types.ObjectId(userId),
@@ -935,7 +943,53 @@ export class ContactsService {
       },
       {
         $unwind: '$contact',
-      },
+      }
+    ]
+
+    // Add DNC filtering if excludeDnc is true
+    if (excludeDnc) {
+      pipeline.push({
+        $match: {
+          'contact.dnc': { $ne: true }
+        }
+      })
+    }
+
+    // Add previously messaged filtering if includePreviouslyMessaged is false
+    if (!includePreviouslyMessaged) {
+
+      // First get user's device IDs to scope SMS query to current user
+      const userDevices = await this.deviceModel.find({
+        user: new Types.ObjectId(userId)
+      }).select('_id')
+      const userDeviceIds = userDevices.map(device => device._id)
+
+      if (userDeviceIds.length > 0) {
+        // Get list of previously messaged phone numbers from user's devices
+        const smsQuery = {
+          device: { $in: userDeviceIds },
+          type: SMSType.SENT,
+          status: { $in: ['sent', 'delivered'] }
+        }
+
+        const previouslyMessagedPhones = await this.smsModel.distinct('recipient', smsQuery)
+
+        if (previouslyMessagedPhones.length > 0) {
+          const matchStage = {
+            $match: {
+              'contact.phone': { $nin: previouslyMessagedPhones }
+            }
+          }
+          pipeline.push(matchStage)
+        } else {
+        }
+      } else {
+      }
+    } else {
+    }
+
+    // Add final grouping and count stages
+    pipeline.push(
       {
         $group: {
           _id: '$contact.phone', // Group by phone number to get unique contacts
@@ -943,17 +997,23 @@ export class ContactsService {
       },
       {
         $count: 'uniqueContactCount',
-      },
-    ])
+      }
+    )
 
-    return {
+    // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
+    const uniqueContacts = await this.contactGroupMembershipModel.aggregate(pipeline)
+    const result = {
       uniqueContactCount: uniqueContacts.length > 0 ? uniqueContacts[0].uniqueContactCount : 0,
     }
+
+    return result
   }
 
   async getUniqueContacts(
     userId: string,
     spreadsheetIds: string[],
+    excludeDnc: boolean = true,
+    includePreviouslyMessaged: boolean = false,
   ): Promise<{ data: ContactResponseDto[], total: number }> {
     const objectIds = spreadsheetIds.map(id => new Types.ObjectId(id))
 
@@ -969,8 +1029,8 @@ export class ContactsService {
       throw new NotFoundException('One or more spreadsheets not found')
     }
 
-    // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
-    const uniqueContacts = await this.contactGroupMembershipModel.aggregate([
+    // Build aggregation pipeline with conditional filtering
+    const pipeline: any[] = [
       {
         $match: {
           userId: new Types.ObjectId(userId),
@@ -987,7 +1047,53 @@ export class ContactsService {
       },
       {
         $unwind: '$contact',
-      },
+      }
+    ]
+
+    // Add DNC filtering if excludeDnc is true
+    if (excludeDnc) {
+      pipeline.push({
+        $match: {
+          'contact.dnc': { $ne: true }
+        }
+      })
+    }
+
+    // Add previously messaged filtering if includePreviouslyMessaged is false
+    if (!includePreviouslyMessaged) {
+
+      // First get user's device IDs to scope SMS query to current user
+      const userDevices = await this.deviceModel.find({
+        user: new Types.ObjectId(userId)
+      }).select('_id')
+      const userDeviceIds = userDevices.map(device => device._id)
+
+      if (userDeviceIds.length > 0) {
+        // Get list of previously messaged phone numbers from user's devices
+        const smsQuery = {
+          device: { $in: userDeviceIds },
+          type: SMSType.SENT,
+          status: { $in: ['sent', 'delivered'] }
+        }
+
+        const previouslyMessagedPhones = await this.smsModel.distinct('recipient', smsQuery)
+
+        if (previouslyMessagedPhones.length > 0) {
+          const matchStage = {
+            $match: {
+              'contact.phone': { $nin: previouslyMessagedPhones }
+            }
+          }
+          pipeline.push(matchStage)
+        } else {
+        }
+      } else {
+      }
+    } else {
+    }
+
+    // Add final grouping and result stages
+    pipeline.push(
       {
         $group: {
           _id: '$contact.phone', // Group by phone number to get unique contacts
@@ -998,15 +1104,19 @@ export class ContactsService {
         $replaceRoot: {
           newRoot: '$contact',
         },
-      },
-    ])
+      }
+    )
+
+    // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
+    const uniqueContacts = await this.contactGroupMembershipModel.aggregate(pipeline)
 
     const mappedContacts = uniqueContacts.map(contact => this.mapContactToResponseDto(contact))
-
-    return {
+    const result = {
       data: mappedContacts,
       total: mappedContacts.length,
     }
+
+    return result
   }
 
   private mapContactToResponseDto = (contact: ContactDocument): ContactResponseDto => {

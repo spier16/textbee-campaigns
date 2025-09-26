@@ -27,7 +27,9 @@ import {
   GetContactsDto,
   UpdateContactDto,
   CreateContactDto,
-  CreateGroupDto
+  CreateGroupDto,
+  GetUniqueContactCountDto,
+  GetUniqueContactsDto
 } from './contacts.dto'
 import { Response as ExpressResponse } from 'express'
 
@@ -295,23 +297,33 @@ export class ContactsController {
   @ApiOperation({ summary: 'Get unique contact count across multiple spreadsheets' })
   async getUniqueContactCount(
     @Request() req,
-    @Body('spreadsheetIds') spreadsheetIds: string[],
+    @Body() body: GetUniqueContactCountDto,
   ) {
-    if (!spreadsheetIds || spreadsheetIds.length === 0) {
+    if (!body.spreadsheetIds || body.spreadsheetIds.length === 0) {
       return { uniqueContactCount: 0 }
     }
-    return this.contactsService.getUniqueContactCount(req.user.id, spreadsheetIds)
+    return this.contactsService.getUniqueContactCount(
+      req.user.id,
+      body.spreadsheetIds,
+      body.excludeDnc ?? true,
+      body.includePreviouslyMessaged ?? false
+    )
   }
 
   @Post('spreadsheets/unique-contacts')
   @ApiOperation({ summary: 'Get unique contacts across multiple spreadsheets' })
   async getUniqueContacts(
     @Request() req,
-    @Body('spreadsheetIds') spreadsheetIds: string[],
+    @Body() body: GetUniqueContactsDto,
   ) {
-    if (!spreadsheetIds || spreadsheetIds.length === 0) {
+    if (!body.spreadsheetIds || body.spreadsheetIds.length === 0) {
       return { data: [], total: 0 }
     }
-    return this.contactsService.getUniqueContacts(req.user.id, spreadsheetIds)
+    return this.contactsService.getUniqueContacts(
+      req.user.id,
+      body.spreadsheetIds,
+      body.excludeDnc ?? true,
+      body.includePreviouslyMessaged ?? false
+    )
   }
 }

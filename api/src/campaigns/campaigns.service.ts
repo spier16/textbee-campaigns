@@ -37,6 +37,7 @@ import { ContactsService } from '../contacts/contacts.service'
 import { GetContactsDto } from '../contacts/contacts.dto'
 import { User } from '../users/schemas/user.schema'
 import { CampaignQueueService } from './queue/campaign-queue.service'
+import { processTemplateVariables, ContactData } from './utils/template-processor'
 
 @Injectable()
 export class CampaignsService {
@@ -390,10 +391,15 @@ export class CampaignsService {
       throw new BadRequestException('One or more templates not found')
     }
 
-    // Get unique contact count to calculate total messages (deduplicated)
+    // Get unique contact count to calculate total messages (deduplicated with filters)
+    const excludeDnc = createCampaignDto.excludeDnc ?? true
+    const includePreviouslyMessaged = createCampaignDto.includePreviouslyMessaged ?? false
+
     const uniqueContactResult = await this.contactsService.getUniqueContactCount(
       user._id.toString(),
-      createCampaignDto.selectedContacts
+      createCampaignDto.selectedContacts,
+      excludeDnc,
+      includePreviouslyMessaged
     )
     const totalContacts = uniqueContactResult.uniqueContactCount
 
@@ -402,6 +408,8 @@ export class CampaignsService {
       ...createCampaignDto,
       user: user._id,
       status: CampaignStatus.DRAFT,
+      excludeDnc,
+      includePreviouslyMessaged,
       totalMessages: totalContacts, // One message per contact (templates rotate)
       sentMessages: 0,
       failedMessages: 0,
@@ -575,22 +583,43 @@ export class CampaignsService {
     const messages: any[] = []
     let templateIndex = 0
 
-    // Get unique contacts from selected spreadsheets (deduplicated)
+    // Get unique contacts from selected spreadsheets (deduplicated with stored filters)
     const uniqueContactsResult = await this.contactsService.getUniqueContacts(
       user._id.toString(),
-      campaign.selectedContacts
+      campaign.selectedContacts,
+      campaign.excludeDnc,
+      campaign.includePreviouslyMessaged
     )
 
     // Create messages for each unique contact, rotating through templates
     for (const contact of uniqueContactsResult.data) {
       const template = templates[templateIndex % templates.length]
 
+      // Process template variables with contact data
+      const contactData: ContactData = {
+        id: contact.id,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        phone: contact.phone,
+        email: contact.email,
+        propertyAddress: contact.propertyAddress,
+        propertyCity: contact.propertyCity,
+        propertyState: contact.propertyState,
+        propertyZip: contact.propertyZip,
+        mailingAddress: contact.mailingAddress,
+        mailingCity: contact.mailingCity,
+        mailingState: contact.mailingState,
+        mailingZip: contact.mailingZip,
+      }
+
+      const processedContent = processTemplateVariables(template.content, contactData)
+
       messages.push({
         user: user._id,
         campaign: campaign._id,
         templateId: template._id.toString(),
         templateIndex: templateIndex % templates.length,
-        content: template.content,
+        content: processedContent, // Now contains processed content with substituted variables
         recipient: contact.phone,
         contactId: contact.id,
         status: MessageStatus.PENDING,
@@ -628,6 +657,8 @@ export class CampaignsService {
       campaignStartDate: campaign.campaignStartDate,
       campaignEndDate: campaign.campaignEndDate,
       timezone: campaign.timezone,
+      excludeDnc: campaign.excludeDnc,
+      includePreviouslyMessaged: campaign.includePreviouslyMessaged,
       isDeleted: campaign.isDeleted,
       deletedAt: campaign.deletedAt,
       statusBeforeDelete: campaign.statusBeforeDelete,

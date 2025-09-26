@@ -69,6 +69,8 @@ export interface CreateCampaignData {
   sendingWindows: SendingWindow[]
   weekdayWindows: WeekdayWindows
   weekdayEnabled: WeekdayEnabled
+  excludeDnc: boolean
+  includePreviouslyMessaged: boolean
 }
 
 // ===== Calendar Types =====
@@ -229,7 +231,9 @@ export const DEFAULT_CREATE_CAMPAIGN_DATA: Omit<CreateCampaignData, 'campaignSta
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   sendingWindows: [],
   weekdayWindows: DEFAULT_WEEKDAY_WINDOWS,
-  weekdayEnabled: DEFAULT_WEEKDAY_ENABLED
+  weekdayEnabled: DEFAULT_WEEKDAY_ENABLED,
+  excludeDnc: true,
+  includePreviouslyMessaged: false
 }
 
 // ===== Utility Types =====

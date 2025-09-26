@@ -104,6 +104,8 @@ export default function CampaignsPage() {
         saturday: false,
         sunday: false
       },
+      excludeDnc: true,
+      includePreviouslyMessaged: false
     }
   })
   const [manageTemplatesOpen, setManageTemplatesOpen] = useState(false)
@@ -236,7 +238,6 @@ export default function CampaignsPage() {
   const { data: deletedCampaignsData, refetch: refetchDeletedCampaigns, isLoading: deletedCampaignsLoading } = useQuery({
     queryKey: ['deleted-campaigns'],
     queryFn: () => campaignsApi.getDeletedCampaigns(),
-    enabled: selectedMode === 'deleted',
   })
 
   const campaigns = campaignsData || []
@@ -397,6 +398,8 @@ export default function CampaignsPage() {
           saturday: false,
           sunday: false
         },
+        excludeDnc: true,
+        includePreviouslyMessaged: false
       })
       setDateValidationErrors({ startDateError: '', endDateError: '' })
     },
@@ -470,24 +473,6 @@ export default function CampaignsPage() {
   })
 
 
-  // Auto-expand groups when templates are selected
-  useEffect(() => {
-    if (createCampaignData.selectedTemplates.length > 0) {
-      const groupsWithSelectedTemplates = new Set<string>()
-
-      createCampaignData.selectedTemplates.forEach(templateId => {
-        for (const group of templateGroups) {
-          const template = group.templates.find(t => t._id === templateId)
-          if (template) {
-            groupsWithSelectedTemplates.add(`selected-${group._id}`)
-            break
-          }
-        }
-      })
-
-      setExpandedGroups(groupsWithSelectedTemplates)
-    }
-  }, [createCampaignData.selectedTemplates, templateGroups])
 
   // Fetch unique contact count when selected contacts change
   useEffect(() => {
@@ -498,7 +483,11 @@ export default function CampaignsPage() {
       }
 
       try {
-        const result = await contactsApi.getUniqueContactCount(createCampaignData.selectedContacts)
+        const result = await contactsApi.getUniqueContactCount(
+          createCampaignData.selectedContacts,
+          createCampaignData.excludeDnc,
+          createCampaignData.includePreviouslyMessaged
+        )
         setUniqueContactCount(result.uniqueContactCount)
       } catch (error) {
         console.error('Failed to fetch unique contact count:', error)
@@ -507,7 +496,7 @@ export default function CampaignsPage() {
     }
 
     fetchUniqueContactCount()
-  }, [createCampaignData.selectedContacts])
+  }, [createCampaignData.selectedContacts, createCampaignData.excludeDnc, createCampaignData.includePreviouslyMessaged])
 
   // Filter and sort campaigns based on selected mode
   const filteredAndSortedCampaigns = useMemo(() => {
@@ -658,6 +647,8 @@ export default function CampaignsPage() {
       sendingWindows: createCampaignData.sendingWindows?.length > 0 ? createCampaignData.sendingWindows : undefined,
       weekdayWindows: createCampaignData.weekdayWindows,
       weekdayEnabled: createCampaignData.weekdayEnabled,
+      excludeDnc: createCampaignData.excludeDnc,
+      includePreviouslyMessaged: createCampaignData.includePreviouslyMessaged,
     }
 
     // Create the campaign via API

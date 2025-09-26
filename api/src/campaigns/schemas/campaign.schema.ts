@@ -115,6 +115,13 @@ export class Campaign {
   @Prop({ type: Object })
   weekdayEnabled?: WeekdayEnabled
 
+  // Contact filtering preferences
+  @Prop({ type: Boolean, default: true })
+  excludeDnc: boolean
+
+  @Prop({ type: Boolean, default: false })
+  includePreviouslyMessaged: boolean
+
   // Campaign execution tracking
   @Prop({ type: Number, default: 0 })
   totalMessages: number

@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Switch } from '@/components/ui/switch'
 import {
   Trash2,
   MessageSquare,
@@ -249,7 +250,11 @@ export function CreateCampaignDialog({
       }
 
       // Get unique contacts from server-side API (handles deduplication automatically)
-      const response = await contactsApi.getUniqueContacts(campaignData.selectedContacts)
+      const response = await contactsApi.getUniqueContacts(
+        campaignData.selectedContacts,
+        campaignData.excludeDnc,
+        campaignData.includePreviouslyMessaged
+      )
       const uniqueContacts = response.data
 
       // Generate message previews with template rotation for UNIQUE contacts only
@@ -288,7 +293,7 @@ export function CreateCampaignDialog({
     if (activeTab === 'preview' && open && campaignData.selectedContacts.length > 0 && campaignData.selectedTemplates.length > 0) {
       generateMessagePreview()
     }
-  }, [activeTab, open, campaignData.selectedContacts, campaignData.selectedTemplates, templateGroups])
+  }, [activeTab, open, campaignData.selectedContacts, campaignData.selectedTemplates, campaignData.excludeDnc, campaignData.includePreviouslyMessaged, templateGroups])
 
   // Date validation function
   const validateDates = (startDate: string, endDate: string) => {
@@ -334,8 +339,9 @@ export function CreateCampaignDialog({
   // Validation functions for each stage
   const validateDetailsStage = () => {
     const hasContacts = campaignData.selectedContacts.length > 0
+    const hasValidContacts = uniqueContactCount > 0
     const hasTemplates = campaignData.selectedTemplates.length > 0
-    return hasContacts && hasTemplates
+    return hasContacts && hasValidContacts && hasTemplates
   }
 
   const validateConfigureStage = () => {
@@ -378,11 +384,13 @@ export function CreateCampaignDialog({
     } else {
       if (value === 'configure' && !validateDetailsStage()) {
         const hasContacts = campaignData.selectedContacts.length > 0
+        const hasValidContacts = uniqueContactCount > 0
         const hasTemplates = campaignData.selectedTemplates.length > 0
 
         let description = "Please complete the following: "
         const missing = []
         if (!hasContacts) missing.push("select contacts")
+        else if (!hasValidContacts) missing.push("adjust filters (no valid contacts after filtering)")
         if (!hasTemplates) missing.push("select message templates")
         description += missing.join(" and ")
 
@@ -419,11 +427,13 @@ export function CreateCampaignDialog({
       } else {
         if (nextTab === 'configure' && !validateDetailsStage()) {
           const hasContacts = campaignData.selectedContacts.length > 0
+          const hasValidContacts = uniqueContactCount > 0
           const hasTemplates = campaignData.selectedTemplates.length > 0
 
           let description = "Please complete the following: "
           const missing = []
           if (!hasContacts) missing.push("select contacts")
+          else if (!hasValidContacts) missing.push("adjust filters (no valid contacts after filtering)")
           if (!hasTemplates) missing.push("select message templates")
           description += missing.join(" and ")
 
@@ -556,6 +566,42 @@ export function CreateCampaignDialog({
                       )}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className='space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <Label htmlFor='excludeDnc' className='text-sm font-medium'>
+                      Exclude DNC
+                    </Label>
+                    <Switch
+                      id='excludeDnc'
+                      checked={campaignData.excludeDnc}
+                      onCheckedChange={(checked) => {
+                        onCampaignDataChange({ ...campaignData, excludeDnc: checked })
+                      }}
+                    />
+                  </div>
+                  <div className='text-xs text-muted-foreground'>
+                    Exclude contacts marked as Do Not Call from the campaign
+                  </div>
+                </div>
+
+                <div className='space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <Label htmlFor='includePreviouslyMessaged' className='text-sm font-medium'>
+                      Send to Previously Messaged Contacts
+                    </Label>
+                    <Switch
+                      id='includePreviouslyMessaged'
+                      checked={campaignData.includePreviouslyMessaged}
+                      onCheckedChange={(checked) => {
+                        onCampaignDataChange({ ...campaignData, includePreviouslyMessaged: checked })
+                      }}
+                    />
+                  </div>
+                  <div className='text-xs text-muted-foreground'>
+                    Include contacts who have been messaged before in previous campaigns
+                  </div>
                 </div>
 
                 <div className='space-y-2'>

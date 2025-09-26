@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsString, IsOptional, IsNotEmpty, IsMongoId, IsArray, IsEnum, IsObject, ValidateNested } from 'class-validator'
+import { IsString, IsOptional, IsNotEmpty, IsMongoId, IsArray, IsEnum, IsObject, ValidateNested, IsBoolean } from 'class-validator'
 import { Type } from 'class-transformer'
 import { CampaignStatus, ScheduleType } from './schemas/campaign.schema'
 
@@ -201,6 +201,16 @@ export class CreateCampaignDto {
   @IsOptional()
   @IsObject()
   weekdayEnabled?: any
+
+  @ApiProperty({ description: 'Exclude DNC contacts', required: false, default: true })
+  @IsOptional()
+  @IsBoolean()
+  excludeDnc?: boolean
+
+  @ApiProperty({ description: 'Include previously messaged contacts', required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  includePreviouslyMessaged?: boolean
 }
 
 export class UpdateCampaignStatusDto {
@@ -278,4 +288,10 @@ export class CampaignResponseDto {
 
   @ApiProperty({ required: false, enum: CampaignStatus })
   statusBeforeDelete?: CampaignStatus
+
+  @ApiProperty({ required: false })
+  excludeDnc?: boolean
+
+  @ApiProperty({ required: false })
+  includePreviouslyMessaged?: boolean
 }

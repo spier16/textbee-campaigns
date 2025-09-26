@@ -110,6 +110,8 @@ export interface CreateCampaignDto {
   sendingWindows?: SendingWindow[]
   weekdayWindows?: WeekdayWindows
   weekdayEnabled?: WeekdayEnabled
+  excludeDnc?: boolean
+  includePreviouslyMessaged?: boolean
 }
 
 export interface UpdateCampaignStatusDto {
@@ -137,6 +139,8 @@ export interface Campaign {
   campaignStartDate: string
   campaignEndDate: string
   timezone: string
+  excludeDnc?: boolean
+  includePreviouslyMessaged?: boolean
   isDeleted?: boolean
   deletedAt?: string
   statusBeforeDelete?: CampaignStatus

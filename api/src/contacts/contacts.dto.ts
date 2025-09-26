@@ -383,3 +383,37 @@ export class ContactResponseDto {
   dnc?: boolean
   dncUpdatedAt?: string
 }
+
+export class GetUniqueContactCountDto {
+  @ApiProperty({ description: 'Array of spreadsheet IDs to include' })
+  @IsArray()
+  @IsString({ each: true })
+  spreadsheetIds: string[]
+
+  @ApiProperty({ description: 'Whether to exclude DNC contacts', required: false, default: true })
+  @IsOptional()
+  @IsBoolean()
+  excludeDnc?: boolean
+
+  @ApiProperty({ description: 'Whether to include previously messaged contacts', required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  includePreviouslyMessaged?: boolean
+}
+
+export class GetUniqueContactsDto {
+  @ApiProperty({ description: 'Array of spreadsheet IDs to include' })
+  @IsArray()
+  @IsString({ each: true })
+  spreadsheetIds: string[]
+
+  @ApiProperty({ description: 'Whether to exclude DNC contacts', required: false, default: true })
+  @IsOptional()
+  @IsBoolean()
+  excludeDnc?: boolean
+
+  @ApiProperty({ description: 'Whether to include previously messaged contacts', required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  includePreviouslyMessaged?: boolean
+}

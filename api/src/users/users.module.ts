@@ -7,6 +7,8 @@ import { UsersController } from './users.controller'
 import { UsersService } from './users.service'
 import { BillingModule } from 'src/billing/billing.module'
 import { Device, DeviceSchema } from 'src/gateway/schemas/device.schema'
+import { SMS, SMSSchema } from 'src/gateway/schemas/sms.schema'
+import { Contact, ContactSchema } from 'src/contacts/schemas/contact.schema'
 import { MailModule } from 'src/mail/mail.module'
 
 @Module({
@@ -27,6 +29,14 @@ import { MailModule } from 'src/mail/mail.module'
       {
         name: Device.name,
         schema: DeviceSchema,
+      },
+      {
+        name: SMS.name,
+        schema: SMSSchema,
+      },
+      {
+        name: Contact.name,
+        schema: ContactSchema,
       },
     ]),
     forwardRef(() => BillingModule),
