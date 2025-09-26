@@ -269,4 +269,13 @@ export class CampaignResponseDto {
 
   @ApiProperty()
   timezone: string
+
+  @ApiProperty({ required: false })
+  isDeleted?: boolean
+
+  @ApiProperty({ required: false })
+  deletedAt?: Date
+
+  @ApiProperty({ required: false, enum: CampaignStatus })
+  statusBeforeDelete?: CampaignStatus
 }

@@ -147,6 +147,16 @@ export class Campaign {
   @Prop({ type: Number, default: 3 })
   maxRetries: number
 
+  // Soft delete fields
+  @Prop({ type: Boolean, default: false })
+  isDeleted: boolean
+
+  @Prop({ type: Date })
+  deletedAt?: Date
+
+  @Prop({ type: String })
+  statusBeforeDelete?: CampaignStatus
+
   createdAt?: Date
   updatedAt?: Date
 }
@@ -157,3 +167,4 @@ export const CampaignSchema = SchemaFactory.createForClass(Campaign)
 CampaignSchema.index({ user: 1, status: 1 })
 CampaignSchema.index({ user: 1, createdAt: -1 })
 CampaignSchema.index({ status: 1, campaignStartDate: 1 })
+CampaignSchema.index({ user: 1, isDeleted: 1 })

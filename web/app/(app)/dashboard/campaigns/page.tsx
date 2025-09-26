@@ -39,6 +39,8 @@ import {
   Copy,
   Play,
   Pause,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { contactsApi, ContactSpreadsheet } from '@/lib/api/contacts'
@@ -56,7 +58,7 @@ import { TemplateItem } from '@/components/campaigns/TemplateItem'
 
 
 export default function CampaignsPage() {
-  const [selectedMode, setSelectedMode] = useState<'campaigns' | 'running' | 'draft' | 'paused' | 'completed'>('campaigns')
+  const [selectedMode, setSelectedMode] = useState<'campaigns' | 'running' | 'draft' | 'paused' | 'completed' | 'deleted'>('campaigns')
   const [searchQuery, setSearchQuery] = useState('')
   const [displayCount, setDisplayCount] = useState(25)
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a'>('newest')
@@ -230,7 +232,15 @@ export default function CampaignsPage() {
     queryFn: () => campaignsApi.getCampaigns(),
   })
 
+  // Fetch deleted campaigns from API
+  const { data: deletedCampaignsData, refetch: refetchDeletedCampaigns, isLoading: deletedCampaignsLoading } = useQuery({
+    queryKey: ['deleted-campaigns'],
+    queryFn: () => campaignsApi.getDeletedCampaigns(),
+    enabled: selectedMode === 'deleted',
+  })
+
   const campaigns = campaignsData || []
+  const deletedCampaigns = deletedCampaignsData || []
 
   // Mutations for template groups
   const createTemplateGroupMutation = useMutation({
@@ -403,7 +413,9 @@ export default function CampaignsPage() {
     mutationFn: campaignsApi.deleteCampaign,
     onSuccess: () => {
       refetchCampaigns()
+      refetchDeletedCampaigns()
       queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      queryClient.invalidateQueries({ queryKey: ['deleted-campaigns'] })
     },
     onError: (error: any) => {
       toast({
@@ -431,6 +443,27 @@ export default function CampaignsPage() {
       toast({
         title: "Error updating campaign",
         description: error.response?.data?.message || "An error occurred while updating the campaign.",
+        variant: "destructive"
+      })
+    },
+  })
+
+  const restoreCampaignMutation = useMutation({
+    mutationFn: campaignsApi.restoreCampaign,
+    onSuccess: (restoredCampaign) => {
+      refetchCampaigns()
+      refetchDeletedCampaigns()
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      queryClient.invalidateQueries({ queryKey: ['deleted-campaigns'] })
+      toast({
+        title: "Campaign restored",
+        description: `Campaign "${restoredCampaign.name}" has been restored.`
+      })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error restoring campaign",
+        description: error.response?.data?.message || "An error occurred while restoring the campaign.",
         variant: "destructive"
       })
     },
@@ -478,10 +511,14 @@ export default function CampaignsPage() {
 
   // Filter and sort campaigns based on selected mode
   const filteredAndSortedCampaigns = useMemo(() => {
-    let filtered = campaigns
+    let filtered: Campaign[]
 
-    if (selectedMode !== 'campaigns') {
-      filtered = filtered.filter(campaign => campaign.status === selectedMode)
+    if (selectedMode === 'deleted') {
+      filtered = deletedCampaigns
+    } else if (selectedMode === 'campaigns') {
+      filtered = campaigns
+    } else {
+      filtered = campaigns.filter(campaign => campaign.status === selectedMode)
     }
 
     if (searchQuery) {
@@ -539,17 +576,18 @@ export default function CampaignsPage() {
     })
 
     return sorted
-  }, [campaigns, selectedMode, searchQuery, campaignSortBy, campaignSortOrder])
+  }, [campaigns, deletedCampaigns, selectedMode, searchQuery, campaignSortBy, campaignSortOrder])
 
-  const [totalCampaigns, totalRunning, totalDraft, totalPaused, totalCompleted] = useMemo(() => {
+  const [totalCampaigns, totalRunning, totalDraft, totalPaused, totalCompleted, totalDeleted] = useMemo(() => {
     const total = campaigns.length
     const running = campaigns.filter(c => c.status === CampaignStatus.RUNNING).length
     const draft = campaigns.filter(c => c.status === CampaignStatus.DRAFT).length
     const paused = campaigns.filter(c => c.status === CampaignStatus.PAUSED).length
     const completed = campaigns.filter(c => c.status === CampaignStatus.COMPLETED).length
+    const deleted = deletedCampaigns.length
 
-    return [total, running, draft, paused, completed]
-  }, [campaigns])
+    return [total, running, draft, paused, completed, deleted]
+  }, [campaigns, deletedCampaigns])
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -632,12 +670,12 @@ export default function CampaignsPage() {
     const campaignCount = selectedCampaigns.length
     const campaignText = campaignCount === 1 ? 'campaign' : 'campaigns'
 
-    if (!confirm(`Are you sure you want to permanently delete ${campaignCount} ${campaignText}? This action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete ${campaignCount} ${campaignText}? You can restore them later from the Deleted view.`)) {
       return
     }
 
     try {
-      // Delete each campaign via API
+      // Delete each campaign via API (soft delete)
       await Promise.all(selectedCampaigns.map(campaignId =>
         deleteCampaignMutation.mutateAsync(campaignId)
       ))
@@ -650,6 +688,33 @@ export default function CampaignsPage() {
       })
     } catch (error) {
       console.error('Error deleting campaigns:', error)
+    }
+  }
+
+  const handleRestoreSelectedCampaigns = async () => {
+    if (selectedCampaigns.length === 0) return
+
+    const campaignCount = selectedCampaigns.length
+    const campaignText = campaignCount === 1 ? 'campaign' : 'campaigns'
+
+    if (!confirm(`Are you sure you want to restore ${campaignCount} ${campaignText}?`)) {
+      return
+    }
+
+    try {
+      // Restore each campaign via API
+      await Promise.all(selectedCampaigns.map(campaignId =>
+        restoreCampaignMutation.mutateAsync(campaignId)
+      ))
+
+      setSelectedCampaigns([])
+
+      toast({
+        title: "Success",
+        description: `Restored ${campaignCount} ${campaignText} successfully`
+      })
+    } catch (error) {
+      console.error('Error restoring campaigns:', error)
     }
   }
 
@@ -696,7 +761,7 @@ export default function CampaignsPage() {
   const isAllSelected = selectedCampaigns.length === filteredAndSortedCampaigns.length && filteredAndSortedCampaigns.length > 0
   const isSomeSelected = selectedCampaigns.length > 0
 
-  const getStatusDisplay = (status: CampaignStatus, campaignId: string) => {
+  const getStatusDisplay = (status: CampaignStatus, campaignId: string, isDeleted: boolean = false) => {
     const statusConfig = {
       [CampaignStatus.DRAFT]: { dot: 'bg-gray-400', text: 'Draft' },
       [CampaignStatus.SCHEDULED]: { dot: 'bg-yellow-500', text: 'Scheduled' },
@@ -713,35 +778,53 @@ export default function CampaignsPage() {
       <div className='flex items-center gap-2'>
         <div className={`w-2 h-2 rounded-full ${config.dot}`} />
         <span className='text-sm'>{config.text}</span>
-        {status === CampaignStatus.DRAFT && (
+        {isDeleted ? (
           <Button
             size='sm'
             variant='outline'
             className='ml-2 gap-1'
             onClick={(e) => {
               e.stopPropagation()
-              handleRunCampaign(campaignId)
+              restoreCampaignMutation.mutateAsync(campaignId)
             }}
-            disabled={updateCampaignStatusMutation.isPending}
+            disabled={restoreCampaignMutation.isPending}
           >
-            <Play className='h-3 w-3' />
-            Run
+            <RotateCcw className='h-3 w-3' />
+            Restore
           </Button>
-        )}
-        {status === CampaignStatus.RUNNING && (
-          <Button
-            size='sm'
-            variant='outline'
-            className='ml-2 gap-1'
-            onClick={(e) => {
-              e.stopPropagation()
-              handlePauseCampaign(campaignId)
-            }}
-            disabled={updateCampaignStatusMutation.isPending}
-          >
-            <Pause className='h-3 w-3' />
-            Pause
-          </Button>
+        ) : (
+          <>
+            {status === CampaignStatus.DRAFT && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='ml-2 gap-1'
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleRunCampaign(campaignId)
+                }}
+                disabled={updateCampaignStatusMutation.isPending}
+              >
+                <Play className='h-3 w-3' />
+                Run
+              </Button>
+            )}
+            {status === CampaignStatus.RUNNING && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='ml-2 gap-1'
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handlePauseCampaign(campaignId)
+                }}
+                disabled={updateCampaignStatusMutation.isPending}
+              >
+                <Pause className='h-3 w-3' />
+                Pause
+              </Button>
+            )}
+          </>
         )}
       </div>
     )
@@ -812,6 +895,18 @@ export default function CampaignsPage() {
             <Check className='mr-2 h-4 w-4' />
             Completed campaigns ({totalCompleted})
           </Button>
+          <Button
+            variant={selectedMode === 'deleted' ? 'default' : 'ghost'}
+            className='w-full justify-start text-sm'
+            onClick={() => {
+              setSelectedMode('deleted')
+              setCurrentPage(1)
+              setSearchQuery('')
+            }}
+          >
+            <Archive className='mr-2 h-4 w-4' />
+            Deleted campaigns ({totalDeleted})
+          </Button>
         </div>
       </div>
 
@@ -826,6 +921,7 @@ export default function CampaignsPage() {
               {selectedMode === 'draft' && 'Draft campaigns'}
               {selectedMode === 'paused' && 'Paused campaigns'}
               {selectedMode === 'completed' && 'Completed campaigns'}
+              {selectedMode === 'deleted' && 'Deleted campaigns'}
             </h2>
             <div className='relative w-80'>
               <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
@@ -901,15 +997,27 @@ export default function CampaignsPage() {
               {isSomeSelected && (
                 <div className='flex items-center gap-2'>
                   <Badge variant='secondary'>{selectedCampaigns.length} selected</Badge>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    className='gap-2'
-                    onClick={handleDeleteSelectedCampaigns}
-                  >
-                    <Trash2 className='h-4 w-4' />
-                    Delete campaign(s)
-                  </Button>
+                  {selectedMode === 'deleted' ? (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className='gap-2'
+                      onClick={handleRestoreSelectedCampaigns}
+                    >
+                      <RotateCcw className='h-4 w-4' />
+                      Restore campaign(s)
+                    </Button>
+                  ) : (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className='gap-2'
+                      onClick={handleDeleteSelectedCampaigns}
+                    >
+                      <Trash2 className='h-4 w-4' />
+                      Delete campaign(s)
+                    </Button>
+                  )}
                 </div>
               )}
               <div className='flex items-center gap-2'>
@@ -931,11 +1039,19 @@ export default function CampaignsPage() {
 
         {/* Table or Empty State */}
         <div className='flex-1 overflow-y-auto'>
-          {campaignsLoading ? (
+          {(campaignsLoading || (selectedMode === 'deleted' && deletedCampaignsLoading)) ? (
             <div className='flex items-center justify-center h-full'>
               <div className='text-muted-foreground'>Loading...</div>
             </div>
-          ) : totalCampaigns === 0 ? (
+          ) : (selectedMode === 'deleted' && totalDeleted === 0) ? (
+            <div className='flex flex-col items-center justify-center h-full py-16'>
+              <Archive className='h-16 w-16 text-muted-foreground/50 mb-4' />
+              <h3 className='text-lg font-semibold text-muted-foreground mb-2'>No deleted campaigns</h3>
+              <p className='text-sm text-muted-foreground mb-6 text-center max-w-md'>
+                When you delete campaigns, they will appear here and can be restored.
+              </p>
+            </div>
+          ) : (selectedMode !== 'deleted' && totalCampaigns === 0) ? (
             <div className='flex flex-col items-center justify-center h-full py-16'>
               <Megaphone className='h-16 w-16 text-muted-foreground/50 mb-4' />
               <h3 className='text-lg font-semibold text-muted-foreground mb-2'>No campaigns</h3>
@@ -949,7 +1065,7 @@ export default function CampaignsPage() {
             </div>
           ) : (
             <table className='w-full'>
-              <thead className='border-b bg-muted/50'>
+              <thead className='sticky top-0 z-10 border-b bg-muted'>
                 <tr>
                   <th className='w-12 p-4'>
                     <Checkbox
@@ -1048,7 +1164,7 @@ export default function CampaignsPage() {
                       </div>
                     </td>
                     <td className='p-4'>
-                      {getStatusDisplay(campaign.status, campaign._id)}
+                      {getStatusDisplay(campaign.status, campaign._id, selectedMode === 'deleted')}
                     </td>
                     <td className='p-4 text-muted-foreground'>
                       {campaign.totalMessages.toLocaleString()}

@@ -1335,6 +1335,24 @@ export default function InboxPage() {
     return conversations
   }, [messagesData, contactsData, devices?.data, newConversation, lastSeenTimestamps, conversationMetadata])
 
+  // Calculate conversation counts for sidebar display
+  const conversationCounts = useMemo(() => {
+    // Get base conversations (non-archived, non-blocked for inbox views)
+    const inboxConversations = conversations.filter(conversation =>
+      !conversation.isArchived && !conversation.isBlocked
+    )
+
+    return {
+      all: inboxConversations.length,
+      unread: inboxConversations.filter(conversation => conversation.unseenCount > 0).length,
+      unreplied: inboxConversations.filter(conversation => conversation.lastMessage.isIncoming).length,
+      awaitingReply: inboxConversations.filter(conversation => !conversation.lastMessage.isIncoming).length,
+      starred: inboxConversations.filter(conversation => conversation.isStarred === true).length,
+      archived: conversations.filter(conversation => conversation.isArchived === true).length,
+      spam: conversations.filter(conversation => conversation.isBlocked === true).length
+    }
+  }, [conversations])
+
   // Filter conversations based on selected filter
   const filteredConversations = useMemo(() => {
     let filtered = conversations
@@ -1644,58 +1662,73 @@ export default function InboxPage() {
             </div>
             <Button
               variant={selectedInboxFilter === 'all' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('all')
                 setSelectedOtherFilter(null)
               }}
             >
-              <Mail className='mr-2 h-4 w-4' />
-              All
+              <div className="flex items-center">
+                <Mail className='mr-2 h-4 w-4' />
+                All
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.all})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'unread' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('unread')
                 setSelectedOtherFilter(null)
               }}
             >
-              <MailOpen className='mr-2 h-4 w-4' />
-              Unread
+              <div className="flex items-center">
+                <MailOpen className='mr-2 h-4 w-4' />
+                Unread
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.unread})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'unreplied' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('unreplied')
                 setSelectedOtherFilter(null)
               }}
             >
-              <MessageCircle className='mr-2 h-4 w-4' />
-              Unreplied
+              <div className="flex items-center">
+                <MessageCircle className='mr-2 h-4 w-4' />
+                Unreplied
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.unreplied})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'awaiting-reply' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('awaiting-reply')
                 setSelectedOtherFilter(null)
               }}
             >
-              <Clock className='mr-2 h-4 w-4' />
-              Awaiting reply
+              <div className="flex items-center">
+                <Clock className='mr-2 h-4 w-4' />
+                Awaiting reply
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.awaitingReply})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'starred' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('starred')
                 setSelectedOtherFilter(null)
               }}
             >
-              <Star className='mr-2 h-4 w-4' />
-              Starred
+              <div className="flex items-center">
+                <Star className='mr-2 h-4 w-4' />
+                Starred
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.starred})</span>
             </Button>
           </div>
 
@@ -1718,25 +1751,31 @@ export default function InboxPage() {
             </div>
             <Button
               variant={selectedOtherFilter === 'archived' ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedOtherFilter('archived')
                 setSelectedInboxFilter('all')
               }}
             >
-              <Archive className='mr-2 h-4 w-4' />
-              Archived
+              <div className="flex items-center">
+                <Archive className='mr-2 h-4 w-4' />
+                Archived
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.archived})</span>
             </Button>
             <Button
               variant={selectedOtherFilter === 'spam' ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedOtherFilter('spam')
                 setSelectedInboxFilter('all')
               }}
             >
-              <Trash2 className='mr-2 h-4 w-4' />
-              Spam
+              <div className="flex items-center">
+                <Trash2 className='mr-2 h-4 w-4' />
+                Spam
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.spam})</span>
             </Button>
           </div>
         </div>

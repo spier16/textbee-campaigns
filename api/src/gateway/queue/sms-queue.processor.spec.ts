@@ -214,7 +214,7 @@ describe('SmsQueueProcessor', () => {
           $set: {
             messages_sent_today_date: today,
             messages_sent_this_hour_timestamp: currentHour,
-            last_message_sent_at: expect.any(Date),
+            lastMessageSentAt: expect.any(Date),
           },
         }
       )

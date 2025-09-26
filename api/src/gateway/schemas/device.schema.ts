@@ -83,6 +83,9 @@ export class Device {
 
   @Prop({ type: Boolean, default: false })
   is_on_cooldown?: boolean
+
+  @Prop({ type: Date })
+  lastMessageSentAt?: Date
 }
 
 export const DeviceSchema = SchemaFactory.createForClass(Device)

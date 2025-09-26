@@ -137,6 +137,9 @@ export interface Campaign {
   campaignStartDate: string
   campaignEndDate: string
   timezone: string
+  isDeleted?: boolean
+  deletedAt?: string
+  statusBeforeDelete?: CampaignStatus
 }
 
 export const campaignsApi = {
@@ -219,5 +222,15 @@ export const campaignsApi = {
 
   async deleteCampaign(id: string): Promise<void> {
     await httpBrowserClient.delete(ApiEndpoints.campaigns.campaign(id))
+  },
+
+  async getDeletedCampaigns(): Promise<Campaign[]> {
+    const response = await httpBrowserClient.get(`${ApiEndpoints.campaigns.campaigns()}/deleted/list`)
+    return response.data
+  },
+
+  async restoreCampaign(id: string): Promise<Campaign> {
+    const response = await httpBrowserClient.put(`${ApiEndpoints.campaigns.campaign(id)}/restore`)
+    return response.data
   },
 }

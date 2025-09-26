@@ -183,12 +183,29 @@ export class CampaignsController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete a campaign' })
+  @ApiOperation({ summary: 'Soft delete a campaign' })
   async deleteCampaign(
     @Request() req,
     @Param('id') campaignId: string,
   ): Promise<{ message: string }> {
     await this.campaignsService.deleteCampaign(req.user, campaignId)
     return { message: 'Campaign deleted successfully' }
+  }
+
+  @Get('deleted/list')
+  @ApiOperation({ summary: 'Get all deleted campaigns for the user' })
+  async getDeletedCampaigns(
+    @Request() req,
+  ): Promise<CampaignResponseDto[]> {
+    return this.campaignsService.getDeletedCampaigns(req.user)
+  }
+
+  @Put(':id/restore')
+  @ApiOperation({ summary: 'Restore a soft-deleted campaign' })
+  async restoreCampaign(
+    @Request() req,
+    @Param('id') campaignId: string,
+  ): Promise<CampaignResponseDto> {
+    return this.campaignsService.restoreCampaign(req.user, campaignId)
   }
 }

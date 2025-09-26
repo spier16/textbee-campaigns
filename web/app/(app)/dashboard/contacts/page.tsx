@@ -1848,7 +1848,7 @@ export default function ContactsPage() {
               </div>
             ) : (
               <table className='w-full'>
-                <thead className='border-b bg-muted/50'>
+                <thead className='sticky top-0 z-10 border-b bg-muted'>
                   <tr>
                     <th className='w-12 p-4'>
                       <Checkbox
@@ -1925,7 +1925,7 @@ export default function ContactsPage() {
               </div>
             ) : (
               <table className='w-full'>
-                <thead className='border-b bg-muted/50'>
+                <thead className='sticky top-0 z-10 border-b bg-muted'>
                   <tr>
                     <th className='w-12 p-4'>
                       <Checkbox

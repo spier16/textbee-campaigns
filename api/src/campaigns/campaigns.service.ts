@@ -416,21 +416,44 @@ export class CampaignsService {
     return this.formatCampaignResponse(savedCampaign)
   }
 
-  async getCampaigns(user: User): Promise<CampaignResponseDto[]> {
+  async getCampaigns(user: User, includeDeleted: boolean = false): Promise<CampaignResponseDto[]> {
+    const filter: any = { user: user._id }
+    if (!includeDeleted) {
+      filter.isDeleted = { $ne: true }
+    }
+
     const campaigns = await this.campaignModel
-      .find({ user: user._id })
+      .find(filter)
       .sort({ createdAt: -1 })
       .lean()
 
     return campaigns.map(campaign => this.formatCampaignResponse(campaign))
   }
 
-  async getCampaign(user: User, campaignId: string): Promise<CampaignResponseDto> {
-    const campaign = await this.campaignModel
-      .findOne({
-        _id: new Types.ObjectId(campaignId),
+  async getDeletedCampaigns(user: User): Promise<CampaignResponseDto[]> {
+    const campaigns = await this.campaignModel
+      .find({
         user: user._id,
+        isDeleted: true
       })
+      .sort({ deletedAt: -1 })
+      .lean()
+
+    return campaigns.map(campaign => this.formatCampaignResponse(campaign))
+  }
+
+  async getCampaign(user: User, campaignId: string, includeDeleted: boolean = false): Promise<CampaignResponseDto> {
+    const filter: any = {
+      _id: new Types.ObjectId(campaignId),
+      user: user._id,
+    }
+
+    if (!includeDeleted) {
+      filter.isDeleted = { $ne: true }
+    }
+
+    const campaign = await this.campaignModel
+      .findOne(filter)
       .lean()
 
     if (!campaign) {
@@ -481,22 +504,66 @@ export class CampaignsService {
     const campaign = await this.campaignModel.findOne({
       _id: new Types.ObjectId(campaignId),
       user: user._id,
+      isDeleted: { $ne: true }
     })
 
     if (!campaign) {
       throw new NotFoundException('Campaign not found')
     }
 
-    // Can only delete draft or completed campaigns
-    if (![CampaignStatus.DRAFT, CampaignStatus.COMPLETED, CampaignStatus.FAILED, CampaignStatus.CANCELLED].includes(campaign.status)) {
-      throw new BadRequestException('Cannot delete running or paused campaigns')
+    // Store the current status before deletion
+    const statusBeforeDelete = campaign.status
+
+    // If the campaign is currently running, pause it first
+    if (campaign.status === CampaignStatus.RUNNING) {
+      await this.campaignQueueService.pauseCampaign(campaign._id.toString())
+      campaign.status = CampaignStatus.PAUSED
     }
 
-    // Delete campaign messages
-    await this.campaignMessageModel.deleteMany({ campaign: campaign._id })
+    // Soft delete the campaign
+    await this.campaignModel.findByIdAndUpdate(
+      campaign._id,
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          statusBeforeDelete,
+          status: campaign.status, // Keep the current status (which might be PAUSED if it was running)
+        }
+      }
+    )
+  }
 
-    // Delete campaign
-    await this.campaignModel.deleteOne({ _id: campaign._id })
+  async restoreCampaign(user: User, campaignId: string): Promise<CampaignResponseDto> {
+    const campaign = await this.campaignModel.findOne({
+      _id: new Types.ObjectId(campaignId),
+      user: user._id,
+      isDeleted: true
+    })
+
+    if (!campaign) {
+      throw new NotFoundException('Deleted campaign not found')
+    }
+
+    // Restore the campaign with its original status
+    const restoredStatus = campaign.statusBeforeDelete || campaign.status
+
+    const updatedCampaign = await this.campaignModel.findByIdAndUpdate(
+      campaign._id,
+      {
+        $set: {
+          isDeleted: false,
+          status: restoredStatus,
+        },
+        $unset: {
+          deletedAt: 1,
+          statusBeforeDelete: 1,
+        }
+      },
+      { new: true }
+    )
+
+    return this.formatCampaignResponse(updatedCampaign)
   }
 
   // Private helper methods
@@ -561,6 +628,9 @@ export class CampaignsService {
       campaignStartDate: campaign.campaignStartDate,
       campaignEndDate: campaign.campaignEndDate,
       timezone: campaign.timezone,
+      isDeleted: campaign.isDeleted,
+      deletedAt: campaign.deletedAt,
+      statusBeforeDelete: campaign.statusBeforeDelete,
     }
   }
 }
