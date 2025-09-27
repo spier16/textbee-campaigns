@@ -243,3 +243,9 @@ export const DEFAULT_CREATE_CAMPAIGN_DATA: Omit<CreateCampaignData, 'campaignSta
 
 export type CampaignField = keyof Campaign
 export type CreateCampaignField = keyof CreateCampaignData
+
+// ===== Scheduling Preview Types =====
+// Keep this wide to avoid coupling until the shape stabilizes.
+export interface SchedulingPreview {
+  [key: string]: any
+}
