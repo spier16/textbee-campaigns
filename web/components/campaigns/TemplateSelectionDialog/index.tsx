@@ -1,3 +1,5 @@
+// TemplateSelectionDialog/index.tsx
+
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -48,7 +50,9 @@ export function TemplateSelectionDialog({
 
       if (groupsWithSelectedTemplates.size > 0) {
         // Merge with existing expanded groups instead of replacing
-        const newExpanded = new Set([...expandedGroups, ...groupsWithSelectedTemplates])
+        const newExpanded = new Set<string>()
+        expandedGroups.forEach(id => newExpanded.add(id))
+        groupsWithSelectedTemplates.forEach(id => newExpanded.add(id))
         onExpandedGroupsChange(newExpanded)
       }
     }
