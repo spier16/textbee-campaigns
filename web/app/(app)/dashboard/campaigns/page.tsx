@@ -970,7 +970,8 @@ export default function CampaignsPage() {
 
               <Button className='gap-1 md:gap-2 text-xs md:text-sm' onClick={() => setCreateCampaignOpen(true)}>
                 <Plus className='h-3 w-3 md:h-4 md:w-4' />
-                <span className='hidden sm:inline'>Create new </span>campaign
+                <span className='hidden sm:inline'>Create new campaign</span>
+                <span className='sm:hidden'>Campaign</span>
               </Button>
 
               <ManageTemplatesDialog
@@ -1076,7 +1077,8 @@ export default function CampaignsPage() {
               </p>
               <Button className='gap-1 md:gap-2 text-xs md:text-sm' onClick={() => setCreateCampaignOpen(true)}>
                 <Plus className='h-3 w-3 md:h-4 md:w-4' />
-                <span className='hidden sm:inline'>Create new </span>campaign
+                <span className='hidden sm:inline'>Create new campaign</span>
+                <span className='sm:hidden'>Campaign</span>
               </Button>
             </div>
           ) : (
