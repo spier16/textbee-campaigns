@@ -1,5 +1,11 @@
+// campaign.types.ts
+
 // Campaign-related TypeScript interfaces and types
 // This file contains all the type definitions used in the campaigns functionality
+
+// Use API types as the single source of truth
+import type { CampaignStatus, ScheduleType } from '@/lib/api/campaigns';
+export type { CampaignStatus, ScheduleType } from '@/lib/api/campaigns';
 
 // ===== Core Campaign Types =====
 
@@ -7,7 +13,7 @@ export interface Campaign {
   _id: string
   id: string
   name: string
-  status: 'active' | 'draft' | 'inactive' | 'completed'
+  status: CampaignStatus
   contacts: number
   groups: number
   dateCreated: string
@@ -16,10 +22,6 @@ export interface Campaign {
 }
 
 // ===== Campaign Creation Types =====
-
-export type CampaignStatus = 'active' | 'draft' | 'inactive' | 'completed'
-
-export type ScheduleType = 'now' | 'later' | 'windows' | 'weekday'
 
 export interface SendingWindow {
   startDate: string
@@ -221,11 +223,12 @@ export const DEFAULT_WEEKDAY_WINDOWS: WeekdayWindows = {
 export const DEFAULT_CREATE_CAMPAIGN_DATA: Omit<CreateCampaignData, 'campaignStartDate' | 'campaignEndDate'> = {
   name: '',
   description: '',
-  status: 'draft',
+  // if the API defines an enum, keep this assertion (the literal matches the enum’s value)
+  status: 'draft' as CampaignStatus,
   selectedContacts: [],
   selectedTemplates: [],
   sendDevices: [],
-  scheduleType: 'now',
+  scheduleType: 'now' as ScheduleType,
   scheduledDate: '',
   scheduledTime: '',
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
