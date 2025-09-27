@@ -477,15 +477,10 @@ export function CreateUsagePlanDialog({
                                 {...field}
                                 type="number"
                                 min="30"
-                                value={field.value === '' ? '' : field.value}
+                                value={field.value === undefined ? '' : String(field.value)}
                                 onChange={(e) => {
-                                  const value = e.target.value
-                                  if (value === '') {
-                                    field.onChange('')
-                                  } else {
-                                    const numValue = parseInt(value)
-                                    field.onChange(isNaN(numValue) ? 30 : numValue)
-                                  }
+                                  const v = e.target.value
+                                  field.onChange(v === '' ? undefined : Number(v))
                                 }}
                                 onWheel={(e) => e.currentTarget.blur()}
                               />
@@ -514,18 +509,16 @@ export function CreateUsagePlanDialog({
                               <Input
                                 {...field}
                                 type="number"
-                                min="1"
-                                value={field.value === '' ? '' : field.value}
+                                min={1}                                  // number literal (optional but cleaner)
+                                value={field.value === undefined ? '' : String(field.value)}
                                 onChange={(e) => {
-                                  const value = e.target.value
-                                  if (value === '') {
-                                    field.onChange('')
-                                  } else {
-                                    const numValue = parseInt(value)
-                                    field.onChange(isNaN(numValue) ? 1 : Math.max(1, numValue))
-                                  }
+                                  const v = e.target.value
+                                  // empty -> undefined; otherwise clamp to >= 1 and ensure integer
+                                  const n = v === '' ? undefined : Math.max(1, Number.parseInt(v, 10) || 1)
+                                  field.onChange(n)
                                 }}
                                 onWheel={(e) => e.currentTarget.blur()}
+                                inputMode="numeric"
                               />
                             </FormControl>
                             <FormMessage />
