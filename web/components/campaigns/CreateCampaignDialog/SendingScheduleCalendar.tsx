@@ -1,3 +1,5 @@
+// SendingScheduleCalendar.tsx
+
 import { useMemo } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -76,12 +78,12 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
         const endTime = `${campaignData.campaignEndDate}T23:59:59`
 
 
-        const event = {
+        const event: CalendarEvent = {
           id: 'send-now-period',
           title: '',
           start: startTime,
           end: endTime,
-          display: 'background',
+          display: 'background' as const,
           backgroundColor: '#3b82f6', // blue
           className: 'send-now-period'
         }
@@ -141,7 +143,7 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
           title: '',
           start: startTime,
           end: endTime,
-          display: 'background',
+          display: 'background' as const,
           backgroundColor: '#3b82f6', // blue
           className: 'scheduled-send-period'
         })
@@ -163,7 +165,7 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
               title: '',
               start: effectiveStart.toISOString(),
               end: windowEnd.toISOString(),
-              display: 'background',
+              display: 'background' as const,
               backgroundColor: '#3b82f6', // blue
               className: 'sending-window-available'
             })
@@ -214,7 +216,7 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
                     title: '',
                     start: effectiveStart.toISOString(),
                     end: windowEnd.toISOString(),
-                    display: 'background',
+                    display: 'background' as const,
                     backgroundColor: '#3b82f6', // blue
                     className: 'weekday-window-available'
                   })
