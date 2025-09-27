@@ -24,6 +24,8 @@ import {
   NewTemplateGroup,
   NewTemplate
 } from '@/components/campaigns/types/campaign.types'
+import { formatVariablesForDisplay } from '@/lib/template-variables'
+import { SimpleHighlightedText } from '../SimpleHighlightedText'
 
 // Utility function to extract variables from template content
 function getVariables(content: string): string[] {
@@ -33,27 +35,6 @@ function getVariables(content: string): string[] {
     return []
   }
   return Array.from(new Set(matches))
-}
-
-// Component to render text with highlighted variables
-function TemplateContentDisplay({ content }: { content: string }) {
-  const validVariables = ['{firstName}', '{lastName}', '{phone}', '{email}', '{propertyAddress}']
-  const parts = content.split(/(\{[^}]+\})/g)
-
-  return (
-    <span>
-      {parts.map((part, index) => {
-        if (part.match(/^\{[^}]+\}$/) && validVariables.includes(part)) {
-          return (
-            <span key={index} className="text-blue-600 font-medium bg-blue-50 px-1 rounded">
-              {part}
-            </span>
-          )
-        }
-        return part
-      })}
-    </span>
-  )
 }
 
 // Props interface for the ManageTemplatesDialog component
@@ -453,7 +434,7 @@ export function ManageTemplatesDialog({
                               </div>
                             </div>
                             <p className='text-xs text-muted-foreground bg-muted/50 p-2 rounded'>
-                              <TemplateContentDisplay content={template.content} />
+                              <SimpleHighlightedText content={template.content} />
                             </p>
                             <div className='text-xs text-muted-foreground'>
                               {(() => {
@@ -573,12 +554,12 @@ export function ManageTemplatesDialog({
               {newTemplate.content && (
                 <div className='text-xs bg-gray-50 p-2 rounded border'>
                   <div className='text-muted-foreground mb-1'>Preview:</div>
-                  <TemplateContentDisplay content={newTemplate.content} />
+                  <SimpleHighlightedText content={newTemplate.content} />
                 </div>
               )}
             </div>
             <div className='text-xs text-muted-foreground'>
-              Available variables: {'{firstName}'}, {'{lastName}'}, {'{phone}'}, {'{email}'}, {'{propertyAddress}'}
+              Available variables: {formatVariablesForDisplay()}
             </div>
           </div>
           <DialogFooter>
@@ -633,12 +614,12 @@ export function ManageTemplatesDialog({
               {editingTemplate?.content && (
                 <div className='text-xs bg-gray-50 p-2 rounded border'>
                   <div className='text-muted-foreground mb-1'>Preview:</div>
-                  <TemplateContentDisplay content={editingTemplate.content} />
+                  <SimpleHighlightedText content={editingTemplate.content} />
                 </div>
               )}
             </div>
             <div className='text-xs text-muted-foreground'>
-              Available variables: {'{firstName}'}, {'{lastName}'}, {'{phone}'}, {'{email}'}, {'{propertyAddress}'}
+              Available variables: {formatVariablesForDisplay()}
             </div>
           </div>
           <DialogFooter>

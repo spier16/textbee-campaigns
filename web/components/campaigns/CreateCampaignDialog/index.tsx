@@ -43,14 +43,12 @@ import { HighlightedText } from '@/components/campaigns/HighlightedText'
 // Type alias for consistency with API response
 type CampaignMessagePreview = TemplatePreview
 
-// Device interface (from API response) - Extended for tier management
+// Device interface (from API response) - Using usage plan system
 interface Device {
   _id: string
   brand: string
   model: string
   enabled: boolean
-  max_hourly_send_rate?: number
-  daily_send_limit?: number
   current_tier?: number
   messages_sent_today?: number
   messages_sent_this_hour?: number
@@ -58,6 +56,23 @@ interface Device {
   daily_counter_reset?: Date
   last_tier_upgrade?: Date
   plan_type?: number
+  usagePlan?: string // Usage plan ID
+}
+
+// Usage plan interfaces
+interface UsagePlanTier {
+  tier: number
+  timeDelayBetweenMessages: number // in seconds
+  dailyLimit: number
+}
+
+interface UsagePlan {
+  _id: string
+  name: string
+  description?: string
+  tiers: UsagePlanTier[]
+  isDefault: boolean
+  isActive: boolean
 }
 
 // Props interface for the CreateCampaignDialog component
@@ -73,6 +88,7 @@ interface CreateCampaignDialogProps {
   // External data
   contactSpreadsheets?: ContactSpreadsheet[]
   devices?: Device[]
+  usagePlans?: UsagePlan[]
   templateGroups?: MessageTemplateGroup[]
   uniqueContactCount: number
 
@@ -95,6 +111,7 @@ export function CreateCampaignDialog({
   onCampaignDataChange,
   contactSpreadsheets = [],
   devices = [],
+  usagePlans = [],
   templateGroups = [],
   uniqueContactCount,
   dateValidationErrors,
@@ -197,6 +214,43 @@ export function CreateCampaignDialog({
     .sort((a, b) => a.label.localeCompare(b.label)) // Sort by city name
   }, [])
 
+  // Helper functions for usage plan management
+  const getCurrentTier = (device: Device): UsagePlanTier | null => {
+    if (!device.usagePlan || !usagePlans) return null
+    const plan = usagePlans.find(p => p._id === device.usagePlan)
+    if (!plan) return null
+    return plan.tiers.find(t => t.tier === (device.current_tier || 1)) || plan.tiers[0]
+  }
+
+  const formatTimeDelay = (seconds: number): string => {
+    if (seconds === 0) return 'No delay'
+    if (seconds < 60) return `${seconds}s`
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    if (remainingSeconds === 0) return `${minutes}m`
+    return `${minutes}m ${remainingSeconds}s`
+  }
+
+  const getDeviceRateInfo = (device: Device): { hourlyInfo: string; dailyInfo: string } => {
+    const currentTier = getCurrentTier(device)
+    if (!currentTier) {
+      return {
+        hourlyInfo: 'No usage plan',
+        dailyInfo: 'No usage plan'
+      }
+    }
+
+    // Convert time delay to hourly rate for display
+    const messagesPerHour = currentTier.timeDelayBetweenMessages > 0
+      ? Math.floor(3600 / currentTier.timeDelayBetweenMessages)
+      : 0
+
+    return {
+      hourlyInfo: `~${messagesPerHour}/hr (${formatTimeDelay(currentTier.timeDelayBetweenMessages)} delay)`,
+      dailyInfo: `${currentTier.dailyLimit}/day`
+    }
+  }
+
   // Function to generate message preview data using backend API
   const generateMessagePreview = async () => {
     setPreviewLoading(true)
@@ -224,7 +278,6 @@ export function CreateCampaignDialog({
       // Call backend API to process template variables
       const response = await campaignsApi.processTemplatePreview(processPreviewData)
 
-
       setMessagePreview(response.previews)
       setCurrentPreviewIndex(0)
     } catch (error) {
@@ -238,6 +291,30 @@ export function CreateCampaignDialog({
       setPreviewLoading(false)
     }
   }
+
+  // Clean up deleted template IDs when template groups change
+  useEffect(() => {
+    if (templateGroups && campaignData.selectedTemplates.length > 0) {
+      // Get all valid template IDs from current template groups
+      const validTemplateIds = new Set<string>()
+      templateGroups.forEach(group => {
+        group.templates.forEach(template => {
+          validTemplateIds.add(template._id)
+        })
+      })
+
+      // Filter out invalid template IDs
+      const validSelectedTemplates = campaignData.selectedTemplates.filter(id => validTemplateIds.has(id))
+
+      // Update state if any templates were removed
+      if (validSelectedTemplates.length !== campaignData.selectedTemplates.length) {
+        onCampaignDataChange({
+          ...campaignData,
+          selectedTemplates: validSelectedTemplates
+        })
+      }
+    }
+  }, [templateGroups])
 
   // Generate preview when tab becomes active and data is available
   useEffect(() => {
@@ -626,48 +703,58 @@ export function CreateCampaignDialog({
                       </div>
                     ) : (
                       <div className='space-y-2'>
-                        {devices.map(device => (
-                          <div key={device._id} className='flex items-center justify-between p-2 rounded border bg-background'>
-                            <div className='flex items-center space-x-2'>
-                              <Checkbox
-                                checked={campaignData.sendDevices.includes(device._id)}
-                                disabled={!device.enabled}
-                                onCheckedChange={(checked) => {
-                                  if (!device.enabled) return
-                                  if (checked) {
-                                    onCampaignDataChange({
-                                      ...campaignData,
-                                      sendDevices: [...campaignData.sendDevices, device._id]
-                                    })
-                                  } else {
-                                    onCampaignDataChange({
-                                      ...campaignData,
-                                      sendDevices: campaignData.sendDevices.filter(id => id !== device._id)
-                                    })
-                                  }
-                                }}
-                                className={!device.enabled ? 'opacity-50' : ''}
-                              />
-                              <div className={`text-sm ${!device.enabled ? 'opacity-50' : ''}`}>
-                                <div className='flex items-center gap-2'>
-                                  <span className='font-medium'>{device.brand} {device.model}</span>
-                                  <Badge variant={device.enabled ? 'default' : 'secondary'} className='text-xs'>
-                                    {device.enabled ? 'Enabled' : 'Disabled'}
-                                  </Badge>
-                                </div>
-                                <div className='text-xs text-muted-foreground mt-1'>
-                                  <code className='bg-muted px-1 py-0.5 rounded text-xs'>
-                                    {device._id}
-                                  </code>
+                        {devices.map(device => {
+                          const rateInfo = getDeviceRateInfo(device)
+                          const currentTier = getCurrentTier(device)
+
+                          return (
+                            <div key={device._id} className='flex items-center justify-between p-2 rounded border bg-background'>
+                              <div className='flex items-center space-x-2'>
+                                <Checkbox
+                                  checked={campaignData.sendDevices.includes(device._id)}
+                                  disabled={!device.enabled}
+                                  onCheckedChange={(checked) => {
+                                    if (!device.enabled) return
+                                    if (checked) {
+                                      onCampaignDataChange({
+                                        ...campaignData,
+                                        sendDevices: [...campaignData.sendDevices, device._id]
+                                      })
+                                    } else {
+                                      onCampaignDataChange({
+                                        ...campaignData,
+                                        sendDevices: campaignData.sendDevices.filter(id => id !== device._id)
+                                      })
+                                    }
+                                  }}
+                                  className={!device.enabled ? 'opacity-50' : ''}
+                                />
+                                <div className={`text-sm ${!device.enabled ? 'opacity-50' : ''}`}>
+                                  <div className='flex items-center gap-2'>
+                                    <span className='font-medium'>{device.brand} {device.model}</span>
+                                    <Badge variant={device.enabled ? 'default' : 'secondary'} className='text-xs'>
+                                      {device.enabled ? 'Enabled' : 'Disabled'}
+                                    </Badge>
+                                    {currentTier && (
+                                      <Badge variant='outline' className='text-xs'>
+                                        Tier {device.current_tier || 1}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className='text-xs text-muted-foreground mt-1'>
+                                    <code className='bg-muted px-1 py-0.5 rounded text-xs'>
+                                      {device._id}
+                                    </code>
+                                  </div>
                                 </div>
                               </div>
+                              <div className={`text-xs text-muted-foreground text-right ${!device.enabled ? 'opacity-50' : ''}`}>
+                                <div>{rateInfo.hourlyInfo}</div>
+                                <div>{rateInfo.dailyInfo}</div>
+                              </div>
                             </div>
-                            <div className={`text-sm text-muted-foreground text-right ${!device.enabled ? 'opacity-50' : ''}`}>
-                              <div>{device.max_hourly_send_rate || 60} per hour</div>
-                              <div>{device.daily_send_limit || 50} per day</div>
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>

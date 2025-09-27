@@ -1,4 +1,5 @@
 import { Contact } from '../../contacts/schemas/contact.schema'
+import { SUPPORTED_TEMPLATE_VARIABLES, TEMPLATE_VARIABLE_CATEGORIES } from '../constants/template-variables'
 
 /**
  * Interface for contact data used in template processing
@@ -106,14 +107,10 @@ export function extractTemplateVariables(templateContent: string): string[] {
  * @returns Array of unsupported variable names
  */
 export function validateTemplateVariables(templateContent: string): string[] {
-  const supportedVariables = [
-    'firstName', 'lastName', 'phone', 'email', 'fullName',
-    'propertyAddress', 'propertyCity', 'propertyState', 'propertyZip',
-    'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip'
-  ]
+  const supportedVariables = SUPPORTED_TEMPLATE_VARIABLES
 
   const usedVariables = extractTemplateVariables(templateContent)
-  return usedVariables.filter(variable => !supportedVariables.includes(variable))
+  return usedVariables.filter(variable => !supportedVariables.includes(variable as any))
 }
 
 /**
@@ -122,15 +119,12 @@ export function validateTemplateVariables(templateContent: string): string[] {
  * @returns The variable type category
  */
 export function getVariableType(variableName: string): string {
-  const nameVariables = ['firstName', 'lastName', 'fullName']
-  const contactVariables = ['phone', 'email']
-  const propertyAddressVariables = ['propertyAddress', 'propertyCity', 'propertyState', 'propertyZip']
-  const mailingAddressVariables = ['mailingAddress', 'mailingCity', 'mailingState', 'mailingZip']
-
-  if (nameVariables.includes(variableName)) return 'name'
-  if (contactVariables.includes(variableName)) return 'contact'
-  if (propertyAddressVariables.includes(variableName)) return 'propertyAddress'
-  if (mailingAddressVariables.includes(variableName)) return 'mailingAddress'
+  // Check each category for the variable
+  for (const [categoryKey, category] of Object.entries(TEMPLATE_VARIABLE_CATEGORIES)) {
+    if ((category.variables as readonly string[]).includes(variableName)) {
+      return categoryKey
+    }
+  }
   return 'other'
 }
 
@@ -166,11 +160,7 @@ export function processTemplateVariablesWithHighlighting(
   }
 
   // Define supported variables for validation
-  const supportedVariables = [
-    'firstName', 'lastName', 'phone', 'email', 'fullName',
-    'propertyAddress', 'propertyCity', 'propertyState', 'propertyZip',
-    'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip'
-  ]
+  const supportedVariables = SUPPORTED_TEMPLATE_VARIABLES
 
   // Find all variable occurrences with their positions
   const variableRegex = /\{([^}]+)\}/g
@@ -246,8 +236,8 @@ export function processTemplateVariablesWithHighlighting(
     }
   }
 
-  // If no variables were found, treat the entire content as plain text
-  if (matches.length === 0) {
+  // If no variables were found and no segments added yet, treat the entire content as plain text
+  if (matches.length === 0 && segments.length === 0) {
     segments.push({
       text: templateContent,
       isVariable: false

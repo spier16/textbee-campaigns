@@ -754,6 +754,7 @@ export class CampaignsService {
             message: error.message,
           })),
         }
+
       }
 
       // Convert to DTO format
@@ -779,21 +780,24 @@ export class CampaignsService {
         content: template.content,
       }
 
-      previews.push({
+      const previewItem = {
         contact: contactDto,
         template: templateDto,
         templateIndex: templateIndex % templates.length,
         processedContent,
         highlightedContent: highlightedContentDto,
-      })
+      }
 
+      previews.push(previewItem)
       templateIndex++
     }
 
-    return {
+    const response = {
       previews,
       totalContacts: uniqueContactsResult.data.length,
       templatesUsed: templates.length,
     }
+
+    return response
   }
 }

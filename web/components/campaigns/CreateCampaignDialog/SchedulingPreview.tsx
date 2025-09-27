@@ -6,14 +6,12 @@ import { Clock, Users, Zap, RefreshCw, MessageSquare } from 'lucide-react'
 import { CreateCampaignData, SchedulingPreview } from '@/components/campaigns/types/campaign.types'
 import { MessageToSchedule, ExistingMessage, createSchedulingContext, optimizeMessageSchedule } from '../utils/message-scheduler'
 
-// Device interface matching the CreateCampaignDialog
+// Device interface matching the CreateCampaignDialog - using usage plan system
 interface Device {
   _id: string
   brand?: string
   model?: string
   enabled: boolean
-  max_hourly_send_rate?: number
-  daily_send_limit?: number
   current_tier?: number
   messages_sent_today?: number
   messages_sent_this_hour?: number
@@ -21,6 +19,23 @@ interface Device {
   daily_counter_reset?: Date
   last_tier_upgrade?: Date
   plan_type?: number
+  usagePlan?: string // Usage plan ID
+}
+
+// Usage plan interfaces
+interface UsagePlanTier {
+  tier: number
+  timeDelayBetweenMessages: number // in seconds
+  dailyLimit: number
+}
+
+interface UsagePlan {
+  _id: string
+  name: string
+  description?: string
+  tiers: UsagePlanTier[]
+  isDefault: boolean
+  isActive: boolean
 }
 
 interface SchedulingPreviewProps {
@@ -28,6 +43,7 @@ interface SchedulingPreviewProps {
   contacts: any[]
   templates: any[]
   devices: Device[]
+  usagePlans: UsagePlan[]
   uniqueContactCount: number
   onPreviewUpdate?: (preview: SchedulingPreview) => void
 }
@@ -37,11 +53,20 @@ export function SchedulingPreview({
   contacts,
   templates,
   devices,
+  usagePlans,
   uniqueContactCount,
   onPreviewUpdate
 }: SchedulingPreviewProps) {
   const [preview, setPreview] = useState<SchedulingPreview | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
+
+  // Helper functions for usage plan management
+  const getCurrentTier = (device: Device): UsagePlanTier | null => {
+    if (!device.usagePlan || !usagePlans) return null
+    const plan = usagePlans.find(p => p._id === device.usagePlan)
+    if (!plan) return null
+    return plan.tiers.find(t => t.tier === (device.current_tier || 1)) || plan.tiers[0]
+  }
 
   // Calculate total messages based on unique contacts from Details tab
   const totalMessages = useMemo(() => {
@@ -102,16 +127,24 @@ export function SchedulingPreview({
         totalMessages: optimizedSchedule.totalMessages,
         estimatedCompletionTime: optimizedSchedule.estimatedCompletionTime,
         campaignSegments: optimizedSchedule.campaignSegments,
-        deviceUtilization: selectedDevices.map(device => ({
-          deviceId: device._id,
-          deviceName: `${device.brand || 'Unknown'} ${device.model || 'Device'}`,
-          currentTier: device.current_tier || 1,
-          hourlyCapacity: device.max_hourly_send_rate || 30,
-          dailyCapacity: device.daily_send_limit || 30,
-          scheduledMessages: optimizedSchedule.schedules
-            .filter(schedule => schedule.deviceId === device._id)
-            .reduce((total, schedule) => total + schedule.messages.length, 0)
-        }))
+        deviceUtilization: selectedDevices.map(device => {
+          const currentTier = getCurrentTier(device)
+          const hourlyCapacity = currentTier && currentTier.timeDelayBetweenMessages > 0
+            ? Math.floor(3600 / currentTier.timeDelayBetweenMessages)
+            : 0
+          const dailyCapacity = currentTier?.dailyLimit || 0
+
+          return {
+            deviceId: device._id,
+            deviceName: `${device.brand || 'Unknown'} ${device.model || 'Device'}`,
+            currentTier: device.current_tier || 1,
+            hourlyCapacity,
+            dailyCapacity,
+            scheduledMessages: optimizedSchedule.schedules
+              .filter(schedule => schedule.deviceId === device._id)
+              .reduce((total, schedule) => total + schedule.messages.length, 0)
+          }
+        })
       }
 
       setPreview(schedulingPreview)

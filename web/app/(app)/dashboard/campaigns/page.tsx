@@ -220,6 +220,15 @@ export default function CampaignsPage() {
         .then((res) => res.data),
   })
 
+  // Fetch usage plans from API
+  const { data: usagePlansData } = useQuery({
+    queryKey: ['usage-plans'],
+    queryFn: () =>
+      httpBrowserClient
+        .get(ApiEndpoints.gateway.getUserUsagePlans())
+        .then((res) => res.data),
+  })
+
   // Fetch template groups from API
   const { data: templateGroupsData, refetch: refetchTemplateGroups } = useQuery({
     queryKey: ['template-groups'],
@@ -934,6 +943,7 @@ export default function CampaignsPage() {
                 onCampaignDataChange={setCreateCampaignData}
                 contactSpreadsheets={contactSpreadsheetsData}
                 devices={devicesData?.data}
+                usagePlans={usagePlansData?.data}
                 templateGroups={templateGroups}
                 uniqueContactCount={uniqueContactCount}
                 dateValidationErrors={dateValidationErrors}

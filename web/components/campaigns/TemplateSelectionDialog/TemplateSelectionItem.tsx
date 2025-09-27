@@ -6,27 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Eye, EyeOff } from 'lucide-react'
 import { MessageTemplate } from '@/components/campaigns/types/campaign.types'
-
-// Component to render text with highlighted variables
-function TemplateContentDisplay({ content }: { content: string }) {
-  const validVariables = ['{firstName}', '{lastName}', '{phone}', '{email}', '{propertyAddress}']
-  const parts = content.split(/(\{[^}]+\})/g)
-
-  return (
-    <span>
-      {parts.map((part, index) => {
-        if (part.match(/^\{[^}]+\}$/) && validVariables.includes(part)) {
-          return (
-            <span key={index} className="text-blue-600 font-medium bg-blue-50 px-1 rounded">
-              {part}
-            </span>
-          )
-        }
-        return part
-      })}
-    </span>
-  )
-}
+import { SimpleHighlightedText } from '../SimpleHighlightedText'
 
 interface TemplateSelectionItemProps {
   template: MessageTemplate
@@ -96,7 +76,7 @@ export function TemplateSelectionItem({
             }`}
             style={{ maxHeight: isExpanded ? '200px' : '20px', overflow: isExpanded ? 'auto' : 'hidden' }}
           >
-            <TemplateContentDisplay content={template.content} />
+            <SimpleHighlightedText content={template.content} />
           </div>
         </div>
       </div>

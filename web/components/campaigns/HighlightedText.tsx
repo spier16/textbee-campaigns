@@ -73,7 +73,11 @@ export function HighlightedText({
   }
 
   // Handle structured highlighted content
-  if (!showHighlighting) {
+  // Check if content has any variables to avoid duplication for plain text templates
+  const hasVariables = content.segments?.some(segment => segment.isVariable) ?? false
+
+  // If no variables exist, always use plainText to prevent duplication
+  if (!hasVariables || !showHighlighting) {
     return (
       <span className={cn('whitespace-pre-wrap', className)}>
         {content.plainText}
