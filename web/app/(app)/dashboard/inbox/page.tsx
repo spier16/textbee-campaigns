@@ -430,7 +430,12 @@ function ConversationList({
               <SelectValue placeholder="All campaigns" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All campaigns</SelectItem>
+              <SelectItem value="all" className="font-semibold bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-200 border-l-2 border-blue-400">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  All campaigns
+                </div>
+              </SelectItem>
               {campaignsForFilter.map((campaign) => (
                 <SelectItem key={campaign._id} value={campaign._id}>
                   {campaign.name} ({campaign.sentMessages})
