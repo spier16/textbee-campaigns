@@ -20,6 +20,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -433,7 +434,7 @@ function ConversationList({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="w-[180px] justify-between">
+              <Button variant="outline" className="w-[240px] justify-between">
                 <span className="truncate">
                   {selectedCampaignFilters.length === 0
                     ? "All campaigns"
@@ -445,50 +446,47 @@ function ConversationList({
                 <ChevronDown className="h-4 w-4 opacity-50" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-[220px]" align="start">
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault()
+            <DropdownMenuContent className="w-[260px]" align="start">
+              <DropdownMenuCheckboxItem
+                checked={selectedCampaignFilters.length === 0}
+                onCheckedChange={() => {
+                  console.log('🔄 All campaigns selected - clearing filters')
                   setSelectedCampaignFilters([])
                 }}
+                onSelect={(e) => e.preventDefault()}
                 className="font-semibold bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/30 focus:bg-blue-100 dark:focus:bg-blue-900/30"
               >
-                <div className="flex items-center gap-2 w-full cursor-pointer">
-                  <Checkbox
-                    checked={selectedCampaignFilters.length === 0}
-                    onChange={() => {}}
-                    className="h-4 w-4 pointer-events-none"
-                  />
+                <div className="flex items-center gap-2 w-full">
                   <Users className="h-4 w-4" />
                   <span>All campaigns</span>
                 </div>
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
               {campaignsForFilter.map((campaign) => {
                 const isSelected = selectedCampaignFilters.includes(campaign._id)
                 return (
-                  <DropdownMenuItem
+                  <DropdownMenuCheckboxItem
                     key={campaign._id}
-                    onSelect={(e) => {
-                      e.preventDefault()
-                      if (isSelected) {
-                        setSelectedCampaignFilters(selectedCampaignFilters.filter(id => id !== campaign._id))
+                    checked={isSelected}
+                    onCheckedChange={(checked) => {
+                      console.log(`📊 Campaign ${campaign.name} ${checked ? 'SELECTED' : 'UNSELECTED'}`)
+                      console.log('📊 Current filters before change:', selectedCampaignFilters)
+                      if (checked) {
+                        const newFilters = [...selectedCampaignFilters, campaign._id]
+                        console.log('📊 New filters after selection:', newFilters)
+                        setSelectedCampaignFilters(newFilters)
                       } else {
-                        setSelectedCampaignFilters([...selectedCampaignFilters, campaign._id])
+                        const newFilters = selectedCampaignFilters.filter(id => id !== campaign._id)
+                        console.log('📊 New filters after unselection:', newFilters)
+                        setSelectedCampaignFilters(newFilters)
                       }
                     }}
+                    onSelect={(e) => e.preventDefault()}
                     className="hover:bg-accent focus:bg-accent"
                   >
-                    <div className="flex items-center gap-2 w-full cursor-pointer">
-                      <Checkbox
-                        checked={isSelected}
-                        onChange={() => {}}
-                        className="h-4 w-4 pointer-events-none"
-                      />
-                      <span className="truncate">
-                        {campaign.name} ({campaign.sentMessages})
-                      </span>
-                    </div>
-                  </DropdownMenuItem>
+                    <span className="truncate">
+                      {campaign.name} ({campaign.sentMessages})
+                    </span>
+                  </DropdownMenuCheckboxItem>
                 )
               })}
             </DropdownMenuContent>
@@ -1212,9 +1210,36 @@ export default function InboxPage() {
   const [lastSeenTimestamps, setLastSeenTimestamps] = useState<Record<string, Date>>({})
   const [selectedInboxFilter, setSelectedInboxFilter] = useState<'all' | 'unread' | 'unreplied' | 'awaiting-reply' | 'starred'>('all')
   const [selectedCampaignFilters, setSelectedCampaignFilters] = useState<string[]>([])
+  const [debouncedCampaignFilters, setDebouncedCampaignFilters] = useState<string[]>([])
   const [selectedOtherFilter, setSelectedOtherFilter] = useState<'archived' | 'spam' | null>(null)
   const [checkedConversations, setCheckedConversations] = useState<Set<string>>(new Set())
   const refreshTimerRef = useRef(null)
+
+  // Debounce campaign filter updates to prevent dropdown from closing during rapid selections
+  useEffect(() => {
+    console.log('⏱️ Setting up debounce timer for:', selectedCampaignFilters)
+    const timer = setTimeout(() => {
+      console.log('🎯 DEBOUNCED UPDATE - Setting debouncedCampaignFilters to:', selectedCampaignFilters)
+      setDebouncedCampaignFilters(selectedCampaignFilters)
+    }, 500) // 500ms delay
+
+    return () => {
+      console.log('🚫 Clearing previous debounce timer')
+      clearTimeout(timer)
+    }
+  }, [selectedCampaignFilters])
+
+  // Debug: Log campaign filter changes
+  useEffect(() => {
+    console.log('🔄 selectedCampaignFilters changed:', selectedCampaignFilters)
+    console.log('🔄 Filter count:', selectedCampaignFilters.length)
+  }, [selectedCampaignFilters])
+
+  // Debug: Log debounced campaign filter changes
+  useEffect(() => {
+    console.log('🎯 debouncedCampaignFilters changed:', debouncedCampaignFilters)
+    console.log('🎯 Debounced filter count:', debouncedCampaignFilters.length)
+  }, [debouncedCampaignFilters])
   const queryClient = useQueryClient()
 
   // Remove manual pagination state - now handled by useInfiniteQuery
@@ -1274,8 +1299,12 @@ export default function InboxPage() {
     hasNextPage,
     refetch
   } = useInfiniteQuery({
-    queryKey: ['conversations', selectedInboxFilter, selectedOtherFilter, selectedCampaignFilters, sortBy],
+    queryKey: ['conversations', selectedInboxFilter, selectedOtherFilter, debouncedCampaignFilters, sortBy],
     queryFn: async ({ pageParam = 1 }) => {
+      console.log('🚀 API CALL TRIGGERED - queryFn executing')
+      console.log('🚀 Page param:', pageParam)
+      console.log('🚀 Current debouncedCampaignFilters:', debouncedCampaignFilters)
+
       const filterValue = selectedOtherFilter || selectedInboxFilter
       const params = new URLSearchParams({
         page: pageParam.toString(),
@@ -1285,14 +1314,17 @@ export default function InboxPage() {
       })
 
       // Add campaign filters if selected (OR logic - conversations from any of the selected campaigns)
-      if (selectedCampaignFilters.length > 0) {
+      if (debouncedCampaignFilters.length > 0) {
         // Send as comma-separated values for OR logic
-        params.append('campaignIds', selectedCampaignFilters.join(','))
+        params.append('campaignIds', debouncedCampaignFilters.join(','))
+        console.log('🚀 Added campaignIds to params:', debouncedCampaignFilters.join(','))
       }
 
-      const response = await httpBrowserClient.get(
-        `${ApiEndpoints.users.getConversations()}?${params}`
-      )
+      const url = `${ApiEndpoints.users.getConversations()}?${params}`
+      console.log('🚀 Final API URL:', url)
+
+      const response = await httpBrowserClient.get(url)
+      console.log('🚀 API RESPONSE received')
       return response.data as ConversationsResponse
     },
     getNextPageParam: (lastPage) => {
@@ -1302,6 +1334,11 @@ export default function InboxPage() {
     refetchOnMount: false, // Prevent refetch on mount to avoid scroll jumps
     refetchOnWindowFocus: false, // Prevent refetch on focus to avoid scroll jumps
   })
+
+  // Debug: Log query states
+  useEffect(() => {
+    console.log('⚡ Query states - isLoading:', isLoading, 'isFetching:', isFetching, 'isFetchingNextPage:', isFetchingNextPage)
+  }, [isLoading, isFetching, isFetchingNextPage])
 
   // Query messages from all devices (for message interface when conversation is selected)
   const { data: messagesData } = useQuery({
