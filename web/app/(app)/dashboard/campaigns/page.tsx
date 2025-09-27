@@ -775,22 +775,22 @@ export default function CampaignsPage() {
     const config = statusConfig[status] || { dot: 'bg-gray-400', text: status }
 
     return (
-      <div className='flex items-center gap-2'>
-        <div className={`w-2 h-2 rounded-full ${config.dot}`} />
-        <span className='text-sm'>{config.text}</span>
+      <div className='flex items-center gap-1 md:gap-2'>
+        <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${config.dot}`} />
+        <span className='text-xs md:text-sm'>{config.text}</span>
         {isDeleted ? (
           <Button
             size='sm'
             variant='outline'
-            className='ml-2 gap-1'
+            className='ml-1 md:ml-2 gap-1 text-xs md:text-sm'
             onClick={(e) => {
               e.stopPropagation()
               restoreCampaignMutation.mutateAsync(campaignId)
             }}
             disabled={restoreCampaignMutation.isPending}
           >
-            <RotateCcw className='h-3 w-3' />
-            Restore
+            <RotateCcw className='h-2 w-2 md:h-3 md:w-3' />
+            <span className='hidden md:inline'>Restore</span>
           </Button>
         ) : (
           <>
@@ -798,45 +798,45 @@ export default function CampaignsPage() {
               <Button
                 size='sm'
                 variant='outline'
-                className='ml-2 gap-1'
+                className='ml-1 md:ml-2 gap-1 text-xs md:text-sm'
                 onClick={(e) => {
                   e.stopPropagation()
                   handleRunCampaign(campaignId)
                 }}
                 disabled={updateCampaignStatusMutation.isPending}
               >
-                <Play className='h-3 w-3' />
-                Run
+                <Play className='h-2 w-2 md:h-3 md:w-3' />
+                <span className='hidden md:inline'>Run</span>
               </Button>
             )}
             {status === CampaignStatus.RUNNING && (
               <Button
                 size='sm'
                 variant='outline'
-                className='ml-2 gap-1'
+                className='ml-1 md:ml-2 gap-1 text-xs md:text-sm'
                 onClick={(e) => {
                   e.stopPropagation()
                   handlePauseCampaign(campaignId)
                 }}
                 disabled={updateCampaignStatusMutation.isPending}
               >
-                <Pause className='h-3 w-3' />
-                Pause
+                <Pause className='h-2 w-2 md:h-3 md:w-3' />
+                <span className='hidden md:inline'>Pause</span>
               </Button>
             )}
             {status === CampaignStatus.PAUSED && (
               <Button
                 size='sm'
                 variant='outline'
-                className='ml-2 gap-1'
+                className='ml-1 md:ml-2 gap-1 text-xs md:text-sm'
                 onClick={(e) => {
                   e.stopPropagation()
                   handleRunCampaign(campaignId)
                 }}
                 disabled={updateCampaignStatusMutation.isPending}
               >
-                <Play className='h-3 w-3' />
-                Run
+                <Play className='h-2 w-2 md:h-3 md:w-3' />
+                <span className='hidden md:inline'>Run</span>
               </Button>
             )}
           </>
@@ -930,7 +930,7 @@ export default function CampaignsPage() {
         {/* Header */}
         <div className='border-b p-4 flex-shrink-0'>
           <div className='flex items-center justify-between mb-4'>
-            <h2 className='text-lg font-semibold'>
+            <h2 className='text-base md:text-lg lg:text-xl font-semibold'>
               {selectedMode === 'campaigns' && 'Campaigns'}
               {selectedMode === 'running' && 'Running campaigns'}
               {selectedMode === 'draft' && 'Draft campaigns'}
@@ -938,13 +938,13 @@ export default function CampaignsPage() {
               {selectedMode === 'completed' && 'Completed campaigns'}
               {selectedMode === 'deleted' && 'Deleted campaigns'}
             </h2>
-            <div className='relative w-80'>
-              <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+            <div className='relative w-full md:w-80'>
+              <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-3 w-3 md:h-4 md:w-4 text-muted-foreground' />
               <Input
                 placeholder='Search campaigns...'
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className='pl-10'
+                className='pl-8 md:pl-10 text-sm md:text-base'
               />
             </div>
           </div>
@@ -968,9 +968,9 @@ export default function CampaignsPage() {
                 onCreateCampaign={handleCreateCampaign}
               />
 
-              <Button className='gap-2' onClick={() => setCreateCampaignOpen(true)}>
-                <Plus className='h-4 w-4' />
-                Create new campaign
+              <Button className='gap-1 md:gap-2 text-xs md:text-sm' onClick={() => setCreateCampaignOpen(true)}>
+                <Plus className='h-3 w-3 md:h-4 md:w-4' />
+                <span className='hidden sm:inline'>Create new </span>campaign
               </Button>
 
               <ManageTemplatesDialog
@@ -1061,36 +1061,36 @@ export default function CampaignsPage() {
             </div>
           ) : (selectedMode === 'deleted' && totalDeleted === 0) ? (
             <div className='flex flex-col items-center justify-center h-full py-16'>
-              <Archive className='h-16 w-16 text-muted-foreground/50 mb-4' />
-              <h3 className='text-lg font-semibold text-muted-foreground mb-2'>No deleted campaigns</h3>
-              <p className='text-sm text-muted-foreground mb-6 text-center max-w-md'>
+              <Archive className='h-12 w-12 md:h-16 md:w-16 text-muted-foreground/50 mb-4' />
+              <h3 className='text-base md:text-lg font-semibold text-muted-foreground mb-2'>No deleted campaigns</h3>
+              <p className='text-xs md:text-sm text-muted-foreground mb-6 text-center max-w-md'>
                 When you delete campaigns, they will appear here and can be restored.
               </p>
             </div>
           ) : (selectedMode !== 'deleted' && totalCampaigns === 0) ? (
             <div className='flex flex-col items-center justify-center h-full py-16'>
-              <Megaphone className='h-16 w-16 text-muted-foreground/50 mb-4' />
-              <h3 className='text-lg font-semibold text-muted-foreground mb-2'>No campaigns</h3>
-              <p className='text-sm text-muted-foreground mb-6 text-center max-w-md'>
+              <Megaphone className='h-12 w-12 md:h-16 md:w-16 text-muted-foreground/50 mb-4' />
+              <h3 className='text-base md:text-lg font-semibold text-muted-foreground mb-2'>No campaigns</h3>
+              <p className='text-xs md:text-sm text-muted-foreground mb-6 text-center max-w-md'>
                 Create your first campaign to start reaching your contacts.
               </p>
-              <Button className='gap-2' onClick={() => setCreateCampaignOpen(true)}>
-                <Plus className='h-4 w-4' />
-                Create new campaign
+              <Button className='gap-1 md:gap-2 text-xs md:text-sm' onClick={() => setCreateCampaignOpen(true)}>
+                <Plus className='h-3 w-3 md:h-4 md:w-4' />
+                <span className='hidden sm:inline'>Create new </span>campaign
               </Button>
             </div>
           ) : (
             <table className='w-full'>
               <thead className='sticky top-0 z-10 border-b bg-muted'>
                 <tr>
-                  <th className='w-12 p-4'>
+                  <th className='w-8 md:w-12 p-2 md:p-4'>
                     <Checkbox
                       checked={isAllSelected}
                       onCheckedChange={handleSelectAll}
                     />
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('name')}
                   >
                     <div className='flex items-center'>
@@ -1099,7 +1099,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('status')}
                   >
                     <div className='flex items-center'>
@@ -1108,7 +1108,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('contacts')}
                   >
                     <div className='flex items-center'>
@@ -1117,7 +1117,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('sent')}
                   >
                     <div className='flex items-center'>
@@ -1126,7 +1126,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('groups')}
                   >
                     <div className='flex items-center'>
@@ -1135,7 +1135,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('dateCreated')}
                   >
                     <div className='flex items-center'>
@@ -1144,7 +1144,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('lastSent')}
                   >
                     <div className='flex items-center'>
@@ -1160,41 +1160,41 @@ export default function CampaignsPage() {
                     key={campaign._id}
                     className='border-b hover:bg-muted/25 transition-colors'
                   >
-                    <td className='p-4'>
+                    <td className='p-2 md:p-4'>
                       <Checkbox
                         checked={selectedCampaigns.includes(campaign._id)}
                         onCheckedChange={(checked) => handleSelectCampaign(campaign._id, checked as boolean)}
                       />
                     </td>
-                    <td className='p-4'>
-                      <div className='flex items-center gap-2'>
-                        <Megaphone className='h-4 w-4 text-muted-foreground' />
+                    <td className='p-2 md:p-4'>
+                      <div className='flex items-center gap-1 md:gap-2'>
+                        <Megaphone className='h-3 w-3 md:h-4 md:w-4 text-muted-foreground' />
                         <div>
-                          <div className='font-medium'>{campaign.name}</div>
+                          <div className='font-medium text-xs md:text-sm lg:text-base'>{campaign.name}</div>
                           {campaign.description && (
-                            <div className='text-xs text-muted-foreground'>
+                            <div className='text-xs md:text-xs lg:text-sm text-muted-foreground'>
                               {campaign.description}
                             </div>
                           )}
                         </div>
                       </div>
                     </td>
-                    <td className='p-4'>
+                    <td className='p-2 md:p-4'>
                       {getStatusDisplay(campaign.status, campaign._id, selectedMode === 'deleted')}
                     </td>
-                    <td className='p-4 text-muted-foreground'>
+                    <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
                       {campaign.totalMessages.toLocaleString()}
                     </td>
-                    <td className='p-4 text-muted-foreground'>
+                    <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
                       {campaign.sentMessages.toLocaleString()}
                     </td>
-                    <td className='p-4 text-muted-foreground'>
+                    <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
                       {campaign.selectedContacts.length}
                     </td>
-                    <td className='p-4 text-muted-foreground'>
+                    <td className='p-2 md:p-4 text-muted-foreground'>
                       <div className='flex flex-col'>
-                        <span>{new Date(campaign.createdAt).toLocaleDateString()}</span>
-                        <span className='text-xs text-muted-foreground'>
+                        <span className='text-xs md:text-xs lg:text-sm'>{new Date(campaign.createdAt).toLocaleDateString()}</span>
+                        <span className='text-xs md:text-xs lg:text-xs text-muted-foreground'>
                           {new Date(campaign.createdAt).toLocaleTimeString('en-US', {
                             hour: 'numeric',
                             minute: '2-digit',
@@ -1203,11 +1203,11 @@ export default function CampaignsPage() {
                         </span>
                       </div>
                     </td>
-                    <td className='p-4 text-muted-foreground'>
+                    <td className='p-2 md:p-4 text-muted-foreground'>
                       {campaign.lastMessageSentAt ? (
                         <div className='flex flex-col'>
-                          <span>{new Date(campaign.lastMessageSentAt).toLocaleDateString()}</span>
-                          <span className='text-xs text-muted-foreground'>
+                          <span className='text-xs md:text-xs lg:text-sm'>{new Date(campaign.lastMessageSentAt).toLocaleDateString()}</span>
+                          <span className='text-xs md:text-xs lg:text-xs text-muted-foreground'>
                             {new Date(campaign.lastMessageSentAt).toLocaleTimeString('en-US', {
                               hour: 'numeric',
                               minute: '2-digit',
@@ -1215,7 +1215,7 @@ export default function CampaignsPage() {
                             })}
                           </span>
                         </div>
-                      ) : '-'}
+                      ) : <span className='text-xs md:text-xs lg:text-sm'>-</span>}
                     </td>
                   </tr>
                 ))}
