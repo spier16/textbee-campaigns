@@ -898,8 +898,21 @@ function ContactInfoEditor({
   conversationMessages: Message[]
   onContactUpdated: (contact: any) => void
 }) {
+  type EditableContact = Omit<NonNullable<typeof conversation.contact>, 'dncUpdatedAt'> & {
+    dncUpdatedAt?: Date
+  }
+
+  const toEditableContact = (c: any | undefined | null): EditableContact | undefined => {
+    if (!c) return undefined
+    return {
+      ...c,
+      dncUpdatedAt: c.dncUpdatedAt ? new Date(c.dncUpdatedAt) : undefined,
+    }
+  }
   const [isEditing, setIsEditing] = useState(false)
-  const [localContact, setLocalContact] = useState(conversation.contact)
+    const [localContact, setLocalContact] = useState<EditableContact | undefined>(
+      toEditableContact(conversation.contact)
+  )
   const [editData, setEditData] = useState({
     firstName: localContact?.firstName || '',
     lastName: localContact?.lastName || '',
@@ -928,7 +941,7 @@ function ContactInfoEditor({
 
   // Update local contact when conversation.contact changes
   useEffect(() => {
-    setLocalContact(conversation.contact)
+    setLocalContact(toEditableContact(conversation.contact))
   }, [conversation.contact])
 
   // Update edit data when localContact changes
@@ -985,7 +998,7 @@ function ContactInfoEditor({
       })
       setIsEditing(false)
       // Update local contact state immediately
-      setLocalContact(updatedContact)
+      setLocalContact(toEditableContact(updatedContact))
       onContactUpdated(updatedContact)
       queryClient.invalidateQueries({ queryKey: ['contacts-all'] })
       queryClient.invalidateQueries({ queryKey: ['all-messages'] })
@@ -1125,7 +1138,7 @@ function ContactInfoEditor({
               <span className="text-xs text-muted-foreground">
                 DNC Last Updated: {
                   localContact?.dncUpdatedAt
-                    ? new Date(localContact.dncUpdatedAt).toLocaleDateString()
+                    ? localContact.dncUpdatedAt.toLocaleDateString()
                     : 'Never'
                 }
               </span>
@@ -1298,8 +1311,9 @@ export default function InboxPage() {
     fetchNextPage,
     hasNextPage,
     refetch
-  } = useInfiniteQuery({
+  } = useInfiniteQuery<ConversationsResponse, Error>({
     queryKey: ['conversations', selectedInboxFilter, selectedOtherFilter, debouncedCampaignFilters, sortBy],
+    initialPageParam: 1,
     queryFn: async ({ pageParam = 1 }) => {
       console.log('🚀 API CALL TRIGGERED - queryFn executing')
       console.log('🚀 Page param:', pageParam)
@@ -1333,7 +1347,7 @@ export default function InboxPage() {
     staleTime: 30000, // Consider data fresh for 30 seconds
     refetchOnMount: false, // Prevent refetch on mount to avoid scroll jumps
     refetchOnWindowFocus: false, // Prevent refetch on focus to avoid scroll jumps
-  })
+  })  
 
   // Debug: Log query states
   useEffect(() => {
@@ -1400,7 +1414,7 @@ export default function InboxPage() {
 
     // Flatten all pages and convert date strings back to Date objects
     const allConversations = conversationsData.pages.flatMap(page =>
-      page.data.map(conv => ({
+      page.data.map(conv => ({ // Property 'data' does not exist on type 'unknown'.ts(2339)
         ...conv,
         lastMessageDate: new Date(conv.lastMessageDate),
         lastMessage: {
@@ -2098,21 +2112,19 @@ function NewMessageSidebar({
   const createConversation = (targetPhone: string, contact?: any): Conversation => {
     const normalizedPhone = normalizePhoneNumber(targetPhone)
 
-    // Find existing messages for this phone number
     const existingMessages = allMessages.filter(msg => {
       const msgSender = msg.sender ? normalizePhoneNumber(msg.sender) : null
       const msgRecipient = msg.recipient ? normalizePhoneNumber(msg.recipient) : null
       return msgSender === normalizedPhone || msgRecipient === normalizedPhone
     })
 
-    // Get the most recent message for last message info
-    const sortedMessages = existingMessages.sort((a, b) => {
-      const dateA = new Date(a.receivedAt || a.requestedAt || 0)
-      const dateB = new Date(b.receivedAt || b.requestedAt || 0)
-      return dateB.getTime() - dateA.getTime()
+    const sorted = existingMessages.sort((a, b) => {
+      const aDate = new Date(a.receivedAt || a.requestedAt || 0)
+      const bDate = new Date(b.receivedAt || b.requestedAt || 0)
+      return bDate.getTime() - aDate.getTime()
     })
 
-    const lastMessage = sortedMessages[0]
+    const lastMessage = sorted[0]
     const deviceId = devices[0]?._id || ''
 
     return {
@@ -2120,19 +2132,19 @@ function NewMessageSidebar({
       normalizedPhoneNumber: normalizedPhone,
       deviceId,
       contact,
-      lastMessage: lastMessage ? {
-        message: lastMessage.message,
-        timestamp: new Date(lastMessage.receivedAt || lastMessage.requestedAt || new Date()),
-        isIncoming: !!lastMessage.sender
-      } : {
-        message: '',
-        timestamp: new Date(),
-        isIncoming: false
-      },
+      lastMessage: lastMessage
+        ? {
+            message: lastMessage.message,
+            timestamp: new Date(lastMessage.receivedAt || lastMessage.requestedAt || new Date()),
+            isIncoming: !!lastMessage.sender,
+          }
+        : { message: '', timestamp: new Date(), isIncoming: false },
       lastMessageDate: lastMessage
         ? new Date(lastMessage.receivedAt || lastMessage.requestedAt || new Date())
         : new Date(),
-      messageCount: existingMessages.length
+      messageCount: existingMessages.length,
+      unseenCount: 0,          // 👈 required by ConversationSummary
+      isStarred: false,
     }
   }
 
