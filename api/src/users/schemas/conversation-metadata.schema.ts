@@ -30,6 +30,9 @@ export class ConversationMetadata {
 
   @Prop({ type: Date })
   starredAt?: Date
+
+  @Prop({ type: String })
+  firstCampaignName?: string
 }
 
 export const ConversationMetadataSchema = SchemaFactory.createForClass(ConversationMetadata)

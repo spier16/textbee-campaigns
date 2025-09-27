@@ -193,7 +193,7 @@ export class GatewayService {
     // return await this.deviceModel.findByIdAndDelete(deviceId)
   }
 
-  async sendSMS(deviceId: string, smsData: SendSMSInputDTO): Promise<any> {
+  async sendSMS(deviceId: string, smsData: SendSMSInputDTO, campaignId?: string): Promise<any> {
     const device = await this.deviceModel.findById(deviceId)
 
     if (!device?.enabled) {
@@ -287,6 +287,7 @@ export class GatewayService {
         recipient,
         requestedAt: new Date(),
         status: 'pending',
+        campaignId: campaignId, // Include campaignId if provided
       })
       const updatedSMSData = {
         smsId: sms._id,

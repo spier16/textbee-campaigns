@@ -10,6 +10,7 @@ import { BillingService } from '../billing/billing.service'
 import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
 import { SMS } from '../gateway/schemas/sms.schema'
 import { Contact } from '../contacts/schemas/contact.schema'
+import { Campaign } from '../campaigns/schemas/campaign.schema'
 import { normalizePhoneNumber } from '../contacts/utils/phone.utils'
 
 @Injectable()
@@ -21,6 +22,7 @@ export class UsersService {
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     @InjectModel(SMS.name) private smsModel: Model<SMS>,
     @InjectModel(Contact.name) private contactModel: Model<Contact>,
+    @InjectModel(Campaign.name) private campaignModel: Model<Campaign>,
     private mailService: MailService,
     private billingService: BillingService,
   ) {}
@@ -227,13 +229,14 @@ export class UsersService {
       user: new Types.ObjectId(userId)
     })
 
-    const metadataMap: Record<string, { isArchived: boolean; isBlocked: boolean; isStarred: boolean; archivedAt?: Date }> = {}
+    const metadataMap: Record<string, { isArchived: boolean; isBlocked: boolean; isStarred: boolean; archivedAt?: Date; firstCampaignName?: string }> = {}
     metadata.forEach(meta => {
       metadataMap[meta.normalizedPhoneNumber] = {
         isArchived: meta.isArchived,
         isBlocked: meta.isBlocked,
         isStarred: meta.isStarred,
-        archivedAt: meta.archivedAt
+        archivedAt: meta.archivedAt,
+        firstCampaignName: meta.firstCampaignName
       }
     })
 
@@ -328,6 +331,77 @@ export class UsersService {
     )
 
     return { success: true, isStarred: result.isStarred }
+  }
+
+  // Helper function to check and populate first campaign information for conversations
+  private async checkAndPopulateFirstCampaignInfo(userId: string, deviceIds: any[], conversationMetadata: Record<string, any>, normalizedPhoneNumbers: string[]) {
+    // Find conversations that don't have firstCampaignName set yet
+    const phonesToCheck = normalizedPhoneNumbers.filter(phone =>
+      !conversationMetadata[phone]?.firstCampaignName
+    )
+
+    if (phonesToCheck.length === 0) return
+
+    // For each phone number, find the first outgoing message
+    const firstMessagesWithCampaigns = await Promise.all(
+      phonesToCheck.map(async (normalizedPhone) => {
+        // Find the very first outgoing message to this contact (regardless of campaign status)
+        const firstOutgoingMessage = await this.smsModel
+          .findOne({
+            device: { $in: deviceIds },
+            recipient: { $exists: true, $ne: null },
+            $or: [
+              { recipient: normalizedPhone },
+              // Also check for messages to any phone number that normalizes to this
+              { recipient: { $regex: normalizedPhone.replace(/^\+1/, '').replace(/[^\d]/g, '') } }
+            ]
+          })
+          .sort({ requestedAt: 1 }) // Get the earliest message
+
+        // Check if this first message was from a campaign
+        if (firstOutgoingMessage && firstOutgoingMessage.campaignId) {
+          // Get campaign name
+          const campaign = await this.campaignModel.findById(firstOutgoingMessage.campaignId)
+          if (campaign) {
+            return {
+              normalizedPhone,
+              campaignName: campaign.name
+            }
+          }
+        }
+
+        return null
+      })
+    )
+
+    // Update conversation metadata for conversations that started with campaigns
+    const updates = firstMessagesWithCampaigns
+      .filter(result => result !== null)
+      .map(result => ({
+        updateOne: {
+          filter: { user: new Types.ObjectId(userId), normalizedPhoneNumber: result.normalizedPhone },
+          update: { $set: { firstCampaignName: result.campaignName } },
+          upsert: true
+        }
+      }))
+
+    if (updates.length > 0) {
+      await this.conversationMetadataModel.bulkWrite(updates)
+
+      // Update the local metadata object
+      firstMessagesWithCampaigns.forEach(result => {
+        if (result) {
+          if (!conversationMetadata[result.normalizedPhone]) {
+            conversationMetadata[result.normalizedPhone] = {
+              isArchived: false,
+              isBlocked: false,
+              isStarred: false
+            }
+          }
+          conversationMetadata[result.normalizedPhone].firstCampaignName = result.campaignName
+        }
+      })
+    }
   }
 
   // Shared function to build conversation aggregation pipeline
@@ -478,6 +552,9 @@ export class UsersService {
       return acc
     }, {})
 
+    // Check and populate first campaign information for conversations
+    await this.checkAndPopulateFirstCampaignInfo(userId, deviceIds, conversationMetadata, normalizedPhoneNumbers)
+
     // Process all conversations with contacts and metadata
     const processedConversations = await Promise.all(
       deduplicatedConversations.map(async (conv) => {
@@ -488,7 +565,8 @@ export class UsersService {
         const metadata = conversationMetadata[normalizedPhone] || {
           isArchived: false,
           isBlocked: false,
-          isStarred: false
+          isStarred: false,
+          firstCampaignName: undefined
         }
 
         // Calculate unseen count
@@ -537,7 +615,8 @@ export class UsersService {
           isArchived: metadata.isArchived,
           isBlocked: metadata.isBlocked,
           isStarred: metadata.isStarred,
-          archivedAt: metadata.archivedAt
+          archivedAt: metadata.archivedAt,
+          firstCampaignName: metadata.firstCampaignName
         }
       })
     )

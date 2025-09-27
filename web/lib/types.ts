@@ -52,6 +52,7 @@ export interface ConversationSummary {
   isBlocked?: boolean
   isStarred?: boolean
   archivedAt?: Date
+  firstCampaignName?: string
 }
 
 export interface ConversationsResponse {

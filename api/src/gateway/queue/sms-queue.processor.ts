@@ -177,8 +177,9 @@ export class SmsQueueProcessor {
 
       this.logger.debug(`Sending campaign message via GatewayService: ${campaignMessage.content} to ${campaignMessage.recipient}`)
 
-      // Send using the exact same service method as manual messaging
-      const response = await this.gatewayService.sendSMS(deviceId, smsData)
+      // Send using the exact same service method as manual messaging, but pass campaign ID
+      const campaignId = campaignMessage.campaign.toString() // Convert ObjectId to string
+      const response = await this.gatewayService.sendSMS(deviceId, smsData, campaignId)
 
       // Update campaign message status
       campaignMessage.status = MessageStatus.SENT

@@ -62,6 +62,10 @@ export class SMS {
   @Prop({ type: String, default: 'pending' })
   status: 'pending' | 'sent' | 'delivered' | 'failed' | 'unknown' | 'received'
 
+  // Campaign association for tracking campaign-sent messages
+  @Prop({ type: String })
+  campaignId?: string
+
   // misc metadata for debugging
   @Prop({ type: Object })
   metadata: Record<string, any>

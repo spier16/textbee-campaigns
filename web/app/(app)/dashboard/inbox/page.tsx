@@ -149,6 +149,14 @@ function ConversationRow({
               )}>
                 {displayName}
               </h3>
+              {conversation.firstCampaignName && (
+                <Badge
+                  variant="secondary"
+                  className="h-5 px-1.5 text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
+                >
+                  {conversation.firstCampaignName}
+                </Badge>
+              )}
               {conversation.unseenCount > 0 && (
                 <Badge
                   variant="default"

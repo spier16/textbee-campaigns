@@ -9,6 +9,7 @@ import { BillingModule } from 'src/billing/billing.module'
 import { Device, DeviceSchema } from 'src/gateway/schemas/device.schema'
 import { SMS, SMSSchema } from 'src/gateway/schemas/sms.schema'
 import { Contact, ContactSchema } from 'src/contacts/schemas/contact.schema'
+import { Campaign, CampaignSchema } from 'src/campaigns/schemas/campaign.schema'
 import { MailModule } from 'src/mail/mail.module'
 
 @Module({
@@ -37,6 +38,10 @@ import { MailModule } from 'src/mail/mail.module'
       {
         name: Contact.name,
         schema: ContactSchema,
+      },
+      {
+        name: Campaign.name,
+        schema: CampaignSchema,
       },
     ]),
     forwardRef(() => BillingModule),
