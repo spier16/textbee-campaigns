@@ -1,3 +1,5 @@
+// message-scheduler.ts
+
 // Message scheduling optimization system
 // Optimizes message delivery to send messages as quickly as possible within device constraints
 
@@ -267,7 +269,7 @@ export class MessageScheduler {
     let bestDevice: string | null = null
     let maxCapacity = 0
 
-    for (const [deviceId, utilization] of this.deviceUtilizations) {
+    for (const [deviceId, utilization] of Array.from(this.deviceUtilizations)) {
       if (!utilization.device.enabled) continue
 
       const deviceSchedules = schedules.get(deviceId) || []
@@ -352,7 +354,7 @@ export class MessageScheduler {
 
       const startTime = messages[0].scheduledTime
       const endTime = messages[messages.length - 1].scheduledTime
-      const deviceIds = [...new Set(messages.map(m => m.deviceId))]
+      const deviceIds = Array.from(new Set(messages.map(m => m.deviceId)))
 
       segments.push({
         campaignId,
