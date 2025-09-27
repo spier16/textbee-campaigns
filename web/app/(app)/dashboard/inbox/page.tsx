@@ -1383,8 +1383,10 @@ export default function InboxPage() {
         normalizedPhoneNumber: conversation.normalizedPhoneNumber,
         lastSeenAt: now.toISOString()
       })
-      // Invalidate query to refresh from server
+      // Invalidate queries to refresh from server and update UI immediately
       queryClient.invalidateQueries({ queryKey: ['conversation-read-statuses'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
     } catch (error) {
       console.error('Failed to mark conversation as read:', error)
     }
