@@ -824,6 +824,21 @@ export default function CampaignsPage() {
                 Pause
               </Button>
             )}
+            {status === CampaignStatus.PAUSED && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='ml-2 gap-1'
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleRunCampaign(campaignId)
+                }}
+                disabled={updateCampaignStatusMutation.isPending}
+              >
+                <Play className='h-3 w-3' />
+                Run
+              </Button>
+            )}
           </>
         )}
       </div>
