@@ -733,7 +733,7 @@ export default function ContactsPage() {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [displayCount, setDisplayCount] = useState(25)
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a' | 'status'>('newest')
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a'>('newest')
   const [spreadsheetSortBy, setSpreadsheetSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a' | 'status'>('newest')
   const [spreadsheetSortOrder, setSpreadsheetSortOrder] = useState<'asc' | 'desc'>('desc')
   const [contactSortBy, setContactSortBy] = useState<'firstName' | 'lastName' | 'phone' | 'email'>('firstName')
@@ -828,7 +828,10 @@ export default function ContactsPage() {
       setLoading(true)
       const response = await contactsApi.getSpreadsheets({
         search: searchQuery || undefined,
-        sortBy,
+        sortBy,  // Error here: Type '"newest" | "oldest" | "a-z" | "z-a" | "status"' is not assignable to type '"newest" | "oldest" | "a-z" | "z-a"'.
+//   Type '"status"' is not assignable to type '"newest" | "oldest" | "a-z" | "z-a"'.ts(2322)
+// contacts.ts(27, 3): The expected type comes from property 'sortBy' which is declared here on type 'GetSpreadsheetsParams'
+// (property) GetSpreadsheetsParams.sortBy?: "newest" | "oldest" | "a-z" | "z-a"
         limit: displayCount,
         page: currentPage,
       })
@@ -1048,13 +1051,20 @@ export default function ContactsPage() {
 
   const createContactMutation = useMutation({
     mutationFn: async (data: typeof createContactData) => {
-      const cleanData = Object.fromEntries(
-        Object.entries(data).map(([key, value]) => [
-          key,
-          value === '' ? undefined : value
-        ])
-      )
-      return contactsApi.createContact(cleanData)
+      const { phone, dnc, ...rest } = data
+      // convert '' -> undefined for optional fields
+      const cleanedRest = Object.fromEntries(
+        Object.entries(rest).map(([k, v]) => [k, v === '' ? undefined : v])
+      ) as Partial<Contact>
+
+      // Build a typed payload with required phone
+      const payload: Partial<Contact> & { phone: string } = {
+        phone: phone.trim(),
+        ...cleanedRest,
+        // normalize null to undefined for boolean field
+        dnc: dnc ?? undefined,
+      }
+      return contactsApi.createContact(payload)
     },
     onSuccess: (newContact) => {
       toast({
@@ -1622,13 +1632,15 @@ export default function ContactsPage() {
     })
   }
 
-  const handleContactSort = (column: 'firstName' | 'lastName' | 'phone' | 'email' | 'groups') => {
+  const handleContactSort = (column: 'firstName' | 'lastName' | 'phone' | 'email') => {
     if (contactSortBy === column) {
       // Toggle sort order if clicking on same column
       setContactSortOrder(contactSortOrder === 'asc' ? 'desc' : 'asc')
     } else {
       // Change to new column, default to ascending
-      setContactSortBy(column)
+      setContactSortBy(column)  // Error here: Argument of type '"firstName" | "lastName" | "phone" | "email" | "groups"' is not assignable to parameter of type 'SetStateAction<"firstName" | "lastName" | "phone" | "email">'.
+//   Type '"groups"' is not assignable to type 'SetStateAction<"firstName" | "lastName" | "phone" | "email">'.ts(2345)
+// (parameter) column: "firstName" | "lastName" | "phone" | "email" | "groups"
       setContactSortOrder('asc')
     }
     setCurrentPage(1) // Reset to first page when sorting changes
@@ -1653,7 +1665,7 @@ export default function ContactsPage() {
       <ChevronDown className="h-4 w-4 ml-1" />
   }
 
-  const renderSortIcon = (column: 'firstName' | 'lastName' | 'phone' | 'email' | 'groups') => {
+  const renderSortIcon = (column: 'firstName' | 'lastName' | 'phone' | 'email') => {
     if (contactSortBy !== column) return null
     return contactSortOrder === 'asc' ?
       <ChevronUp className="h-4 w-4 ml-1" /> :
