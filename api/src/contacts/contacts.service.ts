@@ -837,7 +837,7 @@ export class ContactsService {
     const contacts = memberships.map(membership => membership.contactId as any).filter(Boolean)
 
     const validContactsCount = contacts.length
-    const nonDncCount = contacts.filter(contact => contact.dnc === false).length
+    const nonDncCount = contacts.filter(contact => contact.dnc !== true).length
     const dncCount = contacts.filter(contact => contact.dnc === true).length
 
     return { validContactsCount, nonDncCount, dncCount }
