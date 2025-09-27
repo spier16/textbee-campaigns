@@ -13,10 +13,11 @@ import {
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Switch } from '@/components/ui/switch'
 import {
   Trash2,
   MessageSquare,
@@ -26,23 +27,52 @@ import {
   FileText,
   Copy,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
-import { ContactSpreadsheet } from '@/lib/api/contacts'
+import { ContactSpreadsheet, Contact, contactsApi } from '@/lib/api/contacts'
+import { MessageTemplate, campaignsApi, ProcessTemplatePreviewDto, TemplatePreview, HighlightedContent, ValidationError } from '@/lib/api/campaigns'
 import {
   CreateCampaignData,
   DateValidationErrors,
   MessageTemplateGroup
 } from '@/components/campaigns/types/campaign.types'
 import { SendingScheduleCalendar } from './SendingScheduleCalendar'
+import { HighlightedText } from '@/components/campaigns/HighlightedText'
 
-// Device interface (from API response)
+// Type alias for consistency with API response
+type CampaignMessagePreview = TemplatePreview
+
+// Device interface (from API response) - Using usage plan system
 interface Device {
   _id: string
   brand: string
   model: string
   enabled: boolean
-  max_hourly_send_rate?: number
-  daily_send_limit?: number
+  current_tier?: number
+  messages_sent_today?: number
+  messages_sent_this_hour?: number
+  hourly_counter_reset?: Date
+  daily_counter_reset?: Date
+  last_tier_upgrade?: Date
+  plan_type?: number
+  usagePlan?: string // Usage plan ID
+}
+
+// Usage plan interfaces
+interface UsagePlanTier {
+  tier: number
+  timeDelayBetweenMessages: number // in seconds
+  dailyLimit: number
+}
+
+interface UsagePlan {
+  _id: string
+  name: string
+  description?: string
+  tiers: UsagePlanTier[]
+  isDefault: boolean
+  isActive: boolean
 }
 
 // Props interface for the CreateCampaignDialog component
@@ -58,6 +88,7 @@ interface CreateCampaignDialogProps {
   // External data
   contactSpreadsheets?: ContactSpreadsheet[]
   devices?: Device[]
+  usagePlans?: UsagePlan[]
   templateGroups?: MessageTemplateGroup[]
   uniqueContactCount: number
 
@@ -80,6 +111,7 @@ export function CreateCampaignDialog({
   onCampaignDataChange,
   contactSpreadsheets = [],
   devices = [],
+  usagePlans = [],
   templateGroups = [],
   uniqueContactCount,
   dateValidationErrors,
@@ -89,21 +121,207 @@ export function CreateCampaignDialog({
   onCreateCampaign
 }: CreateCampaignDialogProps) {
   const [activeTab, setActiveTab] = useState('details')
-  const [timezoneSearch, setTimezoneSearch] = useState('')
-  const [timezoneDropdownOpen, setTimezoneDropdownOpen] = useState(false)
+  const [messagePreview, setMessagePreview] = useState<CampaignMessagePreview[]>([])
+  const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
+
   const { toast } = useToast()
 
-  // Memoized filtered timezones
-  const filteredTimezones = useMemo(() => {
-    const allTimezones = Intl.supportedValuesOf('timeZone')
-    if (!timezoneSearch.trim()) {
-      return allTimezones
+  // Track viewport height for dynamic spacing
+  useEffect(() => {
+    const updateViewportHeight = () => setViewportHeight(window.innerHeight)
+    updateViewportHeight()
+    window.addEventListener('resize', updateViewportHeight)
+    return () => window.removeEventListener('resize', updateViewportHeight)
+  }, [])
+
+  // Calculate dynamic spacing based on viewport height
+  const getDynamicSpacing = () => {
+    if (viewportHeight === 0) return { isCompact: false, headerSpacing: 'mb-1 sm:mb-2', tabSpacing: 'p-3 sm:p-4' }
+
+    const isSmallViewport = viewportHeight < 700
+    const isTinyViewport = viewportHeight < 600
+
+    return {
+      isCompact: isSmallViewport,
+      isTiny: isTinyViewport,
+      headerSpacing: isTinyViewport ? 'mb-0.5' : isSmallViewport ? 'mb-1' : 'mb-1 sm:mb-2',
+      tabSpacing: isTinyViewport ? 'p-2' : isSmallViewport ? 'p-3' : 'p-3 sm:p-4',
+      titleHeight: isTinyViewport ? 'h-7' : isSmallViewport ? 'h-8' : 'h-8 sm:h-10',
+      titleText: isTinyViewport ? 'text-sm' : 'text-base sm:text-xl'
     }
-    return allTimezones.filter(tz =>
-      tz.toLowerCase().includes(timezoneSearch.toLowerCase()) ||
-      tz.replace(/_/g, ' ').toLowerCase().includes(timezoneSearch.toLowerCase())
-    )
-  }, [timezoneSearch])
+  }
+
+  const spacing = getDynamicSpacing()
+
+  // Memoized timezone options with searchable display format
+  const timezoneOptions = useMemo(() => {
+    const allTimezones = Intl.supportedValuesOf('timeZone')
+    return allTimezones.map(tz => {
+      try {
+        const parts = tz.split('/')
+        const city = parts[parts.length - 1].replace(/_/g, ' ')
+        const region = parts.length > 1 ? parts[0].replace(/_/g, ' ') : ''
+
+        // Get GMT offset
+        const date = new Date()
+        const utcTime = date.getTime() + (date.getTimezoneOffset() * 60000)
+        const targetTime = new Date(utcTime + (0)) // Start with UTC
+
+        // Use Intl.DateTimeFormat to get proper offset
+        const formatter = new Intl.DateTimeFormat('en', {
+          timeZone: tz,
+          timeZoneName: 'longOffset'
+        })
+
+        let gmtOffset = ''
+        try {
+          const parts = formatter.formatToParts(new Date())
+          const offsetPart = parts.find(part => part.type === 'timeZoneName')
+          if (offsetPart && offsetPart.value !== 'GMT') {
+            gmtOffset = ` ${offsetPart.value}`
+          }
+        } catch {
+          // Fallback to short timezone name
+          const timeString = new Date().toLocaleTimeString('en-US', {
+            timeZone: tz,
+            timeZoneName: 'short'
+          })
+          const abbreviation = timeString.split(' ').pop() || ''
+          gmtOffset = abbreviation ? ` ${abbreviation}` : ''
+        }
+
+        // Format: "City, Region GMT+X" for better type-to-search
+        const label = region && region !== city
+          ? `${city}, ${region}${gmtOffset}`
+          : `${city}${gmtOffset}`
+
+        return {
+          value: tz,
+          label: label
+        }
+      } catch (e) {
+        // Fallback for invalid timezones
+        const city = tz.split('/').pop()?.replace(/_/g, ' ') || tz
+        return {
+          value: tz,
+          label: city
+        }
+      }
+    })
+    .sort((a, b) => a.label.localeCompare(b.label)) // Sort by city name
+  }, [])
+
+  // Helper functions for usage plan management
+  const getCurrentTier = (device: Device): UsagePlanTier | null => {
+    if (!device.usagePlan || !usagePlans) return null
+    const plan = usagePlans.find(p => p._id === device.usagePlan)
+    if (!plan) return null
+    return plan.tiers.find(t => t.tier === (device.current_tier || 1)) || plan.tiers[0]
+  }
+
+  const formatTimeDelay = (seconds: number): string => {
+    if (seconds === 0) return 'No delay'
+    if (seconds < 60) return `${seconds}s`
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    if (remainingSeconds === 0) return `${minutes}m`
+    return `${minutes}m ${remainingSeconds}s`
+  }
+
+  const getDeviceRateInfo = (device: Device): { hourlyInfo: string; dailyInfo: string } => {
+    const currentTier = getCurrentTier(device)
+    if (!currentTier) {
+      return {
+        hourlyInfo: 'No usage plan',
+        dailyInfo: 'No usage plan'
+      }
+    }
+
+    // Convert time delay to hourly rate for display
+    const messagesPerHour = currentTier.timeDelayBetweenMessages > 0
+      ? Math.floor(3600 / currentTier.timeDelayBetweenMessages)
+      : 0
+
+    return {
+      hourlyInfo: `~${messagesPerHour}/hr (${formatTimeDelay(currentTier.timeDelayBetweenMessages)} delay)`,
+      dailyInfo: `${currentTier.dailyLimit}/day`
+    }
+  }
+
+  // Function to generate message preview data using backend API
+  const generateMessagePreview = async () => {
+    setPreviewLoading(true)
+    try {
+      if (campaignData.selectedTemplates.length === 0) {
+        setMessagePreview([])
+        return
+      }
+
+      if (campaignData.selectedContacts.length === 0) {
+        setMessagePreview([])
+        return
+      }
+
+      // Prepare request data for backend API
+      const processPreviewData: ProcessTemplatePreviewDto = {
+        templateIds: campaignData.selectedTemplates,
+        contactSpreadsheetIds: campaignData.selectedContacts,
+        excludeDnc: campaignData.excludeDnc,
+        includePreviouslyMessaged: campaignData.includePreviouslyMessaged,
+        maxPreviewCount: 100, // Limit preview to reasonable number for UI performance
+        highlightVariables: true, // Enable variable highlighting for preview
+      }
+
+      // Call backend API to process template variables
+      const response = await campaignsApi.processTemplatePreview(processPreviewData)
+
+      setMessagePreview(response.previews)
+      setCurrentPreviewIndex(0)
+    } catch (error) {
+      console.error('Error generating message preview:', error)
+      toast({
+        title: 'Preview Error',
+        description: 'Failed to generate message preview. Please try again.',
+        variant: 'destructive'
+      })
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  // Clean up deleted template IDs when template groups change
+  useEffect(() => {
+    if (templateGroups && campaignData.selectedTemplates.length > 0) {
+      // Get all valid template IDs from current template groups
+      const validTemplateIds = new Set<string>()
+      templateGroups.forEach(group => {
+        group.templates.forEach(template => {
+          validTemplateIds.add(template._id)
+        })
+      })
+
+      // Filter out invalid template IDs
+      const validSelectedTemplates = campaignData.selectedTemplates.filter(id => validTemplateIds.has(id))
+
+      // Update state if any templates were removed
+      if (validSelectedTemplates.length !== campaignData.selectedTemplates.length) {
+        onCampaignDataChange({
+          ...campaignData,
+          selectedTemplates: validSelectedTemplates
+        })
+      }
+    }
+  }, [templateGroups])
+
+  // Generate preview when tab becomes active and data is available
+  useEffect(() => {
+    if (activeTab === 'preview' && open && campaignData.selectedContacts.length > 0 && campaignData.selectedTemplates.length > 0) {
+      generateMessagePreview()
+    }
+  }, [activeTab, open, campaignData.selectedContacts, campaignData.selectedTemplates, campaignData.excludeDnc, campaignData.includePreviouslyMessaged])
 
   // Date validation function
   const validateDates = (startDate: string, endDate: string) => {
@@ -114,12 +332,19 @@ export function CreateCampaignDialog({
     const errors = { startDateError: '', endDateError: '' }
 
     // Don't validate start date if schedule type is 'now' (disabled field)
-    // Allow today's date by checking if startDate is strictly less than today
-    if (campaignData.scheduleType !== 'now' && startDate && new Date(startDate + 'T00:00:00') < new Date(today + 'T00:00:00')) {
-      errors.startDateError = 'Campaign start date cannot be before today'
+    if (campaignData.scheduleType !== 'now' && startDate) {
+      // Convert startDate to the same timezone for proper comparison
+      // Parse the date as if it's in the selected timezone to avoid timezone issues
+      const startDateInTimezone = new Date(startDate + 'T00:00:00')
+      const todayInTimezone = new Date(today + 'T00:00:00')
+
+      if (startDateInTimezone < todayInTimezone) {
+        errors.startDateError = 'Campaign start date cannot be before today'
+      }
     }
 
-    if (startDate && endDate && new Date(endDate + 'T00:00:00') < new Date(startDate + 'T00:00:00')) {
+    // For end date comparison, we can use simple string comparison since both are in YYYY-MM-DD format
+    if (startDate && endDate && endDate < startDate) {
       errors.endDateError = 'Campaign end date cannot be before start date'
     }
 
@@ -127,16 +352,24 @@ export function CreateCampaignDialog({
     return errors.startDateError === '' && errors.endDateError === ''
   }
 
-  // Validate dates when dialog opens or schedule type changes
+  // Validate dates when dialog opens, schedule type changes, or timezone changes
   useEffect(() => {
     if (open) {
-      validateDates(campaignData.campaignStartDate, campaignData.campaignEndDate)
+      // Clear validation errors when switching to "now" schedule type since the field is disabled
+      if (campaignData.scheduleType === 'now') {
+        onDateValidationChange({ startDateError: '', endDateError: '' })
+      } else {
+        validateDates(campaignData.campaignStartDate, campaignData.campaignEndDate)
+      }
     }
-  }, [open, campaignData.scheduleType])
+  }, [open, campaignData.scheduleType, campaignData.timezone || 'default'])
 
   // Validation functions for each stage
   const validateDetailsStage = () => {
-    return campaignData.selectedContacts.length > 0
+    const hasContacts = campaignData.selectedContacts.length > 0
+    const hasValidContacts = uniqueContactCount > 0
+    const hasTemplates = campaignData.selectedTemplates.length > 0
+    return hasContacts && hasValidContacts && hasTemplates
   }
 
   const validateConfigureStage = () => {
@@ -168,6 +401,9 @@ export function CreateCampaignDialog({
   const handleClose = () => {
     onOpenChange(false)
     setActiveTab('details')
+    setMessagePreview([])
+    setCurrentPreviewIndex(0)
+    setValidationErrors([])
     onDateValidationChange({ startDateError: '', endDateError: '' })
   }
 
@@ -176,9 +412,20 @@ export function CreateCampaignDialog({
       setActiveTab(value)
     } else {
       if (value === 'configure' && !validateDetailsStage()) {
+        const hasContacts = campaignData.selectedContacts.length > 0
+        const hasValidContacts = uniqueContactCount > 0
+        const hasTemplates = campaignData.selectedTemplates.length > 0
+
+        let description = "Please complete the following: "
+        const missing = []
+        if (!hasContacts) missing.push("select contacts")
+        else if (!hasValidContacts) missing.push("adjust filters (no valid contacts after filtering)")
+        if (!hasTemplates) missing.push("select message templates")
+        description += missing.join(" and ")
+
         toast({
           title: "Complete required fields",
-          description: "Please select contacts before proceeding.",
+          description,
           variant: "destructive"
         })
       } else if (value === 'preview' && !validateConfigureStage()) {
@@ -208,9 +455,20 @@ export function CreateCampaignDialog({
         setActiveTab(nextTab)
       } else {
         if (nextTab === 'configure' && !validateDetailsStage()) {
+          const hasContacts = campaignData.selectedContacts.length > 0
+          const hasValidContacts = uniqueContactCount > 0
+          const hasTemplates = campaignData.selectedTemplates.length > 0
+
+          let description = "Please complete the following: "
+          const missing = []
+          if (!hasContacts) missing.push("select contacts")
+          else if (!hasValidContacts) missing.push("adjust filters (no valid contacts after filtering)")
+          if (!hasTemplates) missing.push("select message templates")
+          description += missing.join(" and ")
+
           toast({
             title: "Complete required fields",
-            description: "Please select contacts before proceeding.",
+            description,
             variant: "destructive"
           })
         } else if (nextTab === 'preview' && !validateConfigureStage()) {
@@ -226,9 +484,12 @@ export function CreateCampaignDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='w-[90vw] max-w-6xl h-[90vh] overflow-hidden flex flex-col'>
-        <DialogHeader className='flex-shrink-0 border-b p-4 pb-3'>
+      <DialogContent className='w-[90vw] max-w-6xl h-[90vh] overflow-hidden flex flex-col p-4'>
+        <DialogHeader className='flex-shrink-0 border-b p-2 pb-1'>
           <DialogTitle>Create New Campaign</DialogTitle>
+          <DialogDescription>
+            Set up a new SMS campaign with contacts, message templates, and sending schedule.
+          </DialogDescription>
         </DialogHeader>
         <div className='flex-1 overflow-hidden min-h-0'>
           <Tabs value={activeTab} onValueChange={handleTabChange} className='h-full flex flex-col'>
@@ -336,6 +597,42 @@ export function CreateCampaignDialog({
                   </Select>
                 </div>
 
+                <div className='space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <Label htmlFor='excludeDnc' className='text-sm font-medium'>
+                      Exclude DNC
+                    </Label>
+                    <Switch
+                      id='excludeDnc'
+                      checked={campaignData.excludeDnc}
+                      onCheckedChange={(checked) => {
+                        onCampaignDataChange({ ...campaignData, excludeDnc: checked })
+                      }}
+                    />
+                  </div>
+                  <div className='text-xs text-muted-foreground'>
+                    Exclude contacts marked as Do Not Call from the campaign
+                  </div>
+                </div>
+
+                <div className='space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <Label htmlFor='includePreviouslyMessaged' className='text-sm font-medium'>
+                      Send to Previously Messaged Contacts
+                    </Label>
+                    <Switch
+                      id='includePreviouslyMessaged'
+                      checked={campaignData.includePreviouslyMessaged}
+                      onCheckedChange={(checked) => {
+                        onCampaignDataChange({ ...campaignData, includePreviouslyMessaged: checked })
+                      }}
+                    />
+                  </div>
+                  <div className='text-xs text-muted-foreground'>
+                    Include contacts who have been messaged before in previous campaigns
+                  </div>
+                </div>
+
                 <div className='space-y-2'>
                   <Label htmlFor='description' className='text-sm font-medium'>
                     Description
@@ -406,48 +703,58 @@ export function CreateCampaignDialog({
                       </div>
                     ) : (
                       <div className='space-y-2'>
-                        {devices.map(device => (
-                          <div key={device._id} className='flex items-center justify-between p-2 rounded border bg-background'>
-                            <div className='flex items-center space-x-2'>
-                              <Checkbox
-                                checked={campaignData.sendDevices.includes(device._id)}
-                                disabled={!device.enabled}
-                                onCheckedChange={(checked) => {
-                                  if (!device.enabled) return
-                                  if (checked) {
-                                    onCampaignDataChange({
-                                      ...campaignData,
-                                      sendDevices: [...campaignData.sendDevices, device._id]
-                                    })
-                                  } else {
-                                    onCampaignDataChange({
-                                      ...campaignData,
-                                      sendDevices: campaignData.sendDevices.filter(id => id !== device._id)
-                                    })
-                                  }
-                                }}
-                                className={!device.enabled ? 'opacity-50' : ''}
-                              />
-                              <div className={`text-sm ${!device.enabled ? 'opacity-50' : ''}`}>
-                                <div className='flex items-center gap-2'>
-                                  <span className='font-medium'>{device.brand} {device.model}</span>
-                                  <Badge variant={device.enabled ? 'default' : 'secondary'} className='text-xs'>
-                                    {device.enabled ? 'Enabled' : 'Disabled'}
-                                  </Badge>
-                                </div>
-                                <div className='text-xs text-muted-foreground mt-1'>
-                                  <code className='bg-muted px-1 py-0.5 rounded text-xs'>
-                                    {device._id}
-                                  </code>
+                        {devices.map(device => {
+                          const rateInfo = getDeviceRateInfo(device)
+                          const currentTier = getCurrentTier(device)
+
+                          return (
+                            <div key={device._id} className='flex items-center justify-between p-2 rounded border bg-background'>
+                              <div className='flex items-center space-x-2'>
+                                <Checkbox
+                                  checked={campaignData.sendDevices.includes(device._id)}
+                                  disabled={!device.enabled}
+                                  onCheckedChange={(checked) => {
+                                    if (!device.enabled) return
+                                    if (checked) {
+                                      onCampaignDataChange({
+                                        ...campaignData,
+                                        sendDevices: [...campaignData.sendDevices, device._id]
+                                      })
+                                    } else {
+                                      onCampaignDataChange({
+                                        ...campaignData,
+                                        sendDevices: campaignData.sendDevices.filter(id => id !== device._id)
+                                      })
+                                    }
+                                  }}
+                                  className={!device.enabled ? 'opacity-50' : ''}
+                                />
+                                <div className={`text-sm ${!device.enabled ? 'opacity-50' : ''}`}>
+                                  <div className='flex items-center gap-2'>
+                                    <span className='font-medium'>{device.brand} {device.model}</span>
+                                    <Badge variant={device.enabled ? 'default' : 'secondary'} className='text-xs'>
+                                      {device.enabled ? 'Enabled' : 'Disabled'}
+                                    </Badge>
+                                    {currentTier && (
+                                      <Badge variant='outline' className='text-xs'>
+                                        Tier {device.current_tier || 1}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className='text-xs text-muted-foreground mt-1'>
+                                    <code className='bg-muted px-1 py-0.5 rounded text-xs'>
+                                      {device._id}
+                                    </code>
+                                  </div>
                                 </div>
                               </div>
+                              <div className={`text-xs text-muted-foreground text-right ${!device.enabled ? 'opacity-50' : ''}`}>
+                                <div>{rateInfo.hourlyInfo}</div>
+                                <div>{rateInfo.dailyInfo}</div>
+                              </div>
                             </div>
-                            <div className={`text-sm text-muted-foreground text-right ${!device.enabled ? 'opacity-50' : ''}`}>
-                              <div>{device.max_hourly_send_rate || 60} per hour</div>
-                              <div>{device.daily_send_limit || 50} per day</div>
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -472,16 +779,6 @@ export function CreateCampaignDialog({
 
                   {/* Campaign Start and End Date fields */}
                   <div className='space-y-2'>
-                    {/* Timezone info display */}
-                    <div className='text-xs text-muted-foreground bg-blue-50 p-2 rounded border border-blue-200'>
-                      <strong>Current timezone:</strong> {campaignData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
-                      {' '}({new Date().toLocaleTimeString('en-US', {
-                        timeZone: campaignData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-                        timeZoneName: 'short'
-                      }).split(' ').pop()}) - Today is {new Date().toLocaleDateString('en-CA', {
-                        timeZone: campaignData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
-                      })}
-                    </div>
                     <div className='flex gap-4'>
                       <div className='space-y-1 flex-1'>
                         <Label className='text-xs text-muted-foreground'>
@@ -531,54 +828,25 @@ export function CreateCampaignDialog({
                       <Label className='text-xs text-muted-foreground'>
                         Timezone
                       </Label>
-                      <div className="relative">
-                        <Select
-                          open={timezoneDropdownOpen}
-                          onOpenChange={setTimezoneDropdownOpen}
-                          value={campaignData.timezone}
-                          onValueChange={(value) => {
-                            onCampaignDataChange({ ...campaignData, timezone: value })
-                            setTimezoneDropdownOpen(false)
-                            setTimezoneSearch('')
-                            // Re-validate dates when timezone changes
-                            validateDates(campaignData.campaignStartDate, campaignData.campaignEndDate)
-                          }}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select timezone..." />
-                          </SelectTrigger>
-                          <SelectContent className="max-h-60">
-                            <div className="p-2 border-b">
-                              <Input
-                                placeholder="Search timezones..."
-                                value={timezoneSearch}
-                                onChange={(e) => setTimezoneSearch(e.target.value)}
-                                className="h-8 text-sm"
-                                onClick={(e) => e.stopPropagation()}
-                                onKeyDown={(e) => e.stopPropagation()}
-                                onFocus={(e) => e.stopPropagation()}
-                                autoFocus={false}
-                              />
-                            </div>
-                            <div className="overflow-y-auto max-h-40">
-                              {filteredTimezones.length > 0 ? (
-                                filteredTimezones.map(tz => (
-                                  <SelectItem key={tz} value={tz}>
-                                    {tz.replace(/_/g, ' ')} ({new Date().toLocaleTimeString('en-US', {
-                                      timeZone: tz,
-                                      timeZoneName: 'short'
-                                    }).split(' ').pop()})
-                                  </SelectItem>
-                                ))
-                              ) : (
-                                <div className="py-2 px-3 text-sm text-muted-foreground">
-                                  No timezones found
-                                </div>
-                              )}
-                            </div>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      <Select
+                        value={campaignData.timezone}
+                        onValueChange={(value) => {
+                          onCampaignDataChange({ ...campaignData, timezone: value })
+                          // Re-validate dates when timezone changes
+                          validateDates(campaignData.campaignStartDate, campaignData.campaignEndDate)
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select timezone..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60">
+                          {timezoneOptions.map(tz => (
+                            <SelectItem key={tz.value} value={tz.value}>
+                              {tz.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 
@@ -875,9 +1143,10 @@ export function CreateCampaignDialog({
                       </div>
                     )}
                   </div>
+
                 </div>
 
-                {/* Right Column - Sending Schedule */}
+                {/* Right Column - Sending Schedule Calendar */}
                 <div className='flex flex-col h-full overflow-hidden min-h-0'>
                   <Label className='text-sm font-medium mb-2 flex-shrink-0'>Sending Schedule</Label>
                   <div className='flex-1 border rounded-lg p-4 bg-white overflow-hidden min-h-0'>
@@ -887,99 +1156,138 @@ export function CreateCampaignDialog({
               </div>
             </TabsContent>
 
-            <TabsContent value='preview' className='flex-1 overflow-y-auto p-4 min-h-0'>
-              <div className='bg-muted/50 p-4 rounded-lg space-y-4'>
-              <h3 className='text-lg font-semibold'>Campaign Summary</h3>
-              <div className='grid grid-cols-2 gap-4'>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Campaign Name</Label>
-                  <p className='text-sm'>{campaignData.name || 'Not specified'}</p>
+            <TabsContent value='preview' className={`flex-1 overflow-hidden ${spacing.tabSpacing} min-h-0`}>
+              <div className='h-full flex flex-col'>
+                {/* Campaign Name Header - Dynamic Spacing */}
+                <div className={`flex-shrink-0 ${spacing.headerSpacing} ${spacing.titleHeight} flex items-center justify-center px-2`}>
+                  <h3 className={`${spacing.titleText} font-semibold text-center line-clamp-2`}>{campaignData.name || 'Untitled Campaign'}</h3>
                 </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Status</Label>
-                  <p className='text-sm capitalize'>{campaignData.status}</p>
-                </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Selected Contacts</Label>
-                  <p className='text-sm'>
-                    {campaignData.selectedContacts.length} spreadsheet(s) selected
-                    {campaignData.selectedContacts.length > 0 && (
-                      <span className='text-muted-foreground ml-1'>
-                        ({campaignData.selectedContacts.reduce((sum, contactId) => {
-                          const contact = contactSpreadsheets?.find(c => c.id === contactId)
-                          return sum + (contact?.validContactsCount || contact?.contactCount || 0)
-                        }, 0).toLocaleString()} total contacts)
-                      </span>
-                    )}
-                  </p>
-                </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Message Templates</Label>
-                  <p className='text-sm'>
-                    {campaignData.selectedTemplates.length > 0 ? (
-                      `${campaignData.selectedTemplates.length} template(s) selected`
-                    ) : (
-                      'No templates selected'
-                    )}
-                  </p>
-                </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Send Devices</Label>
-                  <p className='text-sm'>{campaignData.sendDevices.length} device(s) selected</p>
-                </div>
-                <div>
-                  <Label className='text-sm font-medium text-muted-foreground'>Schedule</Label>
-                  <p className='text-sm'>
-                    {campaignData.scheduleType === 'now' ? 'Start sending immediately' :
-                     campaignData.scheduleType === 'later' && campaignData.scheduledDate && campaignData.scheduledTime ?
-                     `Start sending on ${campaignData.scheduledDate} at ${campaignData.scheduledTime}` :
-                     campaignData.scheduleType === 'windows' && campaignData.sendingWindows.length > 0 ?
-                     `${campaignData.sendingWindows.length} slot window(s) defined` :
-                     campaignData.scheduleType === 'weekday' && Object.entries(campaignData.weekdayWindows).some(([day, dayWindows]) =>
-                       campaignData.weekdayEnabled[day as keyof typeof campaignData.weekdayEnabled] && dayWindows.length > 0) ?
-                     `Weekday windows defined for ${Object.entries(campaignData.weekdayWindows).filter(([day, windows]) =>
-                       campaignData.weekdayEnabled[day as keyof typeof campaignData.weekdayEnabled] && windows.length > 0).length} day(s)` :
-                     'Schedule not set'}
-                  </p>
-                  {campaignData.scheduleType === 'windows' && campaignData.sendingWindows.length > 0 && (
-                    <div className='mt-2'>
-                      <Label className='text-xs text-muted-foreground'>Slot Windows:</Label>
-                      <div className='mt-1 space-y-1'>
-                        {campaignData.sendingWindows.map((window, index) => (
-                          <div key={index} className='text-xs bg-muted/50 p-2 rounded'>
-                            {window.startDate ? new Date(window.startDate).toLocaleDateString() : 'No start date'} {window.startTime || 'No start time'} → {window.endDate ? new Date(window.endDate).toLocaleDateString() : 'No end date'} {window.endTime || 'No end time'}
-                          </div>
-                        ))}
+
+                {/* Main Content Area - Fills remaining space with guaranteed clearance */}
+                <div className='flex-1 flex flex-col min-h-0' style={{
+                  minHeight: spacing.isTiny ? '200px' : spacing.isCompact ? '250px' : '300px'
+                }}>
+                  {previewLoading ? (
+                    <div className='flex-1 flex flex-col items-center justify-center space-y-4'>
+                      <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary'></div>
+                      <p className='text-sm text-muted-foreground'>Generating message preview...</p>
+                    </div>
+                  ) : messagePreview.length === 0 ? (
+                    <div className='flex-1 flex items-center justify-center'>
+                      <div className='text-center space-y-2'>
+                        <p className='text-muted-foreground'>No messages to preview</p>
+                        <p className='text-sm text-muted-foreground'>Select contacts and templates to see message preview</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className='flex-1 flex flex-col items-center px-2 sm:px-0 min-h-0'>
+                      {/* Message Card - Responsive sizing with overlap prevention */}
+                      <div className={`w-full max-w-lg flex-1 flex flex-col min-h-0 ${spacing.isTiny ? 'mb-2' : 'mb-3'}`}>
+                        <div className={`bg-white border border-border rounded-lg ${spacing.isTiny ? 'p-1' : 'p-2 sm:p-3'} shadow-sm flex-1 flex flex-col`} style={{
+                          minHeight: spacing.isTiny ? '120px' : spacing.isCompact ? '160px' : '200px',
+                          maxHeight: `calc(100vh - ${spacing.isTiny ? '320px' : spacing.isCompact ? '360px' : '400px'})`
+                        }}>
+                          {(() => {
+                            const currentMessage = messagePreview[currentPreviewIndex]
+                            const contact = currentMessage.contact
+                            const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+
+                            return (
+                              <div className='h-full flex flex-col min-h-0'>
+                                {/* Recipient Info - Responsive Height */}
+                                <div className={`border-b ${spacing.isTiny ? 'pb-1' : 'pb-2 sm:pb-3'} flex-shrink-0 ${spacing.isTiny ? 'h-10' : 'h-14 sm:h-16'} flex flex-col justify-center`}>
+                                  <h4 className={`font-semibold ${spacing.isTiny ? 'text-sm' : 'text-base sm:text-lg'} truncate`}>
+                                    {fullName || 'Unknown Contact'}
+                                  </h4>
+                                  <p className='text-muted-foreground text-xs sm:text-sm truncate'>{contact.phone}</p>
+                                </div>
+
+                                {/* Header Section - Responsive Height */}
+                                <div className={`flex items-center justify-between flex-shrink-0 ${spacing.isTiny ? 'h-6' : 'h-8 sm:h-10'} ${spacing.isTiny ? 'pt-0.5' : 'pt-1 sm:pt-2'}`}>
+                                  <Label className='text-xs font-medium text-muted-foreground'>Message Preview</Label>
+                                  <Badge variant='outline' className={`text-xs truncate ${spacing.isTiny ? 'max-w-[100px]' : 'max-w-[140px] sm:max-w-[180px]'}`} title={`Template ${currentMessage.templateIndex + 1}: ${currentMessage.template.name}`}>
+                                    Template {currentMessage.templateIndex + 1}: {currentMessage.template.name}
+                                  </Badge>
+                                </div>
+
+                                {/* Message Content - Fills remaining card space */}
+                                <div className={`bg-muted/50 ${spacing.isTiny ? 'p-1' : 'p-2 sm:p-3'} rounded-lg border flex-1 overflow-y-auto mt-1 min-h-0`}>
+                                  <HighlightedText
+                                    content={currentMessage.highlightedContent || currentMessage.processedContent}
+                                    className='text-xs sm:text-sm leading-relaxed break-words'
+                                    showHighlighting={!!currentMessage.highlightedContent}
+                                    onValidationErrors={setValidationErrors}
+                                  />
+                                </div>
+
+                                {/* Validation Errors Display */}
+                                {validationErrors.length > 0 && (
+                                  <div className={`mt-2 p-2 bg-red-50 border border-red-200 rounded-lg ${spacing.isTiny ? 'text-xs' : 'text-sm'}`}>
+                                    <div className='flex items-center gap-1 mb-1'>
+                                      <X className='h-4 w-4 text-red-500 flex-shrink-0' />
+                                      <span className='font-medium text-red-800'>Template Validation Errors</span>
+                                    </div>
+                                    <ul className='space-y-1 text-red-700'>
+                                      {validationErrors.map((error, index) => (
+                                        <li key={index} className='flex items-start gap-1'>
+                                          <span className='text-red-500 font-bold text-xs mt-0.5'>•</span>
+                                          <span>{error.message}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* Navigation Controls - Dynamic Spacing */}
+                      <div className='w-full max-w-lg flex-shrink-0 -mb-2'>
+                        <div className={`flex items-center justify-between ${spacing.isTiny ? 'mb-0.5' : 'mb-1'} ${spacing.isTiny ? 'h-6' : 'h-8'}`}>
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            onClick={() => setCurrentPreviewIndex(Math.max(0, currentPreviewIndex - 1))}
+                            disabled={currentPreviewIndex === 0}
+                            className={`gap-1 text-xs px-2 ${spacing.isTiny ? 'h-6' : 'h-7 sm:h-8'}`}
+                          >
+                            <ChevronLeft className='h-3 w-3' />
+                            <span className={spacing.isTiny ? 'sr-only' : 'hidden xs:inline'}>Previous</span>
+                            <span className={spacing.isTiny ? 'inline' : 'xs:hidden'}>Prev</span>
+                          </Button>
+
+                          <span className='text-xs text-muted-foreground px-1 sm:px-2'>
+                            {currentPreviewIndex + 1} of {messagePreview.length}
+                          </span>
+
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            onClick={() => setCurrentPreviewIndex(Math.min(messagePreview.length - 1, currentPreviewIndex + 1))}
+                            disabled={currentPreviewIndex === messagePreview.length - 1}
+                            className={`gap-1 text-xs px-2 ${spacing.isTiny ? 'h-6' : 'h-7 sm:h-8'}`}
+                          >
+                            <span className={spacing.isTiny ? 'inline' : 'hidden xs:inline'}>Next</span>
+                            <span className={spacing.isTiny ? 'sr-only' : 'xs:hidden'}>Next</span>
+                            <ChevronRight className='h-3 w-3' />
+                          </Button>
+                        </div>
+
+                        {/* Preview Info - Minimal spacing on tiny screens */}
+                        <div className='text-center text-xs text-muted-foreground mb-0'>
+                          Showing preview of all {messagePreview.length.toLocaleString()} unique messages
+                        </div>
                       </div>
                     </div>
                   )}
-                  {campaignData.scheduleType === 'weekday' && Object.entries(campaignData.weekdayWindows).some(([day, dayWindows]) =>
-                    campaignData.weekdayEnabled[day as keyof typeof campaignData.weekdayEnabled] && dayWindows.length > 0) && (
-                    <div className='mt-2'>
-                      <Label className='text-xs text-muted-foreground'>Weekday Windows:</Label>
-                      <div className='mt-1 space-y-1'>
-                        {Object.entries(campaignData.weekdayWindows).filter(([day, windows]) =>
-                          campaignData.weekdayEnabled[day as keyof typeof campaignData.weekdayEnabled] && windows.length > 0).map(([day, windows]) => (
-                          <div key={day} className='text-xs bg-muted/50 p-2 rounded'>
-                            <span className='font-medium capitalize'>{day}:</span> {windows.map((window, index) =>
-                              `${window.startTime || 'No start'} - ${window.endTime || 'No end'}`
-                            ).join(', ')}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className='col-span-2'>
-                  <Label className='text-sm font-medium text-muted-foreground'>Description</Label>
-                  <p className='text-sm'>{campaignData.description || 'No description provided'}</p>
                 </div>
               </div>
-            </div>
-          </TabsContent>
+            </TabsContent>
         </Tabs>
         </div>
-        <DialogFooter className='flex-shrink-0 border-t flex justify-between items-center p-4 pt-3'>
+        <DialogFooter className='flex-shrink-0 border-t flex justify-between items-center min-h-[60px] py-2 px-4'>
           <div className='flex gap-2'>
             {activeTab !== 'details' && (
               <Button
@@ -1015,12 +1323,29 @@ export function CreateCampaignDialog({
               Cancel
             </Button>
             {activeTab === 'preview' && (
-              <Button
-                onClick={onCreateCampaign}
-                disabled={!campaignData.name.trim() || campaignData.selectedContacts.length === 0}
-              >
-                Create Campaign
-              </Button>
+              <div className='flex gap-2'>
+                <Button
+                  variant='outline'
+                  onClick={onCreateCampaign}
+                  disabled={!campaignData.name.trim() || campaignData.selectedContacts.length === 0}
+                >
+                  Save Campaign as Draft
+                </Button>
+                <Button
+                  onClick={() => {
+                    // TODO: Launch campaign functionality will be added later
+                    toast({
+                      title: 'Launch Campaign',
+                      description: 'Campaign launch functionality will be available soon.',
+                      variant: 'default'
+                    })
+                  }}
+                  disabled={true} // Disabled as requested
+                  className='opacity-50 cursor-not-allowed'
+                >
+                  Launch Campaign
+                </Button>
+              </div>
             )}
           </div>
         </DialogFooter>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Inbox as InboxIcon, Calendar, ChevronDown, Search, Edit, Save, X, Plus, MessageSquarePlus, Mail, MailOpen, MessageCircle, Clock, Users, Megaphone, Star, Archive, Trash2, ArchiveRestore } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent } from '@/components/ui/card'
@@ -17,6 +17,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -25,44 +32,13 @@ import {
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { contactsApi } from '@/lib/api/contacts'
+import { campaignsApi } from '@/lib/api/campaigns'
 import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
+import { ConversationSummary, ConversationsResponse } from '@/lib/types'
 
-interface Conversation {
-  phoneNumber: string
-  normalizedPhoneNumber: string
-  deviceId: string
-  contact?: {
-    id?: string
-    firstName?: string
-    lastName?: string
-    email?: string
-    propertyAddress?: string
-    propertyCity?: string
-    propertyState?: string
-    propertyZip?: string
-    parcelCounty?: string
-    parcelState?: string
-    parcelAcres?: number
-    apn?: string
-    mailingAddress?: string
-    mailingCity?: string
-    mailingState?: string
-    mailingZip?: string
-  }
-  lastMessage: {
-    message: string
-    timestamp: Date
-    isIncoming: boolean
-  }
-  lastMessageDate: Date
-  messageCount: number
-  unseenCount: number
-  isArchived?: boolean
-  isBlocked?: boolean
-  isStarred?: boolean
-  archivedAt?: Date
-}
+// Using ConversationSummary from types.ts
+type Conversation = ConversationSummary
 
 interface Message {
   _id: string
@@ -123,23 +99,24 @@ function ConversationRow({
     ? `${conversation.contact.firstName || ''} ${conversation.contact.lastName || ''}`.trim()
     : conversation.normalizedPhoneNumber
 
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | string) => {
+    const dateObj = date instanceof Date ? date : new Date(date)
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    const messageDate = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate())
     
     if (messageDate.getTime() === today.getTime()) {
-      return date.toLocaleTimeString('en-US', { 
-        hour: 'numeric', 
+      return dateObj.toLocaleTimeString('en-US', {
+        hour: 'numeric',
         minute: '2-digit',
-        hour12: true 
+        hour12: true
       })
     } else if (messageDate.getTime() === today.getTime() - 24 * 60 * 60 * 1000) {
       return 'Yesterday'
     } else {
-      return date.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric' 
+      return dateObj.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric'
       })
     }
   }
@@ -180,6 +157,14 @@ function ConversationRow({
               )}>
                 {displayName}
               </h3>
+              {conversation.firstCampaignName && (
+                <Badge
+                  variant="secondary"
+                  className="h-5 px-1.5 text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
+                >
+                  {conversation.firstCampaignName}
+                </Badge>
+              )}
               {conversation.unseenCount > 0 && (
                 <Badge
                   variant="default"
@@ -225,7 +210,14 @@ function ConversationList({
   onBlockContacts,
   onUnarchiveConversations,
   onUnblockContacts,
-  currentView
+  currentView,
+  hasNextPage,
+  isFetchingNextPage,
+  isFetching,
+  onLoadMore,
+  campaignsForFilter,
+  selectedCampaignFilters,
+  setSelectedCampaignFilters
 }: {
   conversations: Conversation[]
   selectedConversation: Conversation | null
@@ -247,13 +239,42 @@ function ConversationList({
   onUnarchiveConversations: () => void
   onUnblockContacts: () => void
   currentView: string
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  isFetching: boolean
+  onLoadMore: () => void
+  campaignsForFilter: any[]
+  selectedCampaignFilters: string[]
+  setSelectedCampaignFilters: (campaignIds: string[]) => void
 }) {
   const [showDatePicker, setShowDatePicker] = useState(false)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          onLoadMore()
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, onLoadMore])
 
   const filteredAndSortedConversations = useMemo(() => {
     let filtered = conversations
 
-    // Apply search filter
+    // Apply search filter (client-side for now - could be moved to backend later)
     if (searchQuery.trim()) {
       filtered = filtered.filter(conv => {
         const displayName = conv.contact?.firstName || conv.contact?.lastName
@@ -265,7 +286,7 @@ function ConversationList({
       })
     }
 
-    // Apply date filter
+    // Apply date filter (client-side for now - could be moved to backend later)
     if (dateFilter === 'custom' && dateRange?.from) {
       filtered = filtered.filter(conv => {
         const messageDate = new Date(conv.lastMessageDate)
@@ -277,11 +298,13 @@ function ConversationList({
       })
     }
 
-    // Apply sorting
+    // Sorting is handled by backend, but we keep this for client-side search results
     const sorted = [...filtered].sort((a, b) => {
       switch (sortBy) {
         case 'newest':
-          return b.lastMessageDate.getTime() - a.lastMessageDate.getTime()
+          const dateA = a.lastMessageDate instanceof Date ? a.lastMessageDate : new Date(a.lastMessageDate)
+          const dateB = b.lastMessageDate instanceof Date ? b.lastMessageDate : new Date(b.lastMessageDate)
+          return dateB.getTime() - dateA.getTime()
         case 'firstName':
           const nameA = a.contact?.firstName || a.normalizedPhoneNumber
           const nameB = b.contact?.firstName || b.normalizedPhoneNumber
@@ -291,7 +314,9 @@ function ConversationList({
           const lastNameB = b.contact?.lastName || b.normalizedPhoneNumber
           return lastNameA.localeCompare(lastNameB)
         default:
-          return b.lastMessageDate.getTime() - a.lastMessageDate.getTime()
+          const defaultDateA = a.lastMessageDate instanceof Date ? a.lastMessageDate : new Date(a.lastMessageDate)
+          const defaultDateB = b.lastMessageDate instanceof Date ? b.lastMessageDate : new Date(b.lastMessageDate)
+          return defaultDateB.getTime() - defaultDateA.getTime()
       }
     })
 
@@ -407,6 +432,66 @@ function ConversationList({
             </SelectContent>
           </Select>
 
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="w-[240px] justify-between">
+                <span className="truncate">
+                  {selectedCampaignFilters.length === 0
+                    ? "All campaigns"
+                    : selectedCampaignFilters.length === 1
+                    ? campaignsForFilter.find(c => c._id === selectedCampaignFilters[0])?.name || "Unknown campaign"
+                    : `Filtering for ${selectedCampaignFilters.length} campaigns`
+                  }
+                </span>
+                <ChevronDown className="h-4 w-4 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-[260px]" align="start">
+              <DropdownMenuCheckboxItem
+                checked={selectedCampaignFilters.length === 0}
+                onCheckedChange={() => {
+                  console.log('🔄 All campaigns selected - clearing filters')
+                  setSelectedCampaignFilters([])
+                }}
+                onSelect={(e) => e.preventDefault()}
+                className="font-semibold bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/30 focus:bg-blue-100 dark:focus:bg-blue-900/30"
+              >
+                <div className="flex items-center gap-2 w-full">
+                  <Users className="h-4 w-4" />
+                  <span>All campaigns</span>
+                </div>
+              </DropdownMenuCheckboxItem>
+              {campaignsForFilter.map((campaign) => {
+                const isSelected = selectedCampaignFilters.includes(campaign._id)
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={campaign._id}
+                    checked={isSelected}
+                    onCheckedChange={(checked) => {
+                      console.log(`📊 Campaign ${campaign.name} ${checked ? 'SELECTED' : 'UNSELECTED'}`)
+                      console.log('📊 Current filters before change:', selectedCampaignFilters)
+                      if (checked) {
+                        const newFilters = [...selectedCampaignFilters, campaign._id]
+                        console.log('📊 New filters after selection:', newFilters)
+                        setSelectedCampaignFilters(newFilters)
+                      } else {
+                        const newFilters = selectedCampaignFilters.filter(id => id !== campaign._id)
+                        console.log('📊 New filters after unselection:', newFilters)
+                        setSelectedCampaignFilters(newFilters)
+                      }
+                    }}
+                    onSelect={(e) => e.preventDefault()}
+                    className="hover:bg-accent focus:bg-accent"
+                  >
+                    <span className="truncate">
+                      {campaign.name} ({campaign.sentMessages})
+                    </span>
+                  </DropdownMenuCheckboxItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {dateFilter === 'custom' && (
             <Button 
               variant="outline" 
@@ -473,23 +558,39 @@ function ConversationList({
       </div>
 
       {/* Conversation list */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
         {filteredAndSortedConversations.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             No conversations found
           </div>
         ) : (
-          filteredAndSortedConversations.map((conversation, index) => (
-            <ConversationRow
-              key={`${conversation.normalizedPhoneNumber}-${index}`}
-              conversation={conversation}
-              isSelected={selectedConversation?.normalizedPhoneNumber === conversation.normalizedPhoneNumber}
-              onClick={() => onSelectConversation(conversation)}
-              isChecked={checkedConversations.has(conversation.normalizedPhoneNumber)}
-              onCheckboxChange={(checked) => onCheckboxChange(conversation.normalizedPhoneNumber, checked)}
-              onStarToggle={() => onStarToggle(conversation.normalizedPhoneNumber)}
-            />
-          ))
+          <>
+            {filteredAndSortedConversations.map((conversation, index) => (
+              <ConversationRow
+                key={`${conversation.normalizedPhoneNumber}-${index}`}
+                conversation={conversation}
+                isSelected={selectedConversation?.normalizedPhoneNumber === conversation.normalizedPhoneNumber}
+                onClick={() => onSelectConversation(conversation)}
+                isChecked={checkedConversations.has(conversation.normalizedPhoneNumber)}
+                onCheckboxChange={(checked) => onCheckboxChange(conversation.normalizedPhoneNumber, checked)}
+                onStarToggle={() => onStarToggle(conversation.normalizedPhoneNumber)}
+              />
+            ))}
+
+            {/* Infinite scroll trigger and loading indicator */}
+            {hasNextPage && (
+              <div ref={loadMoreRef} className="flex items-center justify-center py-2">
+                {isFetchingNextPage ? (
+                  <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b border-muted-foreground"></div>
+                    Loading more...
+                  </div>
+                ) : (
+                  <div className="h-8">{/* Invisible spacer to maintain scroll position */}</div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -533,6 +634,8 @@ function MessengerInterface({
         description: "Your message has been sent successfully."
       })
       queryClient.invalidateQueries({ queryKey: ['all-messages'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
     },
     onError: (error: any) => {
       console.error('SMS send error:', error)
@@ -1106,11 +1209,40 @@ export default function InboxPage() {
   const [autoRefreshInterval] = useState(15) // Default to 15 seconds
   const [lastSeenTimestamps, setLastSeenTimestamps] = useState<Record<string, Date>>({})
   const [selectedInboxFilter, setSelectedInboxFilter] = useState<'all' | 'unread' | 'unreplied' | 'awaiting-reply' | 'starred'>('all')
-  const [selectedCampaignFilter, setSelectedCampaignFilter] = useState<string | null>(null)
+  const [selectedCampaignFilters, setSelectedCampaignFilters] = useState<string[]>([])
+  const [debouncedCampaignFilters, setDebouncedCampaignFilters] = useState<string[]>([])
   const [selectedOtherFilter, setSelectedOtherFilter] = useState<'archived' | 'spam' | null>(null)
   const [checkedConversations, setCheckedConversations] = useState<Set<string>>(new Set())
   const refreshTimerRef = useRef(null)
+
+  // Debounce campaign filter updates to prevent dropdown from closing during rapid selections
+  useEffect(() => {
+    console.log('⏱️ Setting up debounce timer for:', selectedCampaignFilters)
+    const timer = setTimeout(() => {
+      console.log('🎯 DEBOUNCED UPDATE - Setting debouncedCampaignFilters to:', selectedCampaignFilters)
+      setDebouncedCampaignFilters(selectedCampaignFilters)
+    }, 500) // 500ms delay
+
+    return () => {
+      console.log('🚫 Clearing previous debounce timer')
+      clearTimeout(timer)
+    }
+  }, [selectedCampaignFilters])
+
+  // Debug: Log campaign filter changes
+  useEffect(() => {
+    console.log('🔄 selectedCampaignFilters changed:', selectedCampaignFilters)
+    console.log('🔄 Filter count:', selectedCampaignFilters.length)
+  }, [selectedCampaignFilters])
+
+  // Debug: Log debounced campaign filter changes
+  useEffect(() => {
+    console.log('🎯 debouncedCampaignFilters changed:', debouncedCampaignFilters)
+    console.log('🎯 Debounced filter count:', debouncedCampaignFilters.length)
+  }, [debouncedCampaignFilters])
   const queryClient = useQueryClient()
+
+  // Remove manual pagination state - now handled by useInfiniteQuery
 
   // Load conversation read statuses from API
   const { data: readStatuses } = useQuery({
@@ -1142,7 +1274,7 @@ export default function InboxPage() {
     }
   }, [readStatuses])
 
-  // Query devices to get message data
+  // Query devices - still needed for message interface
   const { data: devices } = useQuery({
     queryKey: ['devices'],
     queryFn: () =>
@@ -1151,16 +1283,67 @@ export default function InboxPage() {
         .then((res) => res.data),
   })
 
-  // Query contacts for name resolution
+  // Query contacts for name resolution - still needed for new message sidebar
   const { data: contactsData } = useQuery({
     queryKey: ['contacts-all'],
     queryFn: () => contactsApi.getContacts({ limit: 1000 }),
   })
 
-  // Query messages from all devices
-  const { data: messagesData, isLoading, refetch } = useQuery({
+  // Query conversations with infinite scroll
+  const {
+    data: conversationsData,
+    isLoading,
+    isFetching,
+    isFetchingNextPage,
+    fetchNextPage,
+    hasNextPage,
+    refetch
+  } = useInfiniteQuery({
+    queryKey: ['conversations', selectedInboxFilter, selectedOtherFilter, debouncedCampaignFilters, sortBy],
+    queryFn: async ({ pageParam = 1 }) => {
+      console.log('🚀 API CALL TRIGGERED - queryFn executing')
+      console.log('🚀 Page param:', pageParam)
+      console.log('🚀 Current debouncedCampaignFilters:', debouncedCampaignFilters)
+
+      const filterValue = selectedOtherFilter || selectedInboxFilter
+      const params = new URLSearchParams({
+        page: pageParam.toString(),
+        limit: '9',
+        sortBy,
+        filter: filterValue
+      })
+
+      // Add campaign filters if selected (OR logic - conversations from any of the selected campaigns)
+      if (debouncedCampaignFilters.length > 0) {
+        // Send as comma-separated values for OR logic
+        params.append('campaignIds', debouncedCampaignFilters.join(','))
+        console.log('🚀 Added campaignIds to params:', debouncedCampaignFilters.join(','))
+      }
+
+      const url = `${ApiEndpoints.users.getConversations()}?${params}`
+      console.log('🚀 Final API URL:', url)
+
+      const response = await httpBrowserClient.get(url)
+      console.log('🚀 API RESPONSE received')
+      return response.data as ConversationsResponse
+    },
+    getNextPageParam: (lastPage) => {
+      return lastPage.meta.hasNextPage ? lastPage.meta.currentPage + 1 : undefined
+    },
+    staleTime: 30000, // Consider data fresh for 30 seconds
+    refetchOnMount: false, // Prevent refetch on mount to avoid scroll jumps
+    refetchOnWindowFocus: false, // Prevent refetch on focus to avoid scroll jumps
+  })
+
+  // Debug: Log query states
+  useEffect(() => {
+    console.log('⚡ Query states - isLoading:', isLoading, 'isFetching:', isFetching, 'isFetchingNextPage:', isFetchingNextPage)
+  }, [isLoading, isFetching, isFetchingNextPage])
+
+  // Query messages from all devices (for message interface when conversation is selected)
+  const { data: messagesData } = useQuery({
     queryKey: ['all-messages'],
-    enabled: !!devices?.data?.length,
+    enabled: !!devices?.data?.length && !!selectedConversation,
     queryFn: async () => {
       if (!devices?.data?.length) return []
 
@@ -1184,7 +1367,7 @@ export default function InboxPage() {
     },
   })
 
-  // Setup auto-refresh timer
+  // Setup auto-refresh timer - only refresh first page to avoid scroll disruption
   useEffect(() => {
     // Clear any existing timer
     if (refreshTimerRef.current) {
@@ -1195,7 +1378,11 @@ export default function InboxPage() {
     // Set up timer for 15 second auto-refresh
     if (devices?.data?.length) {
       refreshTimerRef.current = setInterval(() => {
-        refetch()
+        // Only invalidate conversation counts and metadata, not the full conversation list
+        // This prevents scroll jumps while still updating sidebar counts
+        queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+        queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+        queryClient.invalidateQueries({ queryKey: ['conversation-read-statuses'] })
       }, autoRefreshInterval * 1000)
     }
 
@@ -1205,180 +1392,72 @@ export default function InboxPage() {
         clearInterval(refreshTimerRef.current)
       }
     }
-  }, [autoRefreshInterval, devices?.data?.length, refetch])
+  }, [autoRefreshInterval, devices?.data?.length, queryClient])
 
-  // Process messages into conversations
+  // Process conversations from infinite query pages
   const conversations = useMemo(() => {
-    if (!messagesData || !devices?.data) return []
+    if (!conversationsData?.pages) return []
 
-    const conversationMap = new Map<string, Conversation>()
-    const contacts = contactsData?.data || []
-    const enabledDevices = devices.data.filter(d => d.enabled)
+    // Flatten all pages and convert date strings back to Date objects
+    const allConversations = conversationsData.pages.flatMap(page =>
+      page.data.map(conv => ({
+        ...conv,
+        lastMessageDate: new Date(conv.lastMessageDate),
+        lastMessage: {
+          ...conv.lastMessage,
+          timestamp: new Date(conv.lastMessage.timestamp)
+        },
+        archivedAt: conv.archivedAt ? new Date(conv.archivedAt) : undefined,
+        contact: conv.contact ? {
+          ...conv.contact,
+          dncUpdatedAt: conv.contact.dncUpdatedAt ? new Date(conv.contact.dncUpdatedAt) : undefined
+        } : undefined
+      }))
+    )
 
-    messagesData.forEach((message: Message) => {
-      const rawPhoneNumber = message.sender || message.recipient || 'unknown'
-      if (rawPhoneNumber === 'unknown') return
-
-      const normalizedPhoneNumber = normalizePhoneNumber(rawPhoneNumber)
-
-      // Try to find contact by both original and normalized phone numbers
-      const contact = contacts.find(c =>
-        c.phone === rawPhoneNumber ||
-        c.phone === normalizedPhoneNumber ||
-        normalizePhoneNumber(c.phone) === normalizedPhoneNumber
-      )
-
-      const messageDate = new Date(message.receivedAt || message.requestedAt || new Date())
-
-      const existing = conversationMap.get(normalizedPhoneNumber)
-      if (!existing || messageDate > existing.lastMessageDate) {
-        // Use the normalized phone number format for consistent display
-        const displayPhoneNumber = normalizedPhoneNumber
-
-        // Determine which device to use for this conversation
-        // Priority: 1) Device from the latest message, 2) First enabled device
-        const messageDeviceId = typeof message.device === 'string' ? message.device : message.device?._id
-        const deviceId = messageDeviceId || existing?.deviceId || (enabledDevices[0]?._id)
-
-        // Debug logging
-        if (normalizedPhoneNumber && deviceId) {
-          console.log(`Device for ${normalizedPhoneNumber}: ${deviceId} (from message: ${messageDeviceId}, enabled devices: ${enabledDevices.map(d => d._id).join(', ')})`)
-        }
-
-        conversationMap.set(normalizedPhoneNumber, {
-          phoneNumber: displayPhoneNumber,
-          normalizedPhoneNumber,
-          deviceId,
-          contact,
-          lastMessage: {
-            message: message.message || '',
-            timestamp: messageDate,
-            isIncoming: !!message.sender
-          },
-          lastMessageDate: messageDate,
-          messageCount: (existing?.messageCount || 0) + 1,
-          unseenCount: 0 // Will be calculated later
-        })
-      } else {
-        // Update message count for existing conversation
-        existing.messageCount += 1
-      }
-    })
-
-    // Add new conversation if it doesn't exist in the map
-    if (newConversation && !conversationMap.has(newConversation.normalizedPhoneNumber)) {
-      conversationMap.set(newConversation.normalizedPhoneNumber, {
-        ...newConversation,
-        unseenCount: 0 // New conversations start with no unseen messages
-      })
+    // Add new conversation if it exists and isn't already in the list
+    if (newConversation && !allConversations.find(conv => conv.normalizedPhoneNumber === newConversation.normalizedPhoneNumber)) {
+      return [newConversation, ...allConversations]
     }
 
-    // Final pass: Calculate unseen counts and apply metadata to all conversations
-    const conversations = Array.from(conversationMap.values())
-    conversations.forEach(conversation => {
-      const lastSeen = lastSeenTimestamps[conversation.normalizedPhoneNumber] || new Date(0)
+    return allConversations
+  }, [conversationsData?.pages, newConversation])
 
-      // Count incoming messages received after last seen timestamp
-      const unseenCount = (messagesData || []).filter(message => {
-        const messagePhoneNumber = message.sender || message.recipient
-        if (!messagePhoneNumber) return false
+  // Get conversation counts from dedicated endpoint
+  const { data: conversationCounts = { all: 0, unread: 0, unreplied: 0, awaitingReply: 0, starred: 0, archived: 0, spam: 0 } } = useQuery({
+    queryKey: ['conversation-counts'],
+    queryFn: async () => {
+      const response = await httpBrowserClient.get(ApiEndpoints.users.getConversationCounts())
+      return response.data
+    },
+  })
 
-        const normalizedMessagePhone = normalizePhoneNumber(messagePhoneNumber)
-        const messageDate = new Date(message.receivedAt || message.requestedAt || 0)
+  // Get campaigns for filter dropdown
+  const { data: campaignsForFilter = [] } = useQuery({
+    queryKey: ['campaigns-for-filter'],
+    queryFn: async () => {
+      const response = await campaignsApi.getSidebarCampaigns(1, 100) // Get more campaigns for dropdown
+      return response.campaigns
+    },
+    staleTime: 60000, // Consider data fresh for 1 minute
+  })
 
-        return normalizedMessagePhone === conversation.normalizedPhoneNumber &&
-               message.sender && // Only count incoming messages
-               messageDate > lastSeen
-      }).length
 
-      conversation.unseenCount = unseenCount
+  // Conversations are now filtered by the backend, so we just use them directly
+  const filteredConversations = conversations
 
-      // Apply metadata from API
-      const metadata = conversationMetadata?.[conversation.normalizedPhoneNumber]
-      if (metadata) {
-        conversation.isArchived = metadata.isArchived
-        conversation.isBlocked = metadata.isBlocked
-        conversation.isStarred = metadata.isStarred
+  // Load more conversations function
+  const loadMoreConversations = async () => {
+    if (!hasNextPage || isFetchingNextPage) return
 
-        // If conversation was archived but has new incoming messages since archiving, unarchive it
-        // Note: Blocked conversations should never be auto-unarchived
-        if (metadata.isArchived && !metadata.isBlocked && metadata.archivedAt) {
-          const hasNewIncomingMessagesSinceArchive = (messagesData || []).some(message => {
-            const messagePhoneNumber = message.sender
-            if (!messagePhoneNumber) return false
-
-            const normalizedMessagePhone = normalizePhoneNumber(messagePhoneNumber)
-            const messageDate = new Date(message.receivedAt || message.requestedAt || 0)
-            const archivedAt = new Date(metadata.archivedAt!)
-
-            return normalizedMessagePhone === conversation.normalizedPhoneNumber &&
-                   messageDate > archivedAt
-          })
-
-          if (hasNewIncomingMessagesSinceArchive) {
-            // Automatically unarchive this conversation
-            conversation.isArchived = false
-            // Make API call to update the backend
-            httpBrowserClient.post(ApiEndpoints.users.unarchiveConversations(), {
-              phoneNumbers: [conversation.normalizedPhoneNumber]
-            }).catch(error => {
-              console.error('Failed to auto-unarchive conversation:', error)
-            })
-          }
-        }
-
-        // Store the archivedAt timestamp
-        conversation.archivedAt = metadata.archivedAt
-      }
-    })
-
-    return conversations
-  }, [messagesData, contactsData, devices?.data, newConversation, lastSeenTimestamps, conversationMetadata])
-
-  // Filter conversations based on selected filter
-  const filteredConversations = useMemo(() => {
-    let filtered = conversations
-
-    // Apply view-based filters first
-    if (selectedOtherFilter) {
-      switch (selectedOtherFilter) {
-        case 'archived':
-          filtered = filtered.filter(conversation => conversation.isArchived === true)
-          break
-        case 'spam':
-          filtered = filtered.filter(conversation => conversation.isBlocked === true)
-          break
-        default:
-          break
-      }
-    } else {
-      // For inbox views, exclude archived and blocked conversations
-      filtered = filtered.filter(conversation => !conversation.isArchived && !conversation.isBlocked)
-
-      // Apply inbox filters
-      if (selectedInboxFilter !== 'all') {
-        filtered = filtered.filter(conversation => {
-          switch (selectedInboxFilter) {
-            case 'unread':
-              return conversation.unseenCount > 0
-            case 'unreplied':
-              // A conversation is unreplied if the last message was incoming and there are no outgoing messages after it
-              return conversation.lastMessage.isIncoming
-            case 'awaiting-reply':
-              // A conversation is awaiting reply if the last message was outgoing and there are no incoming messages after it
-              return !conversation.lastMessage.isIncoming
-            case 'starred':
-              // Show only starred conversations
-              return conversation.isStarred === true
-            default:
-              return true
-          }
-        })
-      }
+    try {
+      await fetchNextPage()
+    } catch (error) {
+      console.error('Failed to load more conversations:', error)
     }
+  }
 
-    return filtered
-  }, [conversations, selectedInboxFilter, selectedOtherFilter])
+  // No need to reset pagination manually - useInfiniteQuery handles this automatically when queryKey changes
 
   // Function to mark a conversation as seen
   const markConversationAsSeen = async (conversation: Conversation) => {
@@ -1397,8 +1476,10 @@ export default function InboxPage() {
         normalizedPhoneNumber: conversation.normalizedPhoneNumber,
         lastSeenAt: now.toISOString()
       })
-      // Invalidate query to refresh from server
+      // Invalidate queries to refresh from server and update UI immediately
       queryClient.invalidateQueries({ queryKey: ['conversation-read-statuses'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
     } catch (error) {
       console.error('Failed to mark conversation as read:', error)
     }
@@ -1442,9 +1523,12 @@ export default function InboxPage() {
 
       // Invalidate and refetch metadata
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     } catch (error) {
       console.error('Failed to toggle star:', error)
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     }
   }
 
@@ -1473,9 +1557,13 @@ export default function InboxPage() {
 
       setCheckedConversations(new Set())
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     } catch (error) {
       console.error('Failed to archive conversations:', error)
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     }
   }
 
@@ -1508,10 +1596,14 @@ export default function InboxPage() {
 
       // Invalidate to ensure we get fresh data from server
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     } catch (error) {
       console.error('Failed to block contacts:', error)
       // Revert optimistic update on error
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     }
   }
 
@@ -1540,9 +1632,13 @@ export default function InboxPage() {
 
       setCheckedConversations(new Set())
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     } catch (error) {
       console.error('Failed to unarchive conversations:', error)
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     }
   }
 
@@ -1571,9 +1667,13 @@ export default function InboxPage() {
 
       setCheckedConversations(new Set())
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     } catch (error) {
       console.error('Failed to unblock contacts:', error)
       queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+      queryClient.invalidateQueries({ queryKey: ['conversation-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
     }
   }
 
@@ -1589,15 +1689,20 @@ export default function InboxPage() {
     return (
       <div className='flex h-full overflow-hidden'>
         {/* Sidebar */}
-        <div className='w-64 border-r bg-background/50 p-4 flex flex-col h-full overflow-hidden'>
-          <div className='space-y-2 flex-shrink-0'>
-            <Skeleton className="h-6 w-20 mb-4" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-6 w-24 mt-6 mb-2" />
-            <Skeleton className="h-4 w-32" />
+        <div className='w-64 border-r bg-background/50 flex flex-col h-full overflow-hidden'>
+          <div className='p-4 pb-2 flex-shrink-0'>
+            {/* Fixed header area */}
+          </div>
+          <div className='flex-1 overflow-y-auto px-4 pb-4'>
+            <div className='space-y-2'>
+              <Skeleton className="h-6 w-20 mb-4" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-6 w-24 mt-6 mb-2" />
+              <Skeleton className="h-4 w-32" />
+            </div>
           </div>
         </div>
 
@@ -1634,8 +1739,12 @@ export default function InboxPage() {
   return (
     <div className='flex h-full overflow-hidden'>
       {/* Sidebar */}
-      <div className='w-64 border-r bg-background/50 p-4 flex flex-col h-full overflow-hidden'>
-        <div className='space-y-2 flex-shrink-0'>
+      <div className='w-64 border-r bg-background/50 flex flex-col h-full overflow-hidden'>
+        <div className='p-4 pb-2 flex-shrink-0'>
+          {/* Fixed header area can go here if needed */}
+        </div>
+        <div className='flex-1 overflow-y-auto px-4 pb-4'>
+          <div className='space-y-2'>
           {/* Inbox Section */}
           <div className="space-y-1">
             <div className="flex items-center text-sm font-medium text-muted-foreground mb-2">
@@ -1644,71 +1753,76 @@ export default function InboxPage() {
             </div>
             <Button
               variant={selectedInboxFilter === 'all' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('all')
                 setSelectedOtherFilter(null)
               }}
             >
-              <Mail className='mr-2 h-4 w-4' />
-              All
+              <div className="flex items-center">
+                <Mail className='mr-2 h-4 w-4' />
+                All
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.all})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'unread' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('unread')
                 setSelectedOtherFilter(null)
               }}
             >
-              <MailOpen className='mr-2 h-4 w-4' />
-              Unread
+              <div className="flex items-center">
+                <MailOpen className='mr-2 h-4 w-4' />
+                Unread
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.unread})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'unreplied' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('unreplied')
                 setSelectedOtherFilter(null)
               }}
             >
-              <MessageCircle className='mr-2 h-4 w-4' />
-              Unreplied
+              <div className="flex items-center">
+                <MessageCircle className='mr-2 h-4 w-4' />
+                Unreplied
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.unreplied})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'awaiting-reply' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('awaiting-reply')
                 setSelectedOtherFilter(null)
               }}
             >
-              <Clock className='mr-2 h-4 w-4' />
-              Awaiting reply
+              <div className="flex items-center">
+                <Clock className='mr-2 h-4 w-4' />
+                Awaiting reply
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.awaitingReply})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'starred' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedInboxFilter('starred')
                 setSelectedOtherFilter(null)
               }}
             >
-              <Star className='mr-2 h-4 w-4' />
-              Starred
+              <div className="flex items-center">
+                <Star className='mr-2 h-4 w-4' />
+                Starred
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.starred})</span>
             </Button>
           </div>
 
-          {/* Campaigns Section */}
-          <div className="space-y-1 pt-4">
-            <div className="flex items-center text-sm font-medium text-muted-foreground mb-2">
-              <Megaphone className="mr-2 h-4 w-4" />
-              Campaigns
-            </div>
-            <div className="text-xs text-muted-foreground pl-6">
-              Coming soon...
-            </div>
-          </div>
 
           {/* Other Section */}
           <div className="space-y-1 pt-4">
@@ -1718,26 +1832,33 @@ export default function InboxPage() {
             </div>
             <Button
               variant={selectedOtherFilter === 'archived' ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedOtherFilter('archived')
                 setSelectedInboxFilter('all')
               }}
             >
-              <Archive className='mr-2 h-4 w-4' />
-              Archived
+              <div className="flex items-center">
+                <Archive className='mr-2 h-4 w-4' />
+                Archived
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.archived})</span>
             </Button>
             <Button
               variant={selectedOtherFilter === 'spam' ? 'default' : 'ghost'}
-              className='w-full justify-start text-sm'
+              className='w-full justify-between text-sm'
               onClick={() => {
                 setSelectedOtherFilter('spam')
                 setSelectedInboxFilter('all')
               }}
             >
-              <Trash2 className='mr-2 h-4 w-4' />
-              Spam
+              <div className="flex items-center">
+                <Trash2 className='mr-2 h-4 w-4' />
+                Spam
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.spam})</span>
             </Button>
+          </div>
           </div>
         </div>
       </div>
@@ -1767,6 +1888,13 @@ export default function InboxPage() {
             onUnarchiveConversations={handleUnarchiveConversations}
             onUnblockContacts={handleUnblockContacts}
             currentView={getCurrentView()}
+            hasNextPage={hasNextPage}
+            isFetchingNextPage={isFetchingNextPage}
+            isFetching={isFetching}
+            onLoadMore={loadMoreConversations}
+            campaignsForFilter={campaignsForFilter}
+            selectedCampaignFilters={selectedCampaignFilters}
+            setSelectedCampaignFilters={setSelectedCampaignFilters}
           />
         </div>
 

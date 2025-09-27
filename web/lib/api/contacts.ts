@@ -6,7 +6,7 @@ export interface ContactSpreadsheet {
   contactCount: number
   uploadDate: string
   fileSize: number
-  status: string
+  status: 'pending' | 'processed' | 'manually_created'
   templateId?: string
   validContactsCount?: number
   nonDncCount?: number
@@ -109,6 +109,12 @@ export interface Contact {
   mailingZip?: string
   dnc?: boolean | null
   dncUpdatedAt?: string
+}
+
+export interface CreateGroupData {
+  name: string
+  description?: string
+  contactIds: string[]
 }
 
 export interface GetContactsParams {
@@ -236,8 +242,34 @@ export const contactsApi = {
     await httpBrowserClient.post('/contacts/delete-multiple', { ids })
   },
 
-  async getUniqueContactCount(spreadsheetIds: string[]): Promise<{ uniqueContactCount: number }> {
-    const response = await httpBrowserClient.post('/contacts/spreadsheets/unique-count', { spreadsheetIds })
+  async getUniqueContactCount(
+    spreadsheetIds: string[],
+    excludeDnc: boolean = true,
+    includePreviouslyMessaged: boolean = false
+  ): Promise<{ uniqueContactCount: number }> {
+    const response = await httpBrowserClient.post('/contacts/spreadsheets/unique-count', {
+      spreadsheetIds,
+      excludeDnc,
+      includePreviouslyMessaged
+    })
+    return response.data
+  },
+
+  async getUniqueContacts(
+    spreadsheetIds: string[],
+    excludeDnc: boolean = true,
+    includePreviouslyMessaged: boolean = false
+  ): Promise<GetContactsResponse> {
+    const response = await httpBrowserClient.post('/contacts/spreadsheets/unique-contacts', {
+      spreadsheetIds,
+      excludeDnc,
+      includePreviouslyMessaged
+    })
+    return response.data
+  },
+
+  async createGroup(data: CreateGroupData): Promise<ContactSpreadsheet> {
+    const response = await httpBrowserClient.post('/contacts/groups', data)
     return response.data
   },
 }

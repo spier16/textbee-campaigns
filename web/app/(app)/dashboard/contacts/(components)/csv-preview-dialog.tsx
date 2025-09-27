@@ -554,7 +554,6 @@ export default function CsvPreviewDialog({
                 value={dncValue}
                 onChange={(e) => setDncValue(e.target.value)}
                 className="w-32 bg-white dark:bg-white dark:text-black"
-                size="sm"
               />
             </div>
           </div>

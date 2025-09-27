@@ -6,6 +6,9 @@ import { ContactSpreadsheet, ContactSpreadsheetDocument } from './schemas/contac
 import { Contact, ContactDocument } from './schemas/contact.schema'
 import { ContactTemplate, ContactTemplateDocument } from './schemas/contact-template.schema'
 import { ContactGroupMembership, ContactGroupMembershipDocument } from './schemas/contact-group-membership.schema'
+import { SMS, SMSDocument } from '../gateway/schemas/sms.schema'
+import { SMSType } from '../gateway/sms-type.enum'
+import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
 import {
   UploadSpreadsheetDto,
   GetSpreadsheetsDto,
@@ -19,7 +22,8 @@ import {
   GetContactsDto,
   ContactResponseDto,
   UpdateContactDto,
-  CreateContactDto
+  CreateContactDto,
+  CreateGroupDto
 } from './contacts.dto'
 
 @Injectable()
@@ -33,6 +37,10 @@ export class ContactsService {
     private contactTemplateModel: Model<ContactTemplateDocument>,
     @InjectModel(ContactGroupMembership.name)
     private contactGroupMembershipModel: Model<ContactGroupMembershipDocument>,
+    @InjectModel(SMS.name)
+    private smsModel: Model<SMSDocument>,
+    @InjectModel(Device.name)
+    private deviceModel: Model<DeviceDocument>,
   ) {}
 
   async uploadSpreadsheet(
@@ -198,7 +206,33 @@ export class ContactsService {
     spreadsheetId: string,
   ): Promise<{ fileName: string; content: string }> {
     const spreadsheet = await this.getSpreadsheetById(userId, spreadsheetId)
-    
+
+    // For manually created groups, generate CSV from actual contact data
+    if (spreadsheet.status === 'manually_created') {
+      // Get all contacts in this group via the junction table
+      const memberships = await this.contactGroupMembershipModel
+        .find({
+          userId: new Types.ObjectId(userId),
+          groupId: new Types.ObjectId(spreadsheetId)
+        })
+        .populate('contactId')
+        .exec()
+
+      const contacts = memberships.map(membership => membership.contactId as any).filter(Boolean)
+
+      // Generate CSV content from the contacts
+      const csvContent = this.generateCsvFromContacts(contacts)
+
+      // Base64 encode the CSV content to match existing format expectations
+      const base64Content = Buffer.from(csvContent, 'utf-8').toString('base64')
+
+      return {
+        fileName: `${spreadsheet.originalFileName}.csv`,
+        content: base64Content,
+      }
+    }
+
+    // For uploaded spreadsheets, return original file content
     return {
       fileName: spreadsheet.originalFileName,
       content: spreadsheet.fileContent,
@@ -803,10 +837,69 @@ export class ContactsService {
     const contacts = memberships.map(membership => membership.contactId as any).filter(Boolean)
 
     const validContactsCount = contacts.length
-    const nonDncCount = contacts.filter(contact => contact.dnc === false).length
+    const nonDncCount = contacts.filter(contact => contact.dnc !== true).length
     const dncCount = contacts.filter(contact => contact.dnc === true).length
 
     return { validContactsCount, nonDncCount, dncCount }
+  }
+
+  private generateCsvFromContacts(contacts: ContactDocument[]): string {
+    const headers = [
+      'firstName',
+      'lastName',
+      'phone',
+      'email',
+      'propertyAddress',
+      'propertyCity',
+      'propertyState',
+      'propertyZip',
+      'parcelCounty',
+      'parcelState',
+      'parcelAcres',
+      'apn',
+      'mailingAddress',
+      'mailingCity',
+      'mailingState',
+      'mailingZip',
+      'dnc'
+    ]
+
+    // Helper function to escape CSV values
+    const escapeCsvValue = (value: any): string => {
+      if (value === null || value === undefined) {
+        return ''
+      }
+
+      const stringValue = String(value)
+
+      // If the value contains comma, quotes, or newlines, wrap in quotes and escape internal quotes
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+        return `"${stringValue.replace(/"/g, '""')}"`
+      }
+
+      return stringValue
+    }
+
+    // Generate header row
+    const csvRows = [headers.join(',')]
+
+    // Generate data rows
+    contacts.forEach(contact => {
+      const row = headers.map(header => {
+        let value = contact[header as keyof ContactDocument]
+
+        // Handle boolean values for dnc field
+        if (header === 'dnc') {
+          value = value === true ? 'true' : value === false ? 'false' : ''
+        }
+
+        return escapeCsvValue(value)
+      })
+
+      csvRows.push(row.join(','))
+    })
+
+    return csvRows.join('\n')
   }
 
   private mapToResponseDto(
@@ -891,6 +984,8 @@ export class ContactsService {
   async getUniqueContactCount(
     userId: string,
     spreadsheetIds: string[],
+    excludeDnc: boolean = true,
+    includePreviouslyMessaged: boolean = false,
   ): Promise<{ uniqueContactCount: number }> {
     const objectIds = spreadsheetIds.map(id => new Types.ObjectId(id))
 
@@ -914,10 +1009,9 @@ export class ContactsService {
       })
       .exec()
 
-    console.log(`Debug: Found ${membershipCount} memberships for user ${userId} in groups ${spreadsheetIds}`)
 
-    // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
-    const uniqueContacts = await this.contactGroupMembershipModel.aggregate([
+    // Build aggregation pipeline with conditional filtering
+    const pipeline: any[] = [
       {
         $match: {
           userId: new Types.ObjectId(userId),
@@ -934,7 +1028,53 @@ export class ContactsService {
       },
       {
         $unwind: '$contact',
-      },
+      }
+    ]
+
+    // Add DNC filtering if excludeDnc is true
+    if (excludeDnc) {
+      pipeline.push({
+        $match: {
+          'contact.dnc': { $ne: true }
+        }
+      })
+    }
+
+    // Add previously messaged filtering if includePreviouslyMessaged is false
+    if (!includePreviouslyMessaged) {
+
+      // First get user's device IDs to scope SMS query to current user
+      const userDevices = await this.deviceModel.find({
+        user: new Types.ObjectId(userId)
+      }).select('_id')
+      const userDeviceIds = userDevices.map(device => device._id)
+
+      if (userDeviceIds.length > 0) {
+        // Get list of previously messaged phone numbers from user's devices
+        const smsQuery = {
+          device: { $in: userDeviceIds },
+          type: SMSType.SENT,
+          status: { $in: ['sent', 'delivered'] }
+        }
+
+        const previouslyMessagedPhones = await this.smsModel.distinct('recipient', smsQuery)
+
+        if (previouslyMessagedPhones.length > 0) {
+          const matchStage = {
+            $match: {
+              'contact.phone': { $nin: previouslyMessagedPhones }
+            }
+          }
+          pipeline.push(matchStage)
+        } else {
+        }
+      } else {
+      }
+    } else {
+    }
+
+    // Add final grouping and count stages
+    pipeline.push(
       {
         $group: {
           _id: '$contact.phone', // Group by phone number to get unique contacts
@@ -942,12 +1082,126 @@ export class ContactsService {
       },
       {
         $count: 'uniqueContactCount',
-      },
-    ])
+      }
+    )
 
-    return {
+    // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
+    const uniqueContacts = await this.contactGroupMembershipModel.aggregate(pipeline)
+    const result = {
       uniqueContactCount: uniqueContacts.length > 0 ? uniqueContacts[0].uniqueContactCount : 0,
     }
+
+    return result
+  }
+
+  async getUniqueContacts(
+    userId: string,
+    spreadsheetIds: string[],
+    excludeDnc: boolean = true,
+    includePreviouslyMessaged: boolean = false,
+  ): Promise<{ data: ContactResponseDto[], total: number }> {
+    const objectIds = spreadsheetIds.map(id => new Types.ObjectId(id))
+
+    // Verify all spreadsheets belong to the user
+    const spreadsheets = await this.contactSpreadsheetModel
+      .find({
+        _id: { $in: objectIds },
+        userId: new Types.ObjectId(userId),
+      })
+      .exec()
+
+    if (spreadsheets.length !== spreadsheetIds.length) {
+      throw new NotFoundException('One or more spreadsheets not found')
+    }
+
+    // Build aggregation pipeline with conditional filtering
+    const pipeline: any[] = [
+      {
+        $match: {
+          userId: new Types.ObjectId(userId),
+          groupId: { $in: objectIds },
+        },
+      },
+      {
+        $lookup: {
+          from: 'contacts',
+          localField: 'contactId',
+          foreignField: '_id',
+          as: 'contact',
+        },
+      },
+      {
+        $unwind: '$contact',
+      }
+    ]
+
+    // Add DNC filtering if excludeDnc is true
+    if (excludeDnc) {
+      pipeline.push({
+        $match: {
+          'contact.dnc': { $ne: true }
+        }
+      })
+    }
+
+    // Add previously messaged filtering if includePreviouslyMessaged is false
+    if (!includePreviouslyMessaged) {
+
+      // First get user's device IDs to scope SMS query to current user
+      const userDevices = await this.deviceModel.find({
+        user: new Types.ObjectId(userId)
+      }).select('_id')
+      const userDeviceIds = userDevices.map(device => device._id)
+
+      if (userDeviceIds.length > 0) {
+        // Get list of previously messaged phone numbers from user's devices
+        const smsQuery = {
+          device: { $in: userDeviceIds },
+          type: SMSType.SENT,
+          status: { $in: ['sent', 'delivered'] }
+        }
+
+        const previouslyMessagedPhones = await this.smsModel.distinct('recipient', smsQuery)
+
+        if (previouslyMessagedPhones.length > 0) {
+          const matchStage = {
+            $match: {
+              'contact.phone': { $nin: previouslyMessagedPhones }
+            }
+          }
+          pipeline.push(matchStage)
+        } else {
+        }
+      } else {
+      }
+    } else {
+    }
+
+    // Add final grouping and result stages
+    pipeline.push(
+      {
+        $group: {
+          _id: '$contact.phone', // Group by phone number to get unique contacts
+          contact: { $first: '$contact' }, // Take the first occurrence of each unique phone number
+        },
+      },
+      {
+        $replaceRoot: {
+          newRoot: '$contact',
+        },
+      }
+    )
+
+    // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
+    const uniqueContacts = await this.contactGroupMembershipModel.aggregate(pipeline)
+
+    const mappedContacts = uniqueContacts.map(contact => this.mapContactToResponseDto(contact))
+    const result = {
+      data: mappedContacts,
+      total: mappedContacts.length,
+    }
+
+    return result
   }
 
   private mapContactToResponseDto = (contact: ContactDocument): ContactResponseDto => {
@@ -971,6 +1225,73 @@ export class ContactsService {
       mailingZip: contact.mailingZip,
       dnc: contact.dnc,
       dncUpdatedAt: contact.dncUpdatedAt?.toISOString(),
+    }
+  }
+
+  async createGroup(
+    userId: string,
+    createGroupData: CreateGroupDto,
+  ): Promise<ContactSpreadsheetResponseDto> {
+    try {
+      // Validate that all contact IDs exist and belong to the user
+      const contactObjectIds = createGroupData.contactIds.map(id => new Types.ObjectId(id))
+      const existingContacts = await this.contactModel
+        .find({
+          _id: { $in: contactObjectIds },
+          userId: new Types.ObjectId(userId),
+        })
+        .exec()
+
+      if (existingContacts.length !== createGroupData.contactIds.length) {
+        throw new BadRequestException('One or more contacts not found or do not belong to you')
+      }
+
+      // Generate unique group name if needed
+      const uniqueGroupName = await this.generateUniqueFileName(userId, createGroupData.name)
+
+      // Create a "virtual" spreadsheet for the custom group
+      const groupSpreadsheet = new this.contactSpreadsheetModel({
+        userId: new Types.ObjectId(userId),
+        originalFileName: uniqueGroupName,
+        contactCount: existingContacts.length,
+        uploadDate: new Date(),
+        fileContent: JSON.stringify({
+          type: 'custom_group',
+          name: createGroupData.name,
+          description: createGroupData.description,
+          contactIds: createGroupData.contactIds,
+        }), // Store metadata about the custom group
+        fileSize: 0, // No actual file size
+        status: 'manually_created', // Mark as manually created
+        validContactsCount: existingContacts.length,
+        nonDncCount: existingContacts.filter(contact => contact.dnc !== true).length,
+        dncCount: existingContacts.filter(contact => contact.dnc === true).length,
+      })
+
+      const savedGroup = await groupSpreadsheet.save()
+
+      // Create memberships for all contacts in the group
+      const memberships = existingContacts.map(contact => ({
+        userId: new Types.ObjectId(userId),
+        contactId: contact._id,
+        groupId: savedGroup._id,
+        wasNewContact: false, // These are existing contacts
+      }))
+
+      await this.contactGroupMembershipModel.insertMany(memberships)
+
+      // Return the group as a spreadsheet response
+      const stats = {
+        validContactsCount: existingContacts.length,
+        nonDncCount: existingContacts.filter(contact => contact.dnc !== true).length,
+        dncCount: existingContacts.filter(contact => contact.dnc === true).length,
+      }
+      return this.mapToResponseDto(savedGroup, stats)
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error
+      }
+      throw new BadRequestException(`Failed to create group: ${error.message}`)
     }
   }
 

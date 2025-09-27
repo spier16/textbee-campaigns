@@ -37,10 +37,14 @@ import {
   Settings,
   FileText,
   Copy,
+  Play,
+  Pause,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { contactsApi, ContactSpreadsheet } from '@/lib/api/contacts'
-import { campaignsApi, MessageTemplateGroup, MessageTemplate, ReorderTemplateGroupsDto } from '@/lib/api/campaigns'
+import { campaignsApi, MessageTemplateGroup, MessageTemplate, ReorderTemplateGroupsDto, Campaign, CreateCampaignDto, CampaignStatus, ScheduleType } from '@/lib/api/campaigns'
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { CreateCampaignDialog } from '@/components/campaigns/CreateCampaignDialog'
@@ -49,27 +53,16 @@ import { TemplateSelectionDialog } from '@/components/campaigns/TemplateSelectio
 import { TemplateItem } from '@/components/campaigns/TemplateItem'
 
 
-interface Campaign {
-  _id: string
-  id: string
-  name: string
-  status: 'active' | 'draft' | 'inactive' | 'completed'
-  contacts: number
-  groups: number
-  dateCreated: string
-  lastSent?: string
-  description?: string
-}
 
 
 
 
 export default function CampaignsPage() {
-  const [selectedMode, setSelectedMode] = useState<'campaigns' | 'active' | 'draft' | 'inactive' | 'completed'>('campaigns')
+  const [selectedMode, setSelectedMode] = useState<'campaigns' | 'running' | 'draft' | 'paused' | 'completed' | 'deleted'>('campaigns')
   const [searchQuery, setSearchQuery] = useState('')
   const [displayCount, setDisplayCount] = useState(25)
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a'>('newest')
-  const [campaignSortBy, setCampaignSortBy] = useState<'name' | 'status' | 'contacts' | 'groups' | 'dateCreated' | 'lastSent'>('dateCreated')
+  const [campaignSortBy, setCampaignSortBy] = useState<'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent'>('dateCreated')
   const [campaignSortOrder, setCampaignSortOrder] = useState<'asc' | 'desc'>('asc')
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
@@ -82,11 +75,11 @@ export default function CampaignsPage() {
     return {
       name: '',
       description: '',
-      status: 'draft' as 'active' | 'draft' | 'inactive' | 'completed',
+      status: CampaignStatus.DRAFT,
       selectedContacts: [] as string[],
       selectedTemplates: [] as string[], // Changed from messageTemplateGroups to selectedTemplates
       sendDevices: [] as string[],
-      scheduleType: 'now' as 'now' | 'later' | 'windows' | 'weekday',
+      scheduleType: ScheduleType.NOW,
       scheduledDate: '',
       scheduledTime: '',
       campaignStartDate: today, // Default to today in selected timezone
@@ -111,6 +104,8 @@ export default function CampaignsPage() {
         saturday: false,
         sunday: false
       },
+      excludeDnc: true,
+      includePreviouslyMessaged: false
     }
   })
   const [manageTemplatesOpen, setManageTemplatesOpen] = useState(false)
@@ -124,15 +119,24 @@ export default function CampaignsPage() {
 
   // Date validation function
   const validateDates = (startDate: string, endDate: string) => {
-    const today = new Date().toISOString().split('T')[0]
+    // Get today's date in the selected timezone (same logic as dialog component)
+    const today = new Date().toLocaleDateString('en-CA', {
+      timeZone: createCampaignData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+    })
     const errors = { startDateError: '', endDateError: '' }
 
     // Don't validate start date if schedule type is 'now' (disabled field)
-    if (createCampaignData.scheduleType !== 'now' && startDate && startDate < today) {
-      errors.startDateError = 'Campaign start date cannot be before today'
+    if (createCampaignData.scheduleType !== 'now' && startDate) {
+      // Use proper date comparison like in dialog component
+      const startDateInTimezone = new Date(startDate + 'T00:00:00')
+      const todayInTimezone = new Date(today + 'T00:00:00')
+
+      if (startDateInTimezone < todayInTimezone) {
+        errors.startDateError = 'Campaign start date cannot be before today'
+      }
     }
 
-    if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
+    if (startDate && endDate && endDate < startDate) {
       errors.endDateError = 'Campaign end date cannot be before start date'
     }
 
@@ -192,8 +196,6 @@ export default function CampaignsPage() {
     return false
   }
 
-  const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [loading, setLoading] = useState(true)
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
@@ -205,7 +207,7 @@ export default function CampaignsPage() {
         limit: 1000 // Get all spreadsheets
       })
       // Filter only processed spreadsheets
-      return response.data.filter(spreadsheet => spreadsheet.status === 'processed')
+      return response.data.filter(spreadsheet => spreadsheet.status === 'processed' || spreadsheet.status === 'manually_created')
     }
   })
 
@@ -218,6 +220,15 @@ export default function CampaignsPage() {
         .then((res) => res.data),
   })
 
+  // Fetch usage plans from API
+  const { data: usagePlansData } = useQuery({
+    queryKey: ['usage-plans'],
+    queryFn: () =>
+      httpBrowserClient
+        .get(ApiEndpoints.gateway.getUserUsagePlans())
+        .then((res) => res.data),
+  })
+
   // Fetch template groups from API
   const { data: templateGroupsData, refetch: refetchTemplateGroups } = useQuery({
     queryKey: ['template-groups'],
@@ -225,6 +236,21 @@ export default function CampaignsPage() {
   })
 
   const templateGroups = templateGroupsData || []
+
+  // Fetch campaigns from API
+  const { data: campaignsData, refetch: refetchCampaigns, isLoading: campaignsLoading } = useQuery({
+    queryKey: ['campaigns'],
+    queryFn: () => campaignsApi.getCampaigns(),
+  })
+
+  // Fetch deleted campaigns from API
+  const { data: deletedCampaignsData, refetch: refetchDeletedCampaigns, isLoading: deletedCampaignsLoading } = useQuery({
+    queryKey: ['deleted-campaigns'],
+    queryFn: () => campaignsApi.getDeletedCampaigns(),
+  })
+
+  const campaigns = campaignsData || []
+  const deletedCampaigns = deletedCampaignsData || []
 
   // Mutations for template groups
   const createTemplateGroupMutation = useMutation({
@@ -333,31 +359,129 @@ export default function CampaignsPage() {
     },
   })
 
-  // Campaigns will be fetched from API
-  useEffect(() => {
-    // TODO: Replace with actual API call
-    setCampaigns([])
-    setLoading(false)
-  }, [])
-
-  // Auto-expand groups when templates are selected
-  useEffect(() => {
-    if (createCampaignData.selectedTemplates.length > 0) {
-      const groupsWithSelectedTemplates = new Set<string>()
-
-      createCampaignData.selectedTemplates.forEach(templateId => {
-        for (const group of templateGroups) {
-          const template = group.templates.find(t => t._id === templateId)
-          if (template) {
-            groupsWithSelectedTemplates.add(`selected-${group._id}`)
-            break
-          }
-        }
+  // Campaign mutations
+  const createCampaignMutation = useMutation({
+    mutationFn: campaignsApi.createCampaign,
+    onSuccess: (campaign) => {
+      refetchCampaigns()
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      toast({
+        title: "Campaign created",
+        description: `Campaign "${campaign.name}" has been saved as a draft.`
       })
+      setCreateCampaignOpen(false)
+      // Reset form data
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: timezone })
+      const oneMonthLater = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA', { timeZone: timezone })
 
-      setExpandedGroups(groupsWithSelectedTemplates)
-    }
-  }, [createCampaignData.selectedTemplates, templateGroups])
+      setCreateCampaignData({
+        name: '',
+        description: '',
+        status: CampaignStatus.DRAFT,
+        selectedContacts: [],
+        selectedTemplates: [],
+        sendDevices: [],
+        scheduleType: ScheduleType.NOW,
+        scheduledDate: '',
+        scheduledTime: '',
+        campaignStartDate: today,
+        campaignEndDate: oneMonthLater,
+        timezone: timezone,
+        sendingWindows: [],
+        weekdayWindows: {
+          monday: [],
+          tuesday: [],
+          wednesday: [],
+          thursday: [],
+          friday: [],
+          saturday: [],
+          sunday: []
+        },
+        weekdayEnabled: {
+          monday: true,
+          tuesday: true,
+          wednesday: true,
+          thursday: true,
+          friday: true,
+          saturday: false,
+          sunday: false
+        },
+        excludeDnc: true,
+        includePreviouslyMessaged: false
+      })
+      setDateValidationErrors({ startDateError: '', endDateError: '' })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error creating campaign",
+        description: error.response?.data?.message || "An error occurred while creating the campaign.",
+        variant: "destructive"
+      })
+    },
+  })
+
+  const deleteCampaignMutation = useMutation({
+    mutationFn: campaignsApi.deleteCampaign,
+    onSuccess: () => {
+      refetchCampaigns()
+      refetchDeletedCampaigns()
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      queryClient.invalidateQueries({ queryKey: ['deleted-campaigns'] })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error deleting campaign",
+        description: error.response?.data?.message || "An error occurred while deleting the campaign.",
+        variant: "destructive"
+      })
+    },
+  })
+
+  const updateCampaignStatusMutation = useMutation({
+    mutationFn: ({ campaignId, status }: { campaignId: string; status: CampaignStatus }) =>
+      campaignsApi.updateCampaignStatus(campaignId, { status }),
+    onSuccess: (updatedCampaign) => {
+      refetchCampaigns()
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      const statusText = updatedCampaign.status === CampaignStatus.RUNNING ? 'started' :
+                        updatedCampaign.status === CampaignStatus.PAUSED ? 'paused' : 'updated'
+      toast({
+        title: "Campaign updated",
+        description: `Campaign "${updatedCampaign.name}" has been ${statusText}.`
+      })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error updating campaign",
+        description: error.response?.data?.message || "An error occurred while updating the campaign.",
+        variant: "destructive"
+      })
+    },
+  })
+
+  const restoreCampaignMutation = useMutation({
+    mutationFn: campaignsApi.restoreCampaign,
+    onSuccess: (restoredCampaign) => {
+      refetchCampaigns()
+      refetchDeletedCampaigns()
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      queryClient.invalidateQueries({ queryKey: ['deleted-campaigns'] })
+      toast({
+        title: "Campaign restored",
+        description: `Campaign "${restoredCampaign.name}" has been restored.`
+      })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error restoring campaign",
+        description: error.response?.data?.message || "An error occurred while restoring the campaign.",
+        variant: "destructive"
+      })
+    },
+  })
+
+
 
   // Fetch unique contact count when selected contacts change
   useEffect(() => {
@@ -368,7 +492,11 @@ export default function CampaignsPage() {
       }
 
       try {
-        const result = await contactsApi.getUniqueContactCount(createCampaignData.selectedContacts)
+        const result = await contactsApi.getUniqueContactCount(
+          createCampaignData.selectedContacts,
+          createCampaignData.excludeDnc,
+          createCampaignData.includePreviouslyMessaged
+        )
         setUniqueContactCount(result.uniqueContactCount)
       } catch (error) {
         console.error('Failed to fetch unique contact count:', error)
@@ -377,14 +505,18 @@ export default function CampaignsPage() {
     }
 
     fetchUniqueContactCount()
-  }, [createCampaignData.selectedContacts])
+  }, [createCampaignData.selectedContacts, createCampaignData.excludeDnc, createCampaignData.includePreviouslyMessaged])
 
   // Filter and sort campaigns based on selected mode
   const filteredAndSortedCampaigns = useMemo(() => {
-    let filtered = campaigns
+    let filtered: Campaign[]
 
-    if (selectedMode !== 'campaigns') {
-      filtered = filtered.filter(campaign => campaign.status === selectedMode)
+    if (selectedMode === 'deleted') {
+      filtered = deletedCampaigns
+    } else if (selectedMode === 'campaigns') {
+      filtered = campaigns
+    } else {
+      filtered = campaigns.filter(campaign => campaign.status === selectedMode)
     }
 
     if (searchQuery) {
@@ -409,20 +541,24 @@ export default function CampaignsPage() {
           bValue = b.status
           break
         case 'contacts':
-          aValue = a.contacts
-          bValue = b.contacts
+          aValue = a.totalMessages
+          bValue = b.totalMessages
+          break
+        case 'sent':
+          aValue = a.sentMessages
+          bValue = b.sentMessages
           break
         case 'groups':
-          aValue = a.groups
-          bValue = b.groups
+          aValue = a.selectedContacts.length
+          bValue = b.selectedContacts.length
           break
         case 'dateCreated':
-          aValue = new Date(a.dateCreated).getTime()
-          bValue = new Date(b.dateCreated).getTime()
+          aValue = new Date(a.createdAt).getTime()
+          bValue = new Date(b.createdAt).getTime()
           break
         case 'lastSent':
-          aValue = a.lastSent ? new Date(a.lastSent).getTime() : 0
-          bValue = b.lastSent ? new Date(b.lastSent).getTime() : 0
+          aValue = a.lastMessageSentAt ? new Date(a.lastMessageSentAt).getTime() : 0
+          bValue = b.lastMessageSentAt ? new Date(b.lastMessageSentAt).getTime() : 0
           break
         default:
           return 0
@@ -438,21 +574,22 @@ export default function CampaignsPage() {
     })
 
     return sorted
-  }, [campaigns, selectedMode, searchQuery, campaignSortBy, campaignSortOrder])
+  }, [campaigns, deletedCampaigns, selectedMode, searchQuery, campaignSortBy, campaignSortOrder])
 
-  const [totalCampaigns, totalActive, totalDraft, totalInactive, totalCompleted] = useMemo(() => {
+  const [totalCampaigns, totalRunning, totalDraft, totalPaused, totalCompleted, totalDeleted] = useMemo(() => {
     const total = campaigns.length
-    const active = campaigns.filter(c => c.status === 'active').length
-    const draft = campaigns.filter(c => c.status === 'draft').length
-    const inactive = campaigns.filter(c => c.status === 'inactive').length
-    const completed = campaigns.filter(c => c.status === 'completed').length
+    const running = campaigns.filter(c => c.status === CampaignStatus.RUNNING).length
+    const draft = campaigns.filter(c => c.status === CampaignStatus.DRAFT).length
+    const paused = campaigns.filter(c => c.status === CampaignStatus.PAUSED).length
+    const completed = campaigns.filter(c => c.status === CampaignStatus.COMPLETED).length
+    const deleted = deletedCampaigns.length
 
-    return [total, active, draft, inactive, completed]
-  }, [campaigns])
+    return [total, running, draft, paused, completed, deleted]
+  }, [campaigns, deletedCampaigns])
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedCampaigns(filteredAndSortedCampaigns.map(campaign => campaign.id))
+      setSelectedCampaigns(filteredAndSortedCampaigns.map(campaign => campaign._id))
     } else {
       setSelectedCampaigns([])
     }
@@ -466,7 +603,7 @@ export default function CampaignsPage() {
     }
   }
 
-  const handleCreateCampaign = () => {
+  const handleCreateCampaign = async () => {
     if (!createCampaignData.name.trim()) {
       toast({
         title: "Campaign name required",
@@ -485,62 +622,46 @@ export default function CampaignsPage() {
       return
     }
 
-    const totalContacts = createCampaignData.selectedContacts.reduce((sum, contactId) => {
-      const contact = contactSpreadsheetsData?.find(c => c.id === contactId)
-      return sum + (contact?.validContactsCount || contact?.contactCount || 0)
-    }, 0)
-
-    const newCampaign: Campaign = {
-      _id: Date.now().toString(),
-      id: Date.now().toString(),
-      name: createCampaignData.name,
-      status: createCampaignData.status,
-      contacts: totalContacts,
-      groups: createCampaignData.selectedContacts.length,
-      dateCreated: new Date().toISOString(),
-      description: createCampaignData.description,
+    if (createCampaignData.selectedTemplates.length === 0) {
+      toast({
+        title: "Templates required",
+        description: "Please select at least one message template.",
+        variant: "destructive"
+      })
+      return
     }
 
-    setCampaigns([newCampaign, ...campaigns])
-    setCreateCampaignOpen(false)
-    setDateValidationErrors({ startDateError: '', endDateError: '' })
-    setCreateCampaignData({
-      name: '',
-      description: '',
-      status: 'draft',
-      selectedContacts: [],
-      selectedTemplates: [],
-      sendDevices: [],
-      scheduleType: 'now',
-      scheduledDate: '',
-      scheduledTime: '',
-      campaignStartDate: new Date().toISOString().split('T')[0],
-      campaignEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      sendingWindows: [],
-      weekdayWindows: {
-        monday: [],
-        tuesday: [],
-        wednesday: [],
-        thursday: [],
-        friday: [],
-        saturday: [],
-        sunday: []
-      },
-      weekdayEnabled: {
-        monday: true,
-        tuesday: true,
-        wednesday: true,
-        thursday: true,
-        friday: true,
-        saturday: false,
-        sunday: false
-      },
-    })
+    if (createCampaignData.sendDevices.length === 0) {
+      toast({
+        title: "Devices required",
+        description: "Please select at least one device to send messages from.",
+        variant: "destructive"
+      })
+      return
+    }
 
-    toast({
-      title: "Campaign created",
-      description: "New campaign has been created successfully."
-    })
+    // Prepare the campaign data for API
+    const campaignDto: CreateCampaignDto = {
+      name: createCampaignData.name.trim(),
+      description: createCampaignData.description?.trim() || undefined,
+      selectedContacts: createCampaignData.selectedContacts,
+      selectedTemplates: createCampaignData.selectedTemplates,
+      sendDevices: createCampaignData.sendDevices,
+      scheduleType: createCampaignData.scheduleType,
+      scheduledDate: createCampaignData.scheduledDate || undefined,
+      scheduledTime: createCampaignData.scheduledTime || undefined,
+      campaignStartDate: createCampaignData.campaignStartDate,
+      campaignEndDate: createCampaignData.campaignEndDate,
+      timezone: createCampaignData.timezone,
+      sendingWindows: createCampaignData.sendingWindows?.length > 0 ? createCampaignData.sendingWindows : undefined,
+      weekdayWindows: createCampaignData.weekdayWindows,
+      weekdayEnabled: createCampaignData.weekdayEnabled,
+      excludeDnc: createCampaignData.excludeDnc,
+      includePreviouslyMessaged: createCampaignData.includePreviouslyMessaged,
+    }
+
+    // Create the campaign via API
+    await createCampaignMutation.mutateAsync(campaignDto)
   }
 
   const handleDeleteSelectedCampaigns = async () => {
@@ -549,21 +670,78 @@ export default function CampaignsPage() {
     const campaignCount = selectedCampaigns.length
     const campaignText = campaignCount === 1 ? 'campaign' : 'campaigns'
 
-    if (!confirm(`Are you sure you want to permanently delete ${campaignCount} ${campaignText}? This action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete ${campaignCount} ${campaignText}? You can restore them later from the Deleted view.`)) {
       return
     }
 
-    setCampaigns(campaigns.filter(campaign => !selectedCampaigns.includes(campaign.id)))
-    setSelectedCampaigns([])
+    try {
+      // Delete each campaign via API (soft delete)
+      await Promise.all(selectedCampaigns.map(campaignId =>
+        deleteCampaignMutation.mutateAsync(campaignId)
+      ))
 
-    toast({
-      title: "Success",
-      description: `Deleted ${campaignCount} ${campaignText} successfully`
-    })
+      setSelectedCampaigns([])
+
+      toast({
+        title: "Success",
+        description: `Deleted ${campaignCount} ${campaignText} successfully`
+      })
+    } catch (error) {
+      console.error('Error deleting campaigns:', error)
+    }
+  }
+
+  const handleRestoreSelectedCampaigns = async () => {
+    if (selectedCampaigns.length === 0) return
+
+    const campaignCount = selectedCampaigns.length
+    const campaignText = campaignCount === 1 ? 'campaign' : 'campaigns'
+
+    if (!confirm(`Are you sure you want to restore ${campaignCount} ${campaignText}?`)) {
+      return
+    }
+
+    try {
+      // Restore each campaign via API
+      await Promise.all(selectedCampaigns.map(campaignId =>
+        restoreCampaignMutation.mutateAsync(campaignId)
+      ))
+
+      setSelectedCampaigns([])
+
+      toast({
+        title: "Success",
+        description: `Restored ${campaignCount} ${campaignText} successfully`
+      })
+    } catch (error) {
+      console.error('Error restoring campaigns:', error)
+    }
+  }
+
+  const handleRunCampaign = async (campaignId: string) => {
+    try {
+      await updateCampaignStatusMutation.mutateAsync({
+        campaignId,
+        status: CampaignStatus.RUNNING
+      })
+    } catch (error) {
+      console.error('Error running campaign:', error)
+    }
+  }
+
+  const handlePauseCampaign = async (campaignId: string) => {
+    try {
+      await updateCampaignStatusMutation.mutateAsync({
+        campaignId,
+        status: CampaignStatus.PAUSED
+      })
+    } catch (error) {
+      console.error('Error pausing campaign:', error)
+    }
   }
 
 
-  const handleCampaignSort = (column: 'name' | 'status' | 'contacts' | 'groups' | 'dateCreated' | 'lastSent') => {
+  const handleCampaignSort = (column: 'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent') => {
     if (campaignSortBy === column) {
       setCampaignSortOrder(campaignSortOrder === 'asc' ? 'desc' : 'asc')
     } else {
@@ -573,7 +751,7 @@ export default function CampaignsPage() {
     setCurrentPage(1)
   }
 
-  const renderSortIcon = (column: 'name' | 'status' | 'contacts' | 'groups' | 'dateCreated' | 'lastSent') => {
+  const renderSortIcon = (column: 'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent') => {
     if (campaignSortBy !== column) return null
     return campaignSortOrder === 'asc' ?
       <ChevronUp className="h-4 w-4 ml-1" /> :
@@ -583,20 +761,86 @@ export default function CampaignsPage() {
   const isAllSelected = selectedCampaigns.length === filteredAndSortedCampaigns.length && filteredAndSortedCampaigns.length > 0
   const isSomeSelected = selectedCampaigns.length > 0
 
-  const getStatusDisplay = (status: string) => {
+  const getStatusDisplay = (status: CampaignStatus, campaignId: string, isDeleted: boolean = false) => {
     const statusConfig = {
-      active: { dot: 'bg-green-500', text: 'Active' },
-      completed: { dot: 'bg-blue-500', text: 'Completed' },
-      draft: { dot: 'bg-gray-400', text: 'Draft' },
-      inactive: { dot: 'bg-red-500', text: 'Inactive' }
+      [CampaignStatus.DRAFT]: { dot: 'bg-gray-400', text: 'Draft' },
+      [CampaignStatus.SCHEDULED]: { dot: 'bg-yellow-500', text: 'Scheduled' },
+      [CampaignStatus.RUNNING]: { dot: 'bg-green-500', text: 'Running' },
+      [CampaignStatus.PAUSED]: { dot: 'bg-orange-500', text: 'Paused' },
+      [CampaignStatus.COMPLETED]: { dot: 'bg-blue-500', text: 'Completed' },
+      [CampaignStatus.FAILED]: { dot: 'bg-red-500', text: 'Failed' },
+      [CampaignStatus.CANCELLED]: { dot: 'bg-red-400', text: 'Cancelled' }
     }
 
-    const config = statusConfig[status as keyof typeof statusConfig] || { dot: 'bg-gray-400', text: status }
+    const config = statusConfig[status] || { dot: 'bg-gray-400', text: status }
 
     return (
-      <div className='flex items-center gap-2'>
-        <div className={`w-2 h-2 rounded-full ${config.dot}`} />
-        <span className='text-sm'>{config.text}</span>
+      <div className='flex items-center gap-1 md:gap-2'>
+        <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${config.dot}`} />
+        <span className='text-xs md:text-sm'>{config.text}</span>
+        {isDeleted ? (
+          <Button
+            size='sm'
+            variant='outline'
+            className='ml-1 md:ml-2 gap-1 text-xs md:text-sm'
+            onClick={(e) => {
+              e.stopPropagation()
+              restoreCampaignMutation.mutateAsync(campaignId)
+            }}
+            disabled={restoreCampaignMutation.isPending}
+          >
+            <RotateCcw className='h-2 w-2 md:h-3 md:w-3' />
+            <span className='hidden md:inline'>Restore</span>
+          </Button>
+        ) : (
+          <>
+            {status === CampaignStatus.DRAFT && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='ml-1 md:ml-2 gap-1 text-xs md:text-sm'
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleRunCampaign(campaignId)
+                }}
+                disabled={updateCampaignStatusMutation.isPending}
+              >
+                <Play className='h-2 w-2 md:h-3 md:w-3' />
+                <span className='hidden md:inline'>Run</span>
+              </Button>
+            )}
+            {status === CampaignStatus.RUNNING && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='ml-1 md:ml-2 gap-1 text-xs md:text-sm'
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handlePauseCampaign(campaignId)
+                }}
+                disabled={updateCampaignStatusMutation.isPending}
+              >
+                <Pause className='h-2 w-2 md:h-3 md:w-3' />
+                <span className='hidden md:inline'>Pause</span>
+              </Button>
+            )}
+            {status === CampaignStatus.PAUSED && (
+              <Button
+                size='sm'
+                variant='outline'
+                className='ml-1 md:ml-2 gap-1 text-xs md:text-sm'
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleRunCampaign(campaignId)
+                }}
+                disabled={updateCampaignStatusMutation.isPending}
+              >
+                <Play className='h-2 w-2 md:h-3 md:w-3' />
+                <span className='hidden md:inline'>Run</span>
+              </Button>
+            )}
+          </>
+        )}
       </div>
     )
   }
@@ -619,16 +863,16 @@ export default function CampaignsPage() {
             Campaigns ({totalCampaigns})
           </Button>
           <Button
-            variant={selectedMode === 'active' ? 'default' : 'ghost'}
+            variant={selectedMode === 'running' ? 'default' : 'ghost'}
             className='w-full justify-start text-sm'
             onClick={() => {
-              setSelectedMode('active')
+              setSelectedMode('running')
               setCurrentPage(1)
               setSearchQuery('')
             }}
           >
             <Users className='mr-2 h-4 w-4' />
-            Active campaigns ({totalActive})
+            Running campaigns ({totalRunning})
           </Button>
           <Button
             variant={selectedMode === 'draft' ? 'default' : 'ghost'}
@@ -643,16 +887,16 @@ export default function CampaignsPage() {
             Draft campaigns ({totalDraft})
           </Button>
           <Button
-            variant={selectedMode === 'inactive' ? 'default' : 'ghost'}
+            variant={selectedMode === 'paused' ? 'default' : 'ghost'}
             className='w-full justify-start text-sm'
             onClick={() => {
-              setSelectedMode('inactive')
+              setSelectedMode('paused')
               setCurrentPage(1)
               setSearchQuery('')
             }}
           >
             <X className='mr-2 h-4 w-4' />
-            Inactive campaigns ({totalInactive})
+            Paused campaigns ({totalPaused})
           </Button>
           <Button
             variant={selectedMode === 'completed' ? 'default' : 'ghost'}
@@ -666,6 +910,18 @@ export default function CampaignsPage() {
             <Check className='mr-2 h-4 w-4' />
             Completed campaigns ({totalCompleted})
           </Button>
+          <Button
+            variant={selectedMode === 'deleted' ? 'default' : 'ghost'}
+            className='w-full justify-start text-sm'
+            onClick={() => {
+              setSelectedMode('deleted')
+              setCurrentPage(1)
+              setSearchQuery('')
+            }}
+          >
+            <Archive className='mr-2 h-4 w-4' />
+            Deleted campaigns ({totalDeleted})
+          </Button>
         </div>
       </div>
 
@@ -674,20 +930,21 @@ export default function CampaignsPage() {
         {/* Header */}
         <div className='border-b p-4 flex-shrink-0'>
           <div className='flex items-center justify-between mb-4'>
-            <h2 className='text-lg font-semibold'>
+            <h2 className='text-base md:text-lg lg:text-xl font-semibold'>
               {selectedMode === 'campaigns' && 'Campaigns'}
-              {selectedMode === 'active' && 'Active campaigns'}
+              {selectedMode === 'running' && 'Running campaigns'}
               {selectedMode === 'draft' && 'Draft campaigns'}
-              {selectedMode === 'inactive' && 'Inactive campaigns'}
+              {selectedMode === 'paused' && 'Paused campaigns'}
               {selectedMode === 'completed' && 'Completed campaigns'}
+              {selectedMode === 'deleted' && 'Deleted campaigns'}
             </h2>
-            <div className='relative w-80'>
-              <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+            <div className='relative w-full md:w-80'>
+              <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-3 w-3 md:h-4 md:w-4 text-muted-foreground' />
               <Input
                 placeholder='Search campaigns...'
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className='pl-10'
+                className='pl-8 md:pl-10 text-sm md:text-base'
               />
             </div>
           </div>
@@ -701,6 +958,7 @@ export default function CampaignsPage() {
                 onCampaignDataChange={setCreateCampaignData}
                 contactSpreadsheets={contactSpreadsheetsData}
                 devices={devicesData?.data}
+                usagePlans={usagePlansData?.data}
                 templateGroups={templateGroups}
                 uniqueContactCount={uniqueContactCount}
                 dateValidationErrors={dateValidationErrors}
@@ -710,9 +968,10 @@ export default function CampaignsPage() {
                 onCreateCampaign={handleCreateCampaign}
               />
 
-              <Button className='gap-2' onClick={() => setCreateCampaignOpen(true)}>
-                <Plus className='h-4 w-4' />
-                Create new campaign
+              <Button className='gap-1 md:gap-2 text-xs md:text-sm' onClick={() => setCreateCampaignOpen(true)}>
+                <Plus className='h-3 w-3 md:h-4 md:w-4' />
+                <span className='hidden sm:inline'>Create new campaign</span>
+                <span className='sm:hidden'>Campaign</span>
               </Button>
 
               <ManageTemplatesDialog
@@ -755,15 +1014,27 @@ export default function CampaignsPage() {
               {isSomeSelected && (
                 <div className='flex items-center gap-2'>
                   <Badge variant='secondary'>{selectedCampaigns.length} selected</Badge>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    className='gap-2'
-                    onClick={handleDeleteSelectedCampaigns}
-                  >
-                    <Trash2 className='h-4 w-4' />
-                    Delete campaign(s)
-                  </Button>
+                  {selectedMode === 'deleted' ? (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className='gap-2'
+                      onClick={handleRestoreSelectedCampaigns}
+                    >
+                      <RotateCcw className='h-4 w-4' />
+                      Restore campaign(s)
+                    </Button>
+                  ) : (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className='gap-2'
+                      onClick={handleDeleteSelectedCampaigns}
+                    >
+                      <Trash2 className='h-4 w-4' />
+                      Delete campaign(s)
+                    </Button>
+                  )}
                 </div>
               )}
               <div className='flex items-center gap-2'>
@@ -785,34 +1056,43 @@ export default function CampaignsPage() {
 
         {/* Table or Empty State */}
         <div className='flex-1 overflow-y-auto'>
-          {loading ? (
+          {(campaignsLoading || (selectedMode === 'deleted' && deletedCampaignsLoading)) ? (
             <div className='flex items-center justify-center h-full'>
               <div className='text-muted-foreground'>Loading...</div>
             </div>
-          ) : totalCampaigns === 0 ? (
+          ) : (selectedMode === 'deleted' && totalDeleted === 0) ? (
             <div className='flex flex-col items-center justify-center h-full py-16'>
-              <Megaphone className='h-16 w-16 text-muted-foreground/50 mb-4' />
-              <h3 className='text-lg font-semibold text-muted-foreground mb-2'>No campaigns</h3>
-              <p className='text-sm text-muted-foreground mb-6 text-center max-w-md'>
+              <Archive className='h-12 w-12 md:h-16 md:w-16 text-muted-foreground/50 mb-4' />
+              <h3 className='text-base md:text-lg font-semibold text-muted-foreground mb-2'>No deleted campaigns</h3>
+              <p className='text-xs md:text-sm text-muted-foreground mb-6 text-center max-w-md'>
+                When you delete campaigns, they will appear here and can be restored.
+              </p>
+            </div>
+          ) : (selectedMode !== 'deleted' && totalCampaigns === 0) ? (
+            <div className='flex flex-col items-center justify-center h-full py-16'>
+              <Megaphone className='h-12 w-12 md:h-16 md:w-16 text-muted-foreground/50 mb-4' />
+              <h3 className='text-base md:text-lg font-semibold text-muted-foreground mb-2'>No campaigns</h3>
+              <p className='text-xs md:text-sm text-muted-foreground mb-6 text-center max-w-md'>
                 Create your first campaign to start reaching your contacts.
               </p>
-              <Button className='gap-2' onClick={() => setCreateCampaignOpen(true)}>
-                <Plus className='h-4 w-4' />
-                Create new campaign
+              <Button className='gap-1 md:gap-2 text-xs md:text-sm' onClick={() => setCreateCampaignOpen(true)}>
+                <Plus className='h-3 w-3 md:h-4 md:w-4' />
+                <span className='hidden sm:inline'>Create new campaign</span>
+                <span className='sm:hidden'>Campaign</span>
               </Button>
             </div>
           ) : (
             <table className='w-full'>
-              <thead className='border-b bg-muted/50'>
+              <thead className='sticky top-0 z-10 border-b bg-muted'>
                 <tr>
-                  <th className='w-12 p-4'>
+                  <th className='w-8 md:w-12 p-2 md:p-4'>
                     <Checkbox
                       checked={isAllSelected}
                       onCheckedChange={handleSelectAll}
                     />
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('name')}
                   >
                     <div className='flex items-center'>
@@ -821,7 +1101,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('status')}
                   >
                     <div className='flex items-center'>
@@ -830,7 +1110,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('contacts')}
                   >
                     <div className='flex items-center'>
@@ -839,7 +1119,16 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
+                    onClick={() => handleCampaignSort('sent')}
+                  >
+                    <div className='flex items-center'>
+                      Sent
+                      {renderSortIcon('sent')}
+                    </div>
+                  </th>
+                  <th
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('groups')}
                   >
                     <div className='flex items-center'>
@@ -848,7 +1137,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('dateCreated')}
                   >
                     <div className='flex items-center'>
@@ -857,7 +1146,7 @@ export default function CampaignsPage() {
                     </div>
                   </th>
                   <th
-                    className='text-left p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors'
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('lastSent')}
                   >
                     <div className='flex items-center'>
@@ -870,42 +1159,45 @@ export default function CampaignsPage() {
               <tbody>
                 {filteredAndSortedCampaigns.map((campaign) => (
                   <tr
-                    key={campaign.id}
+                    key={campaign._id}
                     className='border-b hover:bg-muted/25 transition-colors'
                   >
-                    <td className='p-4'>
+                    <td className='p-2 md:p-4'>
                       <Checkbox
-                        checked={selectedCampaigns.includes(campaign.id)}
-                        onCheckedChange={(checked) => handleSelectCampaign(campaign.id, checked as boolean)}
+                        checked={selectedCampaigns.includes(campaign._id)}
+                        onCheckedChange={(checked) => handleSelectCampaign(campaign._id, checked as boolean)}
                       />
                     </td>
-                    <td className='p-4'>
-                      <div className='flex items-center gap-2'>
-                        <Megaphone className='h-4 w-4 text-muted-foreground' />
+                    <td className='p-2 md:p-4'>
+                      <div className='flex items-center gap-1 md:gap-2'>
+                        <Megaphone className='h-3 w-3 md:h-4 md:w-4 text-muted-foreground' />
                         <div>
-                          <div className='font-medium'>{campaign.name}</div>
+                          <div className='font-medium text-xs md:text-sm lg:text-base'>{campaign.name}</div>
                           {campaign.description && (
-                            <div className='text-xs text-muted-foreground'>
+                            <div className='text-xs md:text-xs lg:text-sm text-muted-foreground'>
                               {campaign.description}
                             </div>
                           )}
                         </div>
                       </div>
                     </td>
-                    <td className='p-4'>
-                      {getStatusDisplay(campaign.status)}
+                    <td className='p-2 md:p-4'>
+                      {getStatusDisplay(campaign.status, campaign._id, selectedMode === 'deleted')}
                     </td>
-                    <td className='p-4 text-muted-foreground'>
-                      {campaign.contacts.toLocaleString()}
+                    <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
+                      {campaign.totalMessages.toLocaleString()}
                     </td>
-                    <td className='p-4 text-muted-foreground'>
-                      {campaign.groups}
+                    <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
+                      {campaign.sentMessages.toLocaleString()}
                     </td>
-                    <td className='p-4 text-muted-foreground'>
+                    <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
+                      {campaign.selectedContacts.length}
+                    </td>
+                    <td className='p-2 md:p-4 text-muted-foreground'>
                       <div className='flex flex-col'>
-                        <span>{new Date(campaign.dateCreated).toLocaleDateString()}</span>
-                        <span className='text-xs text-muted-foreground'>
-                          {new Date(campaign.dateCreated).toLocaleTimeString('en-US', {
+                        <span className='text-xs md:text-xs lg:text-sm'>{new Date(campaign.createdAt).toLocaleDateString()}</span>
+                        <span className='text-xs md:text-xs lg:text-xs text-muted-foreground'>
+                          {new Date(campaign.createdAt).toLocaleTimeString('en-US', {
                             hour: 'numeric',
                             minute: '2-digit',
                             hour12: true
@@ -913,19 +1205,19 @@ export default function CampaignsPage() {
                         </span>
                       </div>
                     </td>
-                    <td className='p-4 text-muted-foreground'>
-                      {campaign.lastSent ? (
+                    <td className='p-2 md:p-4 text-muted-foreground'>
+                      {campaign.lastMessageSentAt ? (
                         <div className='flex flex-col'>
-                          <span>{new Date(campaign.lastSent).toLocaleDateString()}</span>
-                          <span className='text-xs text-muted-foreground'>
-                            {new Date(campaign.lastSent).toLocaleTimeString('en-US', {
+                          <span className='text-xs md:text-xs lg:text-sm'>{new Date(campaign.lastMessageSentAt).toLocaleDateString()}</span>
+                          <span className='text-xs md:text-xs lg:text-xs text-muted-foreground'>
+                            {new Date(campaign.lastMessageSentAt).toLocaleTimeString('en-US', {
                               hour: 'numeric',
                               minute: '2-digit',
                               hour12: true
                             })}
                           </span>
                         </div>
-                      ) : '-'}
+                      ) : <span className='text-xs md:text-xs lg:text-sm'>-</span>}
                     </td>
                   </tr>
                 ))}

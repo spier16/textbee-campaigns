@@ -107,14 +107,14 @@ export default function AppHeader() {
         isLoading={loadingPath === '/dashboard/contacts'}
         onLoadingChange={setLoadingPath}
       />
-      <DashboardNavItem
+      {/* <DashboardNavItem
         href='/dashboard/community'
         icon={<Users className='h-4 w-4 stroke-[1.5]' />}
         label='Community'
         isActive={pathname === '/dashboard/community'}
         isLoading={loadingPath === '/dashboard/community'}
         onLoadingChange={setLoadingPath}
-      />
+      /> */}
       <DashboardNavItem
         href='/dashboard/account'
         icon={<UserCircle className='h-4 w-4 stroke-[1.5]' />}
@@ -202,13 +202,13 @@ export default function AppHeader() {
                 <LayoutDashboard className='h-4 w-4' />
                 Dashboard
               </Link>
-              <Link
+              {/* <Link
                 href={Routes.contribute}
                 className='flex items-center gap-2 py-2'
               >
                 <MessageSquarePlus className='h-4 w-4' />
                 Contribute
-              </Link>
+              </Link> */}
               <Button
                 onClick={handleLogout}
                 variant='ghost'
@@ -245,17 +245,10 @@ export default function AppHeader() {
             className='flex items-center space-x-2'
             href={Routes.landingPage}
           >
-            <Image
-              src='/images/logo.png'
-              alt='textbee Logo'
-              width={24}
-              height={24}
-              className='h-6 w-6 bg-white rounded-full'
-            />
             <span className='font-bold'>
-              text<span className='text-primary'>bee</span>
+              Grahams<span className='text-primary'>Scams</span>
               <span className='text-xs align-center text-gray-500 dark:text-gray-400'>
-                .dev
+                .com
               </span>
             </span>
           </Link>
@@ -267,14 +260,14 @@ export default function AppHeader() {
         <div className='flex flex-1 items-center justify-end'>
           <nav className='flex items-center space-x-4'>
             <ThemeToggle />
-            <Link
+            {/* <Link
               href={Routes.contribute}
               className='hidden md:block'
             >
               <Button variant='outline' className='px-4 py-2 text-sm'>
                 Contribute
               </Button>
-            </Link>
+            </Link> */}
 
             {isAuthenticated ? (
               <AuthenticatedMenu />

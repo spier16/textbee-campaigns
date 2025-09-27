@@ -35,8 +35,9 @@ import {
   Plus,
   RefreshCw,
   Eye,
+  UserPlus,
 } from 'lucide-react'
-import { contactsApi, ContactSpreadsheet, Contact, downloadBlob } from '@/lib/api/contacts'
+import { contactsApi, ContactSpreadsheet, Contact, downloadBlob, CreateGroupData } from '@/lib/api/contacts'
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus } from '@/lib/utils'
@@ -762,6 +763,24 @@ export default function ContactsPage() {
     mailingZip: '',
   })
 
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const [createGroupData, setCreateGroupData] = useState({
+    name: '',
+    description: '',
+    selectedContacts: [] as string[],
+  })
+  const [availableContacts, setAvailableContacts] = useState<Contact[]>([])
+  const [loadingAvailableContacts, setLoadingAvailableContacts] = useState(false)
+  const [contactSearchQuery, setContactSearchQuery] = useState('')
+  const [contactListHeight, setContactListHeight] = useState(400)
+  const [currentContactPage, setCurrentContactPage] = useState(1)
+  const [hasMoreContacts, setHasMoreContacts] = useState(true)
+  const [totalAvailableContacts, setTotalAvailableContacts] = useState(0)
+  const [loadingMoreContacts, setLoadingMoreContacts] = useState(false)
+  const [searchDebounceTimer, setSearchDebounceTimer] = useState<NodeJS.Timeout | null>(null)
+  const [isSearching, setIsSearching] = useState(false)
+  const contactListRef = useRef<HTMLDivElement>(null)
+
   const [files, setFiles] = useState<ContactSpreadsheet[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
@@ -856,6 +875,51 @@ export default function ContactsPage() {
     }
   }
 
+  // Normalize phone number by removing all non-digits
+  const normalizePhoneForSearch = useCallback((phone: string): string => {
+    return phone.replace(/\D/g, '')
+  }, [])
+
+  // Flexible search function for contacts
+  const searchContacts = useCallback((contacts: Contact[], query: string): Contact[] => {
+    if (!query.trim()) return contacts
+
+    const searchTerms = query.toLowerCase()
+      .replace(/,/g, ' ') // Replace commas with spaces
+      .split(/\s+/) // Split by whitespace
+      .filter(term => term.length > 0)
+
+    return contacts.filter(contact => {
+      // Create searchable strings for the contact
+      const firstName = (contact.firstName || '').toLowerCase()
+      const lastName = (contact.lastName || '').toLowerCase()
+      const fullName = `${firstName} ${lastName}`.trim()
+      const reversedName = `${lastName} ${firstName}`.trim()
+      const phone = contact.phone
+      const normalizedPhone = normalizePhoneForSearch(phone)
+
+      // For each search term, check if it matches any part of the contact
+      return searchTerms.every(term => {
+        // Check if term is likely a phone number (contains only digits)
+        const isPhoneSearch = /^\d+$/.test(term)
+
+        if (isPhoneSearch) {
+          // For phone searches, check if the normalized phone contains the term
+          return normalizedPhone.includes(term)
+        } else {
+          // For name searches, check various combinations
+          return (
+            firstName.includes(term) ||
+            lastName.includes(term) ||
+            fullName.includes(term) ||
+            reversedName.includes(term) ||
+            phone.includes(term) // Also check original phone format
+          )
+        }
+      })
+    })
+  }, [normalizePhoneForSearch])
+
   // Use files/contacts directly since API handles filtering and sorting for most cases
   // But apply client-side sorting for Status column since it's not handled by backend
   const filteredAndSortedFiles = useMemo(() => {
@@ -876,6 +940,8 @@ export default function ContactsPage() {
     return files
   }, [files, spreadsheetSortBy, spreadsheetSortOrder])
 
+  // Note: Contact filtering is now handled server-side in loadContactPage()
+
   const filteredAndSortedContacts = useMemo(() => {
     // The API handles all sorting now
     return contacts
@@ -889,6 +955,86 @@ export default function ContactsPage() {
   useEffect(() => {
     loadStats()
   }, [])
+
+  // Calculate dynamic height for contact list
+  useEffect(() => {
+    const calculateHeight = () => {
+      const viewportHeight = window.innerHeight
+      // Account for dialog header, form fields, search, buttons, and padding
+      // Roughly: 60px header + 120px form fields + 80px search section + 80px footer + 60px padding
+      const reservedHeight = 400
+      const calculatedHeight = Math.max(300, viewportHeight - reservedHeight)
+      setContactListHeight(calculatedHeight)
+    }
+
+    calculateHeight()
+    window.addEventListener('resize', calculateHeight)
+    return () => window.removeEventListener('resize', calculateHeight)
+  }, [])
+
+  // Handle initial load and search separately
+  useEffect(() => {
+    if (!createGroupOpen) return
+
+    console.log('Search Change Event:', {
+      newQuery: contactSearchQuery,
+      isClearing: contactSearchQuery === '',
+      dialogOpen: createGroupOpen,
+      hasExistingTimer: !!searchDebounceTimer,
+      currentContactCount: availableContacts.length,
+      totalAvailable: totalAvailableContacts
+    })
+
+    // Clear existing timer
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer)
+      setSearchDebounceTimer(null)
+      console.log('Cleared existing search timer')
+    }
+
+    if (contactSearchQuery === '') {
+      // Initial load - no debouncing needed, load immediately
+      console.log('Loading initial page (no search)')
+      setIsSearching(true)
+      loadContactPage(1, true, '').finally(() => setIsSearching(false))
+    } else {
+      // Search with debouncing
+      console.log('Setting up search debounce timer (300ms)')
+      setIsSearching(true)
+      const timer = setTimeout(() => {
+        console.log('Debounce timer fired, loading search results for:', contactSearchQuery)
+        loadContactPage(1, true, contactSearchQuery).finally(() => setIsSearching(false))
+      }, 300)
+      setSearchDebounceTimer(timer)
+
+      // Cleanup
+      return () => {
+        clearTimeout(timer)
+        setIsSearching(false)
+        console.log('Search useEffect cleanup - timer cleared, search state reset')
+      }
+    }
+  }, [contactSearchQuery, createGroupOpen])
+
+  // Cleanup when dialog closes
+  useEffect(() => {
+    if (!createGroupOpen) {
+      // Clear any pending timers
+      if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer)
+        setSearchDebounceTimer(null)
+      }
+      // Reset contact-related state
+      setAvailableContacts([])
+      setContactSearchQuery('')
+      setCurrentContactPage(1)
+      setHasMoreContacts(true)
+      setTotalAvailableContacts(0)
+      setLoadingAvailableContacts(false)
+      setLoadingMoreContacts(false)
+      setIsSearching(false)
+    }
+  }, [createGroupOpen])
 
   const loadStats = async () => {
     try {
@@ -960,6 +1106,256 @@ export default function ContactsPage() {
       return
     }
     createContactMutation.mutate(createContactData)
+  }
+
+  const createGroupMutation = useMutation({
+    mutationFn: async (data: CreateGroupData) => {
+      return contactsApi.createGroup(data)
+    },
+    onSuccess: (newGroup) => {
+      toast({
+        title: "Group created",
+        description: "New contact group has been created successfully."
+      })
+      setCreateGroupOpen(false)
+      setCreateGroupData({
+        name: '',
+        description: '',
+        selectedContacts: [],
+      })
+      // Refresh spreadsheets list and stats
+      if (selectedMode === 'spreadsheets') {
+        loadSpreadsheets()
+      }
+      loadStats()
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to create group",
+        description: error.response?.data?.message || error.message || "An error occurred while creating the group.",
+        variant: "destructive"
+      })
+    }
+  })
+
+  const handleCreateGroup = () => {
+    if (!createGroupData.name.trim()) {
+      toast({
+        title: "Group name required",
+        description: "Please enter a name for the group.",
+        variant: "destructive"
+      })
+      return
+    }
+    if (createGroupData.selectedContacts.length === 0) {
+      toast({
+        title: "No contacts selected",
+        description: "Please select at least one contact for the group.",
+        variant: "destructive"
+      })
+      return
+    }
+    createGroupMutation.mutate({
+      name: createGroupData.name,
+      description: createGroupData.description || undefined,
+      contactIds: createGroupData.selectedContacts,
+    })
+  }
+
+  const loadContactPage = async (page: number, reset: boolean = false, searchQuery: string = '') => {
+    if (reset) {
+      setLoadingAvailableContacts(true)
+      setAvailableContacts([])
+      setCurrentContactPage(1)
+      setHasMoreContacts(true)
+    } else {
+      setLoadingMoreContacts(true)
+    }
+
+    try {
+      const response = await contactsApi.getContacts({
+        limit: 25,
+        page: page,
+        sortBy: 'firstName',
+        sortOrder: 'asc',
+        search: searchQuery || undefined,
+      })
+
+      if (reset) {
+        setAvailableContacts(response.data)
+      } else {
+        setAvailableContacts(prev => [...prev, ...response.data])
+      }
+
+      setTotalAvailableContacts(response.total)
+      setCurrentContactPage(page)
+      const hasMore = response.data.length === 25 && (page * 25) < response.total
+      setHasMoreContacts(hasMore)
+
+      // Debug logging for pagination state
+      console.log('Pagination Debug:', {
+        page,
+        reset,
+        searchQuery,
+        responseDataLength: response.data.length,
+        total: response.total,
+        currentItems: page * 25,
+        hasMoreContacts: hasMore,
+        loadedSoFar: reset ? response.data.length : availableContacts.length + response.data.length
+      })
+    } catch (error) {
+      console.error('Error loading available contacts:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to load contacts for group selection',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoadingAvailableContacts(false)
+      setLoadingMoreContacts(false)
+    }
+  }
+
+  const loadAvailableContacts = async () => {
+    console.log('🚀 loadAvailableContacts called - Dialog opening, resetting state')
+    // Reset all state when opening dialog - let useEffect handle the loading
+    setContactSearchQuery('')
+    setCurrentContactPage(1)
+    setHasMoreContacts(true)
+    setTotalAvailableContacts(0)
+    setLoadingMoreContacts(false)
+    setIsSearching(false)
+    // Removed: await loadContactPage(1, true) - this was causing race condition
+    // The useEffect will trigger when contactSearchQuery changes to ''
+    console.log('🚀 State reset complete, useEffect will trigger loading')
+  }
+
+  const handleContactListScroll = useCallback(() => {
+    const scrollState = {
+      hasRef: !!contactListRef.current,
+      loadingMoreContacts,
+      hasMoreContacts,
+      isSearching,
+      currentPage: currentContactPage,
+      searchQuery: contactSearchQuery || '(no search)'
+    }
+
+    if (!contactListRef.current || loadingMoreContacts || !hasMoreContacts || isSearching) {
+      if (isSearching) {
+        console.log('Scroll Event - Ignored (search in progress):', scrollState)
+      } else {
+        console.log('Scroll Event - Early Return:', scrollState)
+      }
+      return
+    }
+
+    const { scrollTop, scrollHeight, clientHeight } = contactListRef.current
+
+    // Handle case where content is shorter than container (no scrolling needed)
+    const hasScrollableContent = scrollHeight > clientHeight
+    const threshold = 50
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < threshold
+
+    const detailedScrollState = {
+      ...scrollState,
+      scrollTop,
+      scrollHeight,
+      clientHeight,
+      hasScrollableContent,
+      distanceFromBottom: scrollHeight - scrollTop - clientHeight,
+      threshold,
+      isNearBottom,
+      isAtTop: scrollTop === 0,
+      isAtBottom: scrollTop + clientHeight >= scrollHeight - 5
+    }
+
+    console.log('Scroll Event Details:', detailedScrollState)
+
+    if (!hasScrollableContent) {
+      console.log('No scrollable content - returning')
+      return
+    }
+
+    if (isNearBottom) {
+      console.log('🔄 Infinite Scroll Triggered!', {
+        nextPage: currentContactPage + 1,
+        currentContacts: availableContacts.length,
+        totalContacts: totalAvailableContacts,
+        threshold,
+        distanceFromBottom: scrollHeight - scrollTop - clientHeight
+      })
+      loadContactPage(currentContactPage + 1, false, contactSearchQuery)
+    }
+  }, [currentContactPage, hasMoreContacts, loadingMoreContacts, contactSearchQuery, isSearching])
+
+  // Add scroll listener for infinite scroll
+  useEffect(() => {
+    const listElement = contactListRef.current
+    if (!listElement) return
+
+    listElement.addEventListener('scroll', handleContactListScroll)
+    return () => {
+      listElement.removeEventListener('scroll', handleContactListScroll)
+    }
+  }, [handleContactListScroll])
+
+  // Reset scroll position when search changes (including clearing search)
+  useEffect(() => {
+    if (contactListRef.current) {
+      // Always reset scroll on search changes, with small delay to ensure content loads
+      const timer = setTimeout(() => {
+        if (contactListRef.current) {
+          const wasScrolled = contactListRef.current.scrollTop > 0
+          contactListRef.current.scrollTop = 0
+          console.log('Scroll Reset:', {
+            searchQuery: contactSearchQuery || '(empty)',
+            wasScrolled,
+            newScrollTop: 0,
+            reason: 'search change'
+          })
+        }
+      }, 50) // Small delay to ensure content has loaded
+
+      return () => clearTimeout(timer)
+    }
+  }, [contactSearchQuery])
+
+  // Monitor content height changes for debugging
+  useEffect(() => {
+    if (contactListRef.current) {
+      const observer = new ResizeObserver(() => {
+        if (contactListRef.current) {
+          const { scrollTop, scrollHeight, clientHeight } = contactListRef.current
+          console.log('📏 Content Height Changed:', {
+            scrollTop,
+            scrollHeight,
+            clientHeight,
+            isAtBottom: scrollTop + clientHeight >= scrollHeight - 10,
+            isAtTop: scrollTop === 0,
+            contactCount: availableContacts.length,
+            searchQuery: contactSearchQuery || '(no search)',
+            hasMoreContacts
+          })
+        }
+      })
+
+      observer.observe(contactListRef.current)
+      console.log('📏 Content height observer attached')
+
+      return () => {
+        observer.disconnect()
+        console.log('📏 Content height observer disconnected')
+      }
+    }
+  }, [availableContacts.length, contactSearchQuery, hasMoreContacts])
+
+  const handleToggleContactInGroup = (contactId: string, checked: boolean) => {
+    setCreateGroupData(prev => ({
+      ...prev,
+      selectedContacts: checked
+        ? [...prev.selectedContacts, contactId]
+        : prev.selectedContacts.filter(id => id !== contactId)
+    }))
   }
 
   const deleteContactsMutation = useMutation({
@@ -1273,6 +1669,7 @@ export default function ContactsPage() {
     const statusConfig = {
       pending: { dot: 'bg-yellow-500', text: 'Pending' },
       processed: { dot: 'bg-green-500', text: 'Processed' },
+      manually_created: { dot: 'bg-blue-500', text: 'Created' },
     }
 
     const config = statusConfig[status as keyof typeof statusConfig] || { dot: 'bg-gray-400', text: status }
@@ -1310,6 +1707,7 @@ export default function ContactsPage() {
               <Eye className='h-3 w-3' />
             </Button>
           )}
+          {/* No buttons for manually_created status */}
         </div>
       </div>
     )
@@ -1383,6 +1781,139 @@ export default function ContactsPage() {
                     <Upload className='h-4 w-4' />
                     {uploading ? 'Uploading...' : 'Upload contacts'}
                   </Button>
+                  <Dialog open={createGroupOpen} onOpenChange={setCreateGroupOpen}>
+                    <DialogTrigger asChild>
+                      <Button className='gap-2' variant='outline' onClick={loadAvailableContacts}>
+                        <UserPlus className='h-4 w-4' />
+                        Create group
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className='max-w-3xl max-h-[80vh] overflow-hidden flex flex-col'>
+                      <DialogHeader>
+                        <DialogTitle>Create New Contact Group</DialogTitle>
+                      </DialogHeader>
+                      <div className='flex-1 flex flex-col overflow-hidden'>
+                        <div className='space-y-4 flex-shrink-0'>
+                          <div>
+                            <Label htmlFor="group-name" className='text-sm font-medium'>
+                              Group Name <span className='text-red-500'>*</span>
+                            </Label>
+                            <Input
+                              id="group-name"
+                              value={createGroupData.name}
+                              onChange={(e) => setCreateGroupData(prev => ({ ...prev, name: e.target.value }))}
+                              placeholder="Enter group name"
+                              className='mt-1'
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="group-description" className='text-sm font-medium'>
+                              Description (optional)
+                            </Label>
+                            <Textarea
+                              id="group-description"
+                              value={createGroupData.description}
+                              onChange={(e) => setCreateGroupData(prev => ({ ...prev, description: e.target.value }))}
+                              placeholder="Enter group description"
+                              className='mt-1'
+                              rows={2}
+                            />
+                          </div>
+                        </div>
+
+                        <div className='mt-6 flex-1 flex flex-col overflow-hidden'>
+                          <div className='mb-4'>
+                            <Label className='text-sm font-medium'>
+                              Select Contacts <span className='text-red-500'>*</span>
+                            </Label>
+                          </div>
+
+                          {/* Search input */}
+                          <div className='mb-4'>
+                            <div className='relative'>
+                              <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+                              <Input
+                                placeholder='Search by name or phone number...'
+                                value={contactSearchQuery}
+                                onChange={(e) => setContactSearchQuery(e.target.value)}
+                                className='pl-10'
+                              />
+                            </div>
+                            {totalAvailableContacts > 0 && (
+                              <div className='text-xs text-muted-foreground mt-1'>
+                                Showing {availableContacts.length} of {totalAvailableContacts} contacts
+                                {contactSearchQuery && ' (filtered)'}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className='border rounded-md overflow-hidden' style={{ height: `${contactListHeight}px` }}>
+                            {loadingAvailableContacts ? (
+                              <div className='flex items-center justify-center h-full py-8'>
+                                <div className='text-muted-foreground'>Loading contacts...</div>
+                              </div>
+                            ) : availableContacts.length === 0 ? (
+                              <div className='flex items-center justify-center h-full py-8'>
+                                <div className='text-muted-foreground'>No contacts available</div>
+                              </div>
+                            ) : availableContacts.length === 0 && contactSearchQuery ? (
+                              <div className='flex items-center justify-center h-full py-8'>
+                                <div className='text-muted-foreground'>No contacts match your search</div>
+                              </div>
+                            ) : (
+                              <div ref={contactListRef} className='h-full overflow-y-auto'>
+                                <div className='divide-y'>
+                                  {availableContacts.map((contact) => {
+                                    const displayName = contact.firstName || contact.lastName
+                                      ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+                                      : contact.phone
+
+                                    return (
+                                      <div key={contact.id} className='flex items-center space-x-3 p-3 hover:bg-muted/50'>
+                                        <Checkbox
+                                          checked={createGroupData.selectedContacts.includes(contact.id)}
+                                          onCheckedChange={(checked) => handleToggleContactInGroup(contact.id, checked as boolean)}
+                                        />
+                                        <div className='flex-1'>
+                                          <div className='font-medium'>{displayName}</div>
+                                          {contact.firstName && (
+                                            <div className='text-sm text-muted-foreground'>{contact.phone}</div>
+                                          )}
+                                          {contact.email && (
+                                            <div className='text-sm text-muted-foreground'>{contact.email}</div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                  {loadingMoreContacts && (
+                                    <div className='flex items-center justify-center py-4'>
+                                      <div className='text-muted-foreground text-sm'>Loading more contacts...</div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          variant='outline'
+                          onClick={() => setCreateGroupOpen(false)}
+                          disabled={createGroupMutation.isPending}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleCreateGroup}
+                          disabled={createGroupMutation.isPending || !createGroupData.name.trim() || createGroupData.selectedContacts.length === 0}
+                        >
+                          {createGroupMutation.isPending ? 'Creating...' : `Create Group (${createGroupData.selectedContacts.length} selected)`}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                   <input
                     ref={fileInputRef}
                     type='file'
@@ -1572,7 +2103,7 @@ export default function ContactsPage() {
               </div>
             ) : (
               <table className='w-full'>
-                <thead className='border-b bg-muted/50'>
+                <thead className='sticky top-0 z-10 border-b bg-muted'>
                   <tr>
                     <th className='w-12 p-4'>
                       <Checkbox
@@ -1649,7 +2180,7 @@ export default function ContactsPage() {
               </div>
             ) : (
               <table className='w-full'>
-                <thead className='border-b bg-muted/50'>
+                <thead className='sticky top-0 z-10 border-b bg-muted'>
                   <tr>
                     <th className='w-12 p-4'>
                       <Checkbox

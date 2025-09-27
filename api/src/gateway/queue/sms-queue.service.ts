@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
 import { ConfigService } from '@nestjs/config'
 import { Message } from 'firebase-admin/messaging'
+import { Types } from 'mongoose'
 
 @Injectable()
 export class SmsQueueService {
@@ -60,6 +61,78 @@ export class SmsQueueService {
           },
           removeOnComplete: false,
           removeOnFail: false,
+        },
+      )
+    }
+  }
+
+  /**
+   * Add campaign message to SMS queue with device-specific delays
+   */
+  async addCampaignMessageJob(
+    deviceId: string,
+    campaignMessageId: string,
+    fcmMessage: Message,
+    smsBatchId: string,
+    priority: number = 1,
+    delay: number = 0,
+  ) {
+    this.logger.debug(`Adding campaign message job for message ${campaignMessageId}`)
+
+    await this.smsQueue.add(
+      'send-campaign-message',
+      {
+        deviceId,
+        campaignMessageId,
+        fcmMessage,
+        smsBatchId,
+      },
+      {
+        priority,
+        attempts: 3, // More retries for campaign messages
+        delay,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: 50,
+        removeOnFail: 100,
+      },
+    )
+  }
+
+  /**
+   * Add multiple campaign messages as separate jobs with calculated delays
+   */
+  async addCampaignMessagesJobs(
+    messages: Array<{
+      deviceId: string
+      campaignMessageId: string
+      scheduledTime: Date
+      priority: number
+    }>
+  ) {
+    const now = new Date()
+
+    for (const message of messages) {
+      const delay = Math.max(0, message.scheduledTime.getTime() - now.getTime())
+
+      await this.smsQueue.add(
+        'send-campaign-message',
+        {
+          deviceId: message.deviceId,
+          campaignMessageId: message.campaignMessageId,
+        },
+        {
+          priority: message.priority,
+          attempts: 3, // More retries for campaign messages
+          delay,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
+          },
+          removeOnComplete: 50,
+          removeOnFail: 100,
         },
       )
     }

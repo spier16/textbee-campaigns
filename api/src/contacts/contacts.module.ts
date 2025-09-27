@@ -6,6 +6,8 @@ import { ContactSpreadsheet, ContactSpreadsheetSchema } from './schemas/contact-
 import { Contact, ContactSchema } from './schemas/contact.schema'
 import { ContactTemplate, ContactTemplateSchema } from './schemas/contact-template.schema'
 import { ContactGroupMembership, ContactGroupMembershipSchema } from './schemas/contact-group-membership.schema'
+import { SMS, SMSSchema } from '../gateway/schemas/sms.schema'
+import { Device, DeviceSchema } from '../gateway/schemas/device.schema'
 
 @Module({
   imports: [
@@ -14,6 +16,8 @@ import { ContactGroupMembership, ContactGroupMembershipSchema } from './schemas/
       { name: Contact.name, schema: ContactSchema },
       { name: ContactTemplate.name, schema: ContactTemplateSchema },
       { name: ContactGroupMembership.name, schema: ContactGroupMembershipSchema },
+      { name: SMS.name, schema: SMSSchema },
+      { name: Device.name, schema: DeviceSchema },
     ]),
   ],
   controllers: [ContactsController],

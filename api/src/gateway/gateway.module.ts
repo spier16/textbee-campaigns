@@ -1,6 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common'
 import { MongooseModule } from '@nestjs/mongoose'
 import { Device, DeviceSchema } from './schemas/device.schema'
+import { UsagePlan, UsagePlanSchema } from './schemas/usage-plan.schema'
 import { GatewayController } from './gateway.controller'
 import { GatewayService } from './gateway.service'
 import { AuthModule } from '../auth/auth.module'
@@ -14,6 +15,8 @@ import { ConfigModule } from '@nestjs/config'
 import { SmsQueueService } from './queue/sms-queue.service'
 import { SmsQueueProcessor } from './queue/sms-queue.processor'
 import { SmsStatusUpdateTask } from './tasks/sms-status-update.task'
+import { UsagePlanService } from './usage-plan.service'
+import { CampaignMessage, CampaignMessageSchema } from '../campaigns/schemas/campaign-message.schema'
 
 @Module({
   imports: [
@@ -29,6 +32,14 @@ import { SmsStatusUpdateTask } from './tasks/sms-status-update.task'
       {
         name: SMSBatch.name,
         schema: SMSBatchSchema,
+      },
+      {
+        name: UsagePlan.name,
+        schema: UsagePlanSchema,
+      },
+      {
+        name: CampaignMessage.name,
+        schema: CampaignMessageSchema,
       },
     ]),
     BullModule.registerQueue({
@@ -50,7 +61,7 @@ import { SmsStatusUpdateTask } from './tasks/sms-status-update.task'
     ConfigModule,
   ],
   controllers: [GatewayController],
-  providers: [GatewayService, SmsQueueService, SmsQueueProcessor, SmsStatusUpdateTask],
-  exports: [MongooseModule, GatewayService, SmsQueueService],
+  providers: [GatewayService, UsagePlanService, SmsQueueService, SmsQueueProcessor, SmsStatusUpdateTask],
+  exports: [MongooseModule, GatewayService, SmsQueueService, UsagePlanService],
 })
 export class GatewayModule {}

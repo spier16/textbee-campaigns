@@ -26,7 +26,10 @@ import {
   CreateTemplateDto,
   GetContactsDto,
   UpdateContactDto,
-  CreateContactDto
+  CreateContactDto,
+  CreateGroupDto,
+  GetUniqueContactCountDto,
+  GetUniqueContactsDto
 } from './contacts.dto'
 import { Response as ExpressResponse } from 'express'
 
@@ -218,12 +221,21 @@ export class ContactsController {
     return this.contactsService.getContacts(req.user.id, query)
   }
 
+  @Post('groups')
+  @ApiOperation({ summary: 'Create a new contact group' })
+  async createGroup(
+    @Request() req,
+    @Body() createGroupData: CreateGroupDto,
+  ) {
+    return this.contactsService.createGroup(req.user.id, createGroupData)
+  }
+
   @Get('stats')
   @ApiOperation({ summary: 'Get contact statistics' })
   async getStats(@Request() req) {
     const { totalContacts } = await this.contactsService.getSpreadsheets(req.user.id, {})
     const { total: totalSpreadsheets } = await this.contactsService.getSpreadsheets(req.user.id, {})
-    
+
     return {
       totalContacts,
       totalSpreadsheets,
@@ -285,11 +297,33 @@ export class ContactsController {
   @ApiOperation({ summary: 'Get unique contact count across multiple spreadsheets' })
   async getUniqueContactCount(
     @Request() req,
-    @Body('spreadsheetIds') spreadsheetIds: string[],
+    @Body() body: GetUniqueContactCountDto,
   ) {
-    if (!spreadsheetIds || spreadsheetIds.length === 0) {
+    if (!body.spreadsheetIds || body.spreadsheetIds.length === 0) {
       return { uniqueContactCount: 0 }
     }
-    return this.contactsService.getUniqueContactCount(req.user.id, spreadsheetIds)
+    return this.contactsService.getUniqueContactCount(
+      req.user.id,
+      body.spreadsheetIds,
+      body.excludeDnc ?? true,
+      body.includePreviouslyMessaged ?? false
+    )
+  }
+
+  @Post('spreadsheets/unique-contacts')
+  @ApiOperation({ summary: 'Get unique contacts across multiple spreadsheets' })
+  async getUniqueContacts(
+    @Request() req,
+    @Body() body: GetUniqueContactsDto,
+  ) {
+    if (!body.spreadsheetIds || body.spreadsheetIds.length === 0) {
+      return { data: [], total: 0 }
+    }
+    return this.contactsService.getUniqueContacts(
+      req.user.id,
+      body.spreadsheetIds,
+      body.excludeDnc ?? true,
+      body.includePreviouslyMessaged ?? false
+    )
   }
 }

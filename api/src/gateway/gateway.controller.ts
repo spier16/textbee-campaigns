@@ -27,14 +27,23 @@ import {
   SendSMSInputDTO,
   UpdateSMSStatusDTO,
 } from './gateway.dto'
+import {
+  CreateUsagePlanDTO,
+  UpdateUsagePlanDTO,
+  AssignUsagePlanDTO,
+} from './usage-plan.dto'
 import { GatewayService } from './gateway.service'
+import { UsagePlanService } from './usage-plan.service'
 import { CanModifyDevice } from './guards/can-modify-device.guard'
 
 @ApiTags('gateway')
 @ApiBearerAuth()
 @Controller('gateway')
 export class GatewayController {
-  constructor(private readonly gatewayService: GatewayService) {}
+  constructor(
+    private readonly gatewayService: GatewayService,
+    private readonly usagePlanService: UsagePlanService,
+  ) {}
 
   @UseGuards(AuthGuard)
   @Get('/stats')
@@ -182,6 +191,64 @@ export class GatewayController {
     @Param('smsBatchId') smsBatchId: string,
   ) {
     const data = await this.gatewayService.getSmsBatchById(smsBatchId);
+    return { data };
+  }
+
+  // Usage Plan Management Endpoints
+
+  @ApiOperation({ summary: 'Create a new usage plan' })
+  @UseGuards(AuthGuard)
+  @Post('/usage-plans')
+  async createUsagePlan(@Body() createUsagePlanDto: CreateUsagePlanDTO, @Request() req) {
+    const data = await this.usagePlanService.createUsagePlan(createUsagePlanDto, req.user);
+    return { data };
+  }
+
+  @ApiOperation({ summary: 'Get all usage plans for the user' })
+  @UseGuards(AuthGuard)
+  @Get('/usage-plans')
+  async getUserUsagePlans(@Request() req) {
+    const data = await this.usagePlanService.getUserUsagePlans(req.user);
+    return { data };
+  }
+
+  @ApiOperation({ summary: 'Get a specific usage plan' })
+  @UseGuards(AuthGuard)
+  @Get('/usage-plans/:id')
+  async getUserUsagePlan(@Param('id') planId: string, @Request() req) {
+    const data = await this.usagePlanService.getUserUsagePlan(req.user, planId);
+    return { data };
+  }
+
+  @ApiOperation({ summary: 'Update a usage plan' })
+  @UseGuards(AuthGuard)
+  @Patch('/usage-plans/:id')
+  async updateUsagePlan(
+    @Param('id') planId: string,
+    @Body() updateUsagePlanDto: UpdateUsagePlanDTO,
+    @Request() req
+  ) {
+    const data = await this.usagePlanService.updateUsagePlan(req.user, planId, updateUsagePlanDto);
+    return { data };
+  }
+
+  @ApiOperation({ summary: 'Delete a usage plan' })
+  @UseGuards(AuthGuard)
+  @Delete('/usage-plans/:id')
+  async deleteUsagePlan(@Param('id') planId: string, @Request() req) {
+    await this.usagePlanService.deleteUsagePlan(req.user, planId);
+    return { success: true };
+  }
+
+  @ApiOperation({ summary: 'Assign usage plan to device' })
+  @UseGuards(AuthGuard, CanModifyDevice)
+  @Patch('/devices/:id/assign-plan')
+  async assignUsagePlanToDevice(
+    @Param('id') deviceId: string,
+    @Body() assignUsagePlanDto: AssignUsagePlanDTO,
+    @Request() req
+  ) {
+    const data = await this.usagePlanService.assignUsagePlanToDevice(req.user, deviceId, assignUsagePlanDto);
     return { data };
   }
 }

@@ -21,6 +21,12 @@ import {
   ReorderTemplateGroupsDto,
   MessageTemplateGroupResponseDto,
   MessageTemplateResponseDto,
+  CreateCampaignDto,
+  UpdateCampaignStatusDto,
+  CampaignResponseDto,
+  ProcessTemplatePreviewDto,
+  ProcessedTemplateResponseDto,
+  SidebarCampaignsResponseDto,
 } from './campaigns.dto'
 
 @ApiTags('campaigns')
@@ -140,5 +146,90 @@ export class CampaignsController {
   ): Promise<{ message: string }> {
     await this.campaignsService.deleteTemplate(req.user.id, templateId)
     return { message: 'Template deleted successfully' }
+  }
+
+  @Post('templates/process-preview')
+  @ApiOperation({ summary: 'Process template variables for campaign preview' })
+  async processTemplatePreview(
+    @Request() req,
+    @Body() processPreviewDto: ProcessTemplatePreviewDto,
+  ): Promise<ProcessedTemplateResponseDto> {
+    return this.campaignsService.processTemplatePreview(req.user, processPreviewDto)
+  }
+
+  // Campaign Management
+  @Post()
+  @ApiOperation({ summary: 'Create a new campaign' })
+  async createCampaign(
+    @Request() req,
+    @Body() createDto: CreateCampaignDto,
+  ): Promise<CampaignResponseDto> {
+    return this.campaignsService.createCampaign(req.user, createDto)
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Get all campaigns for the user' })
+  async getCampaigns(
+    @Request() req,
+  ): Promise<CampaignResponseDto[]> {
+    return this.campaignsService.getCampaigns(req.user)
+  }
+
+  @Get('sidebar')
+  @ApiOperation({ summary: 'Get campaigns for sidebar (campaigns with sent messages)' })
+  async getSidebarCampaigns(
+    @Request() req,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10',
+  ): Promise<SidebarCampaignsResponseDto> {
+    const pageNum = parseInt(page, 10) || 1
+    const limitNum = parseInt(limit, 10) || 10
+    return this.campaignsService.getSidebarCampaigns(req.user, pageNum, limitNum)
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a specific campaign' })
+  async getCampaign(
+    @Request() req,
+    @Param('id') campaignId: string,
+  ): Promise<CampaignResponseDto> {
+    return this.campaignsService.getCampaign(req.user, campaignId)
+  }
+
+  @Put(':id/status')
+  @ApiOperation({ summary: 'Update campaign status (start, pause, resume, cancel)' })
+  async updateCampaignStatus(
+    @Request() req,
+    @Param('id') campaignId: string,
+    @Body() updateStatusDto: UpdateCampaignStatusDto,
+  ): Promise<CampaignResponseDto> {
+    return this.campaignsService.updateCampaignStatus(req.user, campaignId, updateStatusDto)
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Soft delete a campaign' })
+  async deleteCampaign(
+    @Request() req,
+    @Param('id') campaignId: string,
+  ): Promise<{ message: string }> {
+    await this.campaignsService.deleteCampaign(req.user, campaignId)
+    return { message: 'Campaign deleted successfully' }
+  }
+
+  @Get('deleted/list')
+  @ApiOperation({ summary: 'Get all deleted campaigns for the user' })
+  async getDeletedCampaigns(
+    @Request() req,
+  ): Promise<CampaignResponseDto[]> {
+    return this.campaignsService.getDeletedCampaigns(req.user)
+  }
+
+  @Put(':id/restore')
+  @ApiOperation({ summary: 'Restore a soft-deleted campaign' })
+  async restoreCampaign(
+    @Request() req,
+    @Param('id') campaignId: string,
+  ): Promise<CampaignResponseDto> {
+    return this.campaignsService.restoreCampaign(req.user, campaignId)
   }
 }

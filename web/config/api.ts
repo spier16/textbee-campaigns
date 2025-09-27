@@ -31,6 +31,14 @@ export const ApiEndpoints = {
     createWebhook: () => '/webhooks',
     updateWebhook: (id: string) => `/webhooks/${id}`,
     getStats: () => '/gateway/stats',
+
+    // Usage Plan endpoints
+    createUsagePlan: () => '/gateway/usage-plans',
+    getUserUsagePlans: () => '/gateway/usage-plans',
+    getUserUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
+    updateUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
+    deleteUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
+    assignUsagePlan: (deviceId: string) => `/gateway/devices/${deviceId}/assign-plan`,
   },
   billing: {
     currentSubscription: () => '/billing/current-subscription',
@@ -50,6 +58,8 @@ export const ApiEndpoints = {
     blockContacts: () => '/users/conversations/block',
     unblockContacts: () => '/users/conversations/unblock',
     toggleConversationStar: () => '/users/conversations/star',
+    getConversations: () => '/users/conversations',
+    getConversationCounts: () => '/users/conversations/counts',
   },
   campaigns: {
     templateGroups: () => '/campaigns/template-groups',
@@ -57,5 +67,9 @@ export const ApiEndpoints = {
     reorderTemplateGroups: () => '/campaigns/template-groups/reorder',
     templates: () => '/campaigns/templates',
     template: (id: string) => `/campaigns/templates/${id}`,
+    processTemplatePreview: () => '/campaigns/templates/process-preview',
+    campaigns: () => '/campaigns',
+    campaign: (id: string) => `/campaigns/${id}`,
+    campaignStatus: (id: string) => `/campaigns/${id}/status`,
   },
 }

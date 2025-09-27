@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Request, Patch } from '@nestjs/common'
+import { Controller, Get, Post, Body, UseGuards, Request, Patch, Query } from '@nestjs/common'
 import { UsersService } from './users.service'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 
@@ -69,5 +69,34 @@ export class UsersController {
     @Body() body: { phoneNumber: string; isStarred: boolean }
   ) {
     return await this.usersService.toggleConversationStar(req.user._id, body.phoneNumber, body.isStarred)
+  }
+
+  @Get('conversations')
+  async getConversations(
+    @Request() req,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '9',
+    @Query('sortBy') sortBy: string = 'newest',
+    @Query('filter') filter: string = 'all',
+    @Query('campaignId') campaignId?: string,
+    @Query('campaignIds') campaignIds?: string
+  ) {
+    const pageNum = parseInt(page, 10) || 1
+    const limitNum = Math.min(parseInt(limit, 10) || 9, 100) // Max 100 per page
+
+    // Handle both single campaignId (backward compatibility) and multiple campaignIds
+    let campaignIdArray: string[] | undefined
+    if (campaignIds) {
+      campaignIdArray = campaignIds.split(',').filter(id => id.trim())
+    } else if (campaignId) {
+      campaignIdArray = [campaignId]
+    }
+
+    return await this.usersService.getConversations(req.user._id, pageNum, limitNum, sortBy, filter, campaignIdArray)
+  }
+
+  @Get('conversations/counts')
+  async getConversationCounts(@Request() req) {
+    return await this.usersService.getConversationCounts(req.user._id)
   }
 }

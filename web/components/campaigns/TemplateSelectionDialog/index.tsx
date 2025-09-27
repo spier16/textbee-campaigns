@@ -31,9 +31,9 @@ export function TemplateSelectionDialog({
   expandedGroups,
   onExpandedGroupsChange
 }: TemplateSelectionDialogProps) {
-  // Auto-expand groups when templates are selected
+  // Auto-expand groups when dialog opens if templates are already selected
   useEffect(() => {
-    if (campaignData.selectedTemplates.length > 0) {
+    if (open && campaignData.selectedTemplates.length > 0) {
       const groupsWithSelectedTemplates = new Set<string>()
 
       campaignData.selectedTemplates.forEach(templateId => {
@@ -46,9 +46,13 @@ export function TemplateSelectionDialog({
         }
       })
 
-      onExpandedGroupsChange(groupsWithSelectedTemplates)
+      if (groupsWithSelectedTemplates.size > 0) {
+        // Merge with existing expanded groups instead of replacing
+        const newExpanded = new Set([...expandedGroups, ...groupsWithSelectedTemplates])
+        onExpandedGroupsChange(newExpanded)
+      }
     }
-  }, [campaignData.selectedTemplates, templateGroups, onExpandedGroupsChange])
+  }, [open])
 
   const handleGroupToggle = (groupId: string) => {
     const newExpanded = new Set(expandedGroups)
@@ -129,18 +133,23 @@ export function TemplateSelectionDialog({
                   <div key={group._id} className='border rounded-lg p-3'>
                     <div className='flex items-center justify-between mb-2'>
                       <div className='flex items-center space-x-2'>
-                        <Button
-                          variant='ghost'
-                          size='sm'
-                          className='p-1 h-6 w-6'
-                          onClick={() => handleGroupToggle(group._id)}
-                        >
-                          {isGroupExpanded ? (
-                            <ChevronDown className='h-4 w-4' />
-                          ) : (
-                            <ChevronRight className='h-4 w-4' />
-                          )}
-                        </Button>
+                        {groupTemplates.length > 0 && (
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            className='p-1 h-6 w-6'
+                            onClick={() => handleGroupToggle(group._id)}
+                          >
+                            {isGroupExpanded ? (
+                              <ChevronDown className='h-4 w-4' />
+                            ) : (
+                              <ChevronRight className='h-4 w-4' />
+                            )}
+                          </Button>
+                        )}
+                        {groupTemplates.length === 0 && (
+                          <div className='p-1 h-6 w-6' />
+                        )}
                         <Checkbox
                           checked={allGroupSelected}
                           indeterminate={someGroupSelected}

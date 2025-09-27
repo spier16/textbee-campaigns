@@ -21,6 +21,7 @@ import { WebhookEvent } from '../webhook/webhook-event.enum'
 import { WebhookService } from '../webhook/webhook.service'
 import { BillingService } from '../billing/billing.service'
 import { SmsQueueService } from './queue/sms-queue.service'
+import { UsagePlan, UsagePlanDocument } from './schemas/usage-plan.schema'
 
 @Injectable()
 export class GatewayService {
@@ -28,11 +29,97 @@ export class GatewayService {
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     @InjectModel(SMS.name) private smsModel: Model<SMS>,
     @InjectModel(SMSBatch.name) private smsBatchModel: Model<SMSBatch>,
+    @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
     private authService: AuthService,
     private webhookService: WebhookService,
     private billingService: BillingService,
     private smsQueueService: SmsQueueService,
   ) {}
+
+  private async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
+    if (typeof planId === 'string' && planId.startsWith('template_')) {
+      // Inline template plans to avoid circular dependencies
+      const PREDEFINED_PLANS = [
+        {
+          _id: 'template_verizon_business',
+          name: 'Verizon Business SIM',
+          description: 'Best for high-volume sending',
+          tiers: [
+            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 70 },
+            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 140 },
+            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 280 },
+            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 420 },
+            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 560 },
+            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 700 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'template_verizon_prepaid',
+          name: 'Verizon Prepaid SIM',
+          description: 'Reliable mid-volume option',
+          tiers: [
+            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 20 },
+            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 40 },
+            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 80 },
+            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 120 },
+            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 160 },
+            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 200 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'template_total_wireless',
+          name: 'Total Wireless SIM',
+          description: "Reliable mid-volume option on Verizon's network",
+          tiers: [
+            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },
+            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },
+            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },
+            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },
+            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },
+            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'template_tracfone',
+          name: 'Tracfone SIM',
+          description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
+          tiers: [
+            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },
+            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },
+            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },
+            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },
+            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },
+            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+      ]
+
+      const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
+      return templatePlan ? templatePlan as any : null
+    }
+
+    if (Types.ObjectId.isValid(planId as string)) {
+      return await this.usagePlanModel.findById(planId).exec()
+    }
+
+    return null
+  }
 
   async registerDevice(
     input: RegisterDeviceInputDTO,
@@ -55,7 +142,9 @@ export class GatewayService {
   }
 
   async getDevicesForUser(user: User): Promise<any> {
-    return await this.deviceModel.find({ user: user._id })
+    return await this.deviceModel
+      .find({ user: user._id })
+      .exec()
   }
 
   async getDeviceById(deviceId: string): Promise<any> {
@@ -104,7 +193,7 @@ export class GatewayService {
     // return await this.deviceModel.findByIdAndDelete(deviceId)
   }
 
-  async sendSMS(deviceId: string, smsData: SendSMSInputDTO): Promise<any> {
+  async sendSMS(deviceId: string, smsData: SendSMSInputDTO, campaignId?: string): Promise<any> {
     const device = await this.deviceModel.findById(deviceId)
 
     if (!device?.enabled) {
@@ -115,6 +204,24 @@ export class GatewayService {
         },
         HttpStatus.BAD_REQUEST,
       )
+    }
+
+    // Check if device is on cooldown
+    if (device.is_on_cooldown) {
+      // Try to reset cooldown first
+      const cooldownReset = await this.checkAndResetCooldown(device)
+      if (!cooldownReset && device.is_on_cooldown) {
+        const cooldownUntil = device.cooldown_until
+          ? new Date(device.cooldown_until).toLocaleString()
+          : 'unknown'
+        throw new HttpException(
+          {
+            success: false,
+            error: `Device is on cooldown until ${cooldownUntil}. Please wait before sending more messages.`,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        )
+      }
     }
 
     const message = smsData.message || smsData.smsBody
@@ -180,6 +287,7 @@ export class GatewayService {
         recipient,
         requestedAt: new Date(),
         status: 'pending',
+        campaignId: campaignId, // Include campaignId if provided
       })
       const updatedSMSData = {
         smsId: sms._id,
@@ -267,11 +375,21 @@ export class GatewayService {
 
       this.deviceModel
         .findByIdAndUpdate(deviceId, {
-          $inc: { sentSMSCount: response.successCount },
+          $inc: {
+            sentSMSCount: response.successCount,
+            messages_sent_today: response.successCount,
+            messages_sent_this_hour: response.successCount,
+          },
         })
         .exec()
+        .then(async (updatedDevice) => {
+          if (updatedDevice) {
+            // Check if device needs tier progression
+            await this.checkAndProgressTier(updatedDevice)
+          }
+        })
         .catch((e) => {
-          console.log('Failed to update sentSMSCount')
+          console.log('Failed to update device counters')
           console.log(e)
         })
 
@@ -316,6 +434,24 @@ export class GatewayService {
         },
         HttpStatus.BAD_REQUEST,
       )
+    }
+
+    // Check if device is on cooldown
+    if (device.is_on_cooldown) {
+      // Try to reset cooldown first
+      const cooldownReset = await this.checkAndResetCooldown(device)
+      if (!cooldownReset && device.is_on_cooldown) {
+        const cooldownUntil = device.cooldown_until
+          ? new Date(device.cooldown_until).toLocaleString()
+          : 'unknown'
+        throw new HttpException(
+          {
+            success: false,
+            error: `Device is on cooldown until ${cooldownUntil}. Please wait before sending more messages.`,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        )
+      }
     }
 
     if (
@@ -457,11 +593,21 @@ export class GatewayService {
 
         this.deviceModel
           .findByIdAndUpdate(deviceId, {
-            $inc: { sentSMSCount: response.successCount },
+            $inc: {
+              sentSMSCount: response.successCount,
+              messages_sent_today: response.successCount,
+              messages_sent_this_hour: response.successCount,
+            },
           })
           .exec()
+          .then(async (updatedDevice) => {
+            if (updatedDevice) {
+              // Check if device needs tier progression
+              await this.checkAndProgressTier(updatedDevice)
+            }
+          })
           .catch((e) => {
-            console.log('Failed to update sentSMSCount')
+            console.log('Failed to update device counters')
             console.log(e)
           })
 
@@ -870,5 +1016,67 @@ export class GatewayService {
       batch: smsBatch,
       messages: smsMessages
     };
+  }
+
+  private async checkAndProgressTier(device: DeviceDocument): Promise<boolean> {
+    if (!device.usagePlan) {
+      return false
+    }
+
+    const usagePlan = await this.getUsagePlanById(device.usagePlan)
+    if (!usagePlan) {
+      return false
+    }
+
+    const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
+    if (!currentTier) {
+      return false
+    }
+
+    // Check if daily limit exceeded
+    if (device.messages_sent_today >= currentTier.dailyLimit) {
+      // Find next tier
+      const nextTier = usagePlan.tiers.find(t => t.tier === device.current_tier + 1)
+
+      if (nextTier) {
+        // Upgrade tier
+        device.current_tier = nextTier.tier
+        device.last_tier_upgrade = new Date()
+        await device.save()
+        return true
+      } else {
+        // No next tier available, put on cooldown
+        device.is_on_cooldown = true
+        device.cooldown_until = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+        await device.save()
+      }
+    }
+
+    return false
+  }
+
+  private async checkAndResetCooldown(device: DeviceDocument): Promise<boolean> {
+    if (!device.is_on_cooldown || !device.cooldown_until) {
+      return false
+    }
+
+    const now = new Date()
+
+    // Check if cooldown period has passed
+    if (now >= device.cooldown_until) {
+      // Reset cooldown and check if we can move to next tier
+      device.is_on_cooldown = false
+      device.cooldown_until = undefined
+
+      // If messages sent in last 24 hours is now 0, we can progress
+      if (device.messages_sent_today === 0) {
+        await this.checkAndProgressTier(device)
+      }
+
+      await device.save()
+      return true
+    }
+
+    return false
   }
 }

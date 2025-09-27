@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsObject, IsNumber, IsBoolean } from 'class-validator'
+import { IsString, IsOptional, IsEnum, IsObject, IsNumber, IsBoolean, IsArray } from 'class-validator'
 import { ApiProperty } from '@nestjs/swagger'
 
 export class UploadSpreadsheetDto {
@@ -242,6 +242,22 @@ export class UpdateContactDto {
   dnc?: boolean
 }
 
+export class CreateGroupDto {
+  @ApiProperty({ description: 'Group name' })
+  @IsString()
+  name: string
+
+  @ApiProperty({ description: 'Group description', required: false })
+  @IsOptional()
+  @IsString()
+  description?: string
+
+  @ApiProperty({ description: 'Array of contact IDs to include in the group' })
+  @IsArray()
+  @IsString({ each: true })
+  contactIds: string[]
+}
+
 export class GetContactsDto {
   @ApiProperty({ description: 'Search query for contact names or phone', required: false })
   @IsOptional()
@@ -366,4 +382,38 @@ export class ContactResponseDto {
   mailingZip?: string
   dnc?: boolean
   dncUpdatedAt?: string
+}
+
+export class GetUniqueContactCountDto {
+  @ApiProperty({ description: 'Array of spreadsheet IDs to include' })
+  @IsArray()
+  @IsString({ each: true })
+  spreadsheetIds: string[]
+
+  @ApiProperty({ description: 'Whether to exclude DNC contacts', required: false, default: true })
+  @IsOptional()
+  @IsBoolean()
+  excludeDnc?: boolean
+
+  @ApiProperty({ description: 'Whether to include previously messaged contacts', required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  includePreviouslyMessaged?: boolean
+}
+
+export class GetUniqueContactsDto {
+  @ApiProperty({ description: 'Array of spreadsheet IDs to include' })
+  @IsArray()
+  @IsString({ each: true })
+  spreadsheetIds: string[]
+
+  @ApiProperty({ description: 'Whether to exclude DNC contacts', required: false, default: true })
+  @IsOptional()
+  @IsBoolean()
+  excludeDnc?: boolean
+
+  @ApiProperty({ description: 'Whether to include previously messaged contacts', required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  includePreviouslyMessaged?: boolean
 }
