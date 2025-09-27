@@ -7,7 +7,9 @@
     "build": "next build",
     "vercel-build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:watch": "tsc -p tsconfig.json --noEmit --watch"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.19",
