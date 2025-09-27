@@ -207,7 +207,7 @@ export default function CampaignsPage() {
         limit: 1000 // Get all spreadsheets
       })
       // Filter only processed spreadsheets
-      return response.data.filter(spreadsheet => spreadsheet.status === 'processed')
+      return response.data.filter(spreadsheet => spreadsheet.status === 'processed' || spreadsheet.status === 'manually_created')
     }
   })
 
