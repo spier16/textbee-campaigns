@@ -206,7 +206,33 @@ export class ContactsService {
     spreadsheetId: string,
   ): Promise<{ fileName: string; content: string }> {
     const spreadsheet = await this.getSpreadsheetById(userId, spreadsheetId)
-    
+
+    // For manually created groups, generate CSV from actual contact data
+    if (spreadsheet.status === 'manually_created') {
+      // Get all contacts in this group via the junction table
+      const memberships = await this.contactGroupMembershipModel
+        .find({
+          userId: new Types.ObjectId(userId),
+          groupId: new Types.ObjectId(spreadsheetId)
+        })
+        .populate('contactId')
+        .exec()
+
+      const contacts = memberships.map(membership => membership.contactId as any).filter(Boolean)
+
+      // Generate CSV content from the contacts
+      const csvContent = this.generateCsvFromContacts(contacts)
+
+      // Base64 encode the CSV content to match existing format expectations
+      const base64Content = Buffer.from(csvContent, 'utf-8').toString('base64')
+
+      return {
+        fileName: `${spreadsheet.originalFileName}.csv`,
+        content: base64Content,
+      }
+    }
+
+    // For uploaded spreadsheets, return original file content
     return {
       fileName: spreadsheet.originalFileName,
       content: spreadsheet.fileContent,
@@ -815,6 +841,65 @@ export class ContactsService {
     const dncCount = contacts.filter(contact => contact.dnc === true).length
 
     return { validContactsCount, nonDncCount, dncCount }
+  }
+
+  private generateCsvFromContacts(contacts: ContactDocument[]): string {
+    const headers = [
+      'firstName',
+      'lastName',
+      'phone',
+      'email',
+      'propertyAddress',
+      'propertyCity',
+      'propertyState',
+      'propertyZip',
+      'parcelCounty',
+      'parcelState',
+      'parcelAcres',
+      'apn',
+      'mailingAddress',
+      'mailingCity',
+      'mailingState',
+      'mailingZip',
+      'dnc'
+    ]
+
+    // Helper function to escape CSV values
+    const escapeCsvValue = (value: any): string => {
+      if (value === null || value === undefined) {
+        return ''
+      }
+
+      const stringValue = String(value)
+
+      // If the value contains comma, quotes, or newlines, wrap in quotes and escape internal quotes
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+        return `"${stringValue.replace(/"/g, '""')}"`
+      }
+
+      return stringValue
+    }
+
+    // Generate header row
+    const csvRows = [headers.join(',')]
+
+    // Generate data rows
+    contacts.forEach(contact => {
+      const row = headers.map(header => {
+        let value = contact[header as keyof ContactDocument]
+
+        // Handle boolean values for dnc field
+        if (header === 'dnc') {
+          value = value === true ? 'true' : value === false ? 'false' : ''
+        }
+
+        return escapeCsvValue(value)
+      })
+
+      csvRows.push(row.join(','))
+    })
+
+    return csvRows.join('\n')
   }
 
   private mapToResponseDto(
