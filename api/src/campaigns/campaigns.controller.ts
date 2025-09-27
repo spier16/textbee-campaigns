@@ -26,6 +26,7 @@ import {
   CampaignResponseDto,
   ProcessTemplatePreviewDto,
   ProcessedTemplateResponseDto,
+  SidebarCampaignsResponseDto,
 } from './campaigns.dto'
 
 @ApiTags('campaigns')
@@ -172,6 +173,18 @@ export class CampaignsController {
     @Request() req,
   ): Promise<CampaignResponseDto[]> {
     return this.campaignsService.getCampaigns(req.user)
+  }
+
+  @Get('sidebar')
+  @ApiOperation({ summary: 'Get campaigns for sidebar (campaigns with sent messages)' })
+  async getSidebarCampaigns(
+    @Request() req,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10',
+  ): Promise<SidebarCampaignsResponseDto> {
+    const pageNum = parseInt(page, 10) || 1
+    const limitNum = parseInt(limit, 10) || 10
+    return this.campaignsService.getSidebarCampaigns(req.user, pageNum, limitNum)
   }
 
   @Get(':id')

@@ -457,6 +457,44 @@ export class CampaignsService {
     return campaigns.map(campaign => this.formatCampaignResponse(campaign))
   }
 
+  async getSidebarCampaigns(user: User, page: number = 1, limit: number = 10) {
+    const skip = (page - 1) * limit
+
+    // Find campaigns with at least one sent message
+    const filter = {
+      user: user._id,
+      isDeleted: { $ne: true },
+      sentMessages: { $gt: 0 }
+    }
+
+    // Get campaigns and total count in parallel
+    const [campaigns, totalCount] = await Promise.all([
+      this.campaignModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('_id name sentMessages createdAt')
+        .lean(),
+      this.campaignModel.countDocuments(filter)
+    ])
+
+    const hasMore = skip + campaigns.length < totalCount
+
+    return {
+      campaigns: campaigns.map(campaign => ({
+        _id: campaign._id.toString(),
+        name: campaign.name,
+        sentMessages: campaign.sentMessages,
+        createdAt: campaign.createdAt
+      })),
+      totalCount,
+      page,
+      limit,
+      hasMore
+    }
+  }
+
   async getCampaign(user: User, campaignId: string, includeDeleted: boolean = false): Promise<CampaignResponseDto> {
     const filter: any = {
       _id: new Types.ObjectId(campaignId),

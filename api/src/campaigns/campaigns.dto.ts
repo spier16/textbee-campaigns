@@ -444,3 +444,34 @@ export class ProcessedTemplateResponseDto {
   @ApiProperty()
   templatesUsed: number
 }
+
+export class SidebarCampaignDto {
+  @ApiProperty()
+  _id: string
+
+  @ApiProperty()
+  name: string
+
+  @ApiProperty()
+  sentMessages: number
+
+  @ApiProperty()
+  createdAt: Date
+}
+
+export class SidebarCampaignsResponseDto {
+  @ApiProperty({ type: [SidebarCampaignDto] })
+  campaigns: SidebarCampaignDto[]
+
+  @ApiProperty()
+  totalCount: number
+
+  @ApiProperty()
+  page: number
+
+  @ApiProperty()
+  limit: number
+
+  @ApiProperty()
+  hasMore: boolean
+}

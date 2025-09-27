@@ -485,7 +485,7 @@ export class UsersService {
     return pipeline
   }
 
-  async getConversations(userId: string, page: number = 1, limit: number = 9, sortBy: string = 'newest', filter: string = 'all') {
+  async getConversations(userId: string, page: number = 1, limit: number = 9, sortBy: string = 'newest', filter: string = 'all', campaignId?: string) {
     const userObjectId = new Types.ObjectId(userId)
     const skip = (page - 1) * limit
 
@@ -656,6 +656,20 @@ export class UsersService {
         // For 'all' view, exclude archived and blocked
         filteredConversations = processedConversations.filter(conv => !conv.isArchived && !conv.isBlocked)
         break
+    }
+
+    // Apply campaign filtering if specified
+    if (campaignId) {
+      // First get the campaign name
+      const campaign = await this.campaignModel.findById(campaignId)
+      if (campaign) {
+        filteredConversations = filteredConversations.filter(conv =>
+          conv.firstCampaignName === campaign.name
+        )
+      } else {
+        // If campaign not found, return empty results
+        filteredConversations = []
+      }
     }
 
     // Apply sorting

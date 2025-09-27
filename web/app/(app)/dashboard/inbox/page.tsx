@@ -25,6 +25,7 @@ import {
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { contactsApi } from '@/lib/api/contacts'
+import { campaignsApi } from '@/lib/api/campaigns'
 import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import { ConversationSummary, ConversationsResponse } from '@/lib/types'
@@ -206,7 +207,10 @@ function ConversationList({
   hasNextPage,
   isFetchingNextPage,
   isFetching,
-  onLoadMore
+  onLoadMore,
+  campaignsForFilter,
+  selectedCampaignFilter,
+  setSelectedCampaignFilter
 }: {
   conversations: Conversation[]
   selectedConversation: Conversation | null
@@ -232,6 +236,9 @@ function ConversationList({
   isFetchingNextPage: boolean
   isFetching: boolean
   onLoadMore: () => void
+  campaignsForFilter: any[]
+  selectedCampaignFilter: string | null
+  setSelectedCampaignFilter: (campaignId: string | null) => void
 }) {
   const [showDatePicker, setShowDatePicker] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -415,6 +422,20 @@ function ConversationList({
             <SelectContent>
               <SelectItem value="all">All Time</SelectItem>
               <SelectItem value="custom">Custom</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={selectedCampaignFilter || 'all'} onValueChange={(value) => setSelectedCampaignFilter(value === 'all' ? null : value)}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="All campaigns" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All campaigns</SelectItem>
+              {campaignsForFilter.map((campaign) => (
+                <SelectItem key={campaign._id} value={campaign._id}>
+                  {campaign.name} ({campaign.sentMessages})
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -1198,7 +1219,7 @@ export default function InboxPage() {
     hasNextPage,
     refetch
   } = useInfiniteQuery({
-    queryKey: ['conversations', selectedInboxFilter, selectedOtherFilter, sortBy],
+    queryKey: ['conversations', selectedInboxFilter, selectedOtherFilter, selectedCampaignFilter, sortBy],
     queryFn: async ({ pageParam = 1 }) => {
       const filterValue = selectedOtherFilter || selectedInboxFilter
       const params = new URLSearchParams({
@@ -1207,6 +1228,11 @@ export default function InboxPage() {
         sortBy,
         filter: filterValue
       })
+
+      // Add campaign filter if selected
+      if (selectedCampaignFilter) {
+        params.append('campaignId', selectedCampaignFilter)
+      }
 
       const response = await httpBrowserClient.get(
         `${ApiEndpoints.users.getConversations()}?${params}`
@@ -1312,6 +1338,17 @@ export default function InboxPage() {
       return response.data
     },
   })
+
+  // Get campaigns for filter dropdown
+  const { data: campaignsForFilter = [] } = useQuery({
+    queryKey: ['campaigns-for-filter'],
+    queryFn: async () => {
+      const response = await campaignsApi.getSidebarCampaigns(1, 100) // Get more campaigns for dropdown
+      return response.campaigns
+    },
+    staleTime: 60000, // Consider data fresh for 1 minute
+  })
+
 
   // Conversations are now filtered by the backend, so we just use them directly
   const filteredConversations = conversations
@@ -1557,15 +1594,20 @@ export default function InboxPage() {
     return (
       <div className='flex h-full overflow-hidden'>
         {/* Sidebar */}
-        <div className='w-64 border-r bg-background/50 p-4 flex flex-col h-full overflow-hidden'>
-          <div className='space-y-2 flex-shrink-0'>
-            <Skeleton className="h-6 w-20 mb-4" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-6 w-24 mt-6 mb-2" />
-            <Skeleton className="h-4 w-32" />
+        <div className='w-64 border-r bg-background/50 flex flex-col h-full overflow-hidden'>
+          <div className='p-4 pb-2 flex-shrink-0'>
+            {/* Fixed header area */}
+          </div>
+          <div className='flex-1 overflow-y-auto px-4 pb-4'>
+            <div className='space-y-2'>
+              <Skeleton className="h-6 w-20 mb-4" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-6 w-24 mt-6 mb-2" />
+              <Skeleton className="h-4 w-32" />
+            </div>
           </div>
         </div>
 
@@ -1602,8 +1644,12 @@ export default function InboxPage() {
   return (
     <div className='flex h-full overflow-hidden'>
       {/* Sidebar */}
-      <div className='w-64 border-r bg-background/50 p-4 flex flex-col h-full overflow-hidden'>
-        <div className='space-y-2 flex-shrink-0'>
+      <div className='w-64 border-r bg-background/50 flex flex-col h-full overflow-hidden'>
+        <div className='p-4 pb-2 flex-shrink-0'>
+          {/* Fixed header area can go here if needed */}
+        </div>
+        <div className='flex-1 overflow-y-auto px-4 pb-4'>
+          <div className='space-y-2'>
           {/* Inbox Section */}
           <div className="space-y-1">
             <div className="flex items-center text-sm font-medium text-muted-foreground mb-2">
@@ -1682,16 +1728,6 @@ export default function InboxPage() {
             </Button>
           </div>
 
-          {/* Campaigns Section */}
-          <div className="space-y-1 pt-4">
-            <div className="flex items-center text-sm font-medium text-muted-foreground mb-2">
-              <Megaphone className="mr-2 h-4 w-4" />
-              Campaigns
-            </div>
-            <div className="text-xs text-muted-foreground pl-6">
-              Coming soon...
-            </div>
-          </div>
 
           {/* Other Section */}
           <div className="space-y-1 pt-4">
@@ -1728,6 +1764,7 @@ export default function InboxPage() {
               <span className="text-xs text-muted-foreground">({conversationCounts.spam})</span>
             </Button>
           </div>
+          </div>
         </div>
       </div>
 
@@ -1760,6 +1797,9 @@ export default function InboxPage() {
             isFetchingNextPage={isFetchingNextPage}
             isFetching={isFetching}
             onLoadMore={loadMoreConversations}
+            campaignsForFilter={campaignsForFilter}
+            selectedCampaignFilter={selectedCampaignFilter}
+            setSelectedCampaignFilter={setSelectedCampaignFilter}
           />
         </div>
 

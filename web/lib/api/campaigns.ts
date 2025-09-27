@@ -211,6 +211,21 @@ export interface ProcessedTemplateResponse {
   templatesUsed: number
 }
 
+export interface SidebarCampaign {
+  _id: string
+  name: string
+  sentMessages: number
+  createdAt: string
+}
+
+export interface SidebarCampaignsResponse {
+  campaigns: SidebarCampaign[]
+  totalCount: number
+  page: number
+  limit: number
+  hasMore: boolean
+}
+
 export const campaignsApi = {
   // Template Groups
   async createTemplateGroup(data: CreateTemplateGroupDto): Promise<MessageTemplateGroup> {
@@ -281,6 +296,13 @@ export const campaignsApi = {
 
   async getCampaigns(): Promise<Campaign[]> {
     const response = await httpBrowserClient.get(ApiEndpoints.campaigns.campaigns())
+    return response.data
+  },
+
+  async getSidebarCampaigns(page: number = 1, limit: number = 10): Promise<SidebarCampaignsResponse> {
+    const response = await httpBrowserClient.get(`${ApiEndpoints.campaigns.campaigns()}/sidebar`, {
+      params: { page: page.toString(), limit: limit.toString() }
+    })
     return response.data
   },
 
