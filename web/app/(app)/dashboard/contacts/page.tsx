@@ -772,6 +772,7 @@ export default function ContactsPage() {
   const [availableContacts, setAvailableContacts] = useState<Contact[]>([])
   const [loadingAvailableContacts, setLoadingAvailableContacts] = useState(false)
   const [contactSearchQuery, setContactSearchQuery] = useState('')
+  const [contactListHeight, setContactListHeight] = useState(400)
 
   const [files, setFiles] = useState<ContactSpreadsheet[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
@@ -949,6 +950,22 @@ export default function ContactsPage() {
   // Load stats separately
   useEffect(() => {
     loadStats()
+  }, [])
+
+  // Calculate dynamic height for contact list
+  useEffect(() => {
+    const calculateHeight = () => {
+      const viewportHeight = window.innerHeight
+      // Account for dialog header, form fields, search, buttons, and padding
+      // Roughly: 60px header + 120px form fields + 80px search section + 80px footer + 60px padding
+      const reservedHeight = 400
+      const calculatedHeight = Math.max(300, viewportHeight - reservedHeight)
+      setContactListHeight(calculatedHeight)
+    }
+
+    calculateHeight()
+    window.addEventListener('resize', calculateHeight)
+    return () => window.removeEventListener('resize', calculateHeight)
   }, [])
 
   const loadStats = async () => {
@@ -1572,13 +1589,10 @@ export default function ContactsPage() {
                         </div>
 
                         <div className='mt-6 flex-1 flex flex-col overflow-hidden'>
-                          <div className='flex items-center justify-between mb-4'>
+                          <div className='mb-4'>
                             <Label className='text-sm font-medium'>
                               Select Contacts <span className='text-red-500'>*</span>
                             </Label>
-                            <div className='text-sm text-muted-foreground'>
-                              {createGroupData.selectedContacts.length} selected
-                            </div>
                           </div>
 
                           {/* Search input */}
@@ -1599,7 +1613,7 @@ export default function ContactsPage() {
                             )}
                           </div>
 
-                          <div className='flex-1 border rounded-md overflow-hidden'>
+                          <div className='border rounded-md overflow-hidden' style={{ height: `${contactListHeight}px` }}>
                             {loadingAvailableContacts ? (
                               <div className='flex items-center justify-center h-full py-8'>
                                 <div className='text-muted-foreground'>Loading contacts...</div>
@@ -1656,7 +1670,7 @@ export default function ContactsPage() {
                           onClick={handleCreateGroup}
                           disabled={createGroupMutation.isPending || !createGroupData.name.trim() || createGroupData.selectedContacts.length === 0}
                         >
-                          {createGroupMutation.isPending ? 'Creating...' : 'Create Group'}
+                          {createGroupMutation.isPending ? 'Creating...' : `Create Group (${createGroupData.selectedContacts.length} selected)`}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
