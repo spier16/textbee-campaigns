@@ -25,7 +25,7 @@ export class ContactSpreadsheet {
   @Prop({ type: Number, required: true })
   fileSize: number
 
-  @Prop({ type: String, enum: ['pending', 'processed'], default: 'pending' })
+  @Prop({ type: String, enum: ['pending', 'processed', 'manually_created'], default: 'pending' })
   status: string
 
   @Prop({ type: Types.ObjectId, ref: 'ContactTemplate' })

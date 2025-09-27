@@ -1419,6 +1419,7 @@ export default function ContactsPage() {
     const statusConfig = {
       pending: { dot: 'bg-yellow-500', text: 'Pending' },
       processed: { dot: 'bg-green-500', text: 'Processed' },
+      manually_created: { dot: 'bg-blue-500', text: 'Created' },
     }
 
     const config = statusConfig[status as keyof typeof statusConfig] || { dot: 'bg-gray-400', text: status }
@@ -1456,6 +1457,7 @@ export default function ContactsPage() {
               <Eye className='h-3 w-3' />
             </Button>
           )}
+          {/* No buttons for manually_created status */}
         </div>
       </div>
     )

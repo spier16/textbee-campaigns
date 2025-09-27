@@ -6,7 +6,7 @@ export interface ContactSpreadsheet {
   contactCount: number
   uploadDate: string
   fileSize: number
-  status: string
+  status: 'pending' | 'processed' | 'manually_created'
   templateId?: string
   validContactsCount?: number
   nonDncCount?: number

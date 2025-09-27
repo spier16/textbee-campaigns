@@ -1177,7 +1177,7 @@ export class ContactsService {
           contactIds: createGroupData.contactIds,
         }), // Store metadata about the custom group
         fileSize: 0, // No actual file size
-        status: 'processed', // Mark as processed immediately
+        status: 'manually_created', // Mark as manually created
         validContactsCount: existingContacts.length,
         nonDncCount: existingContacts.filter(contact => contact.dnc !== true).length,
         dncCount: existingContacts.filter(contact => contact.dnc === true).length,
