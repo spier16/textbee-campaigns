@@ -43,7 +43,6 @@ export default function DashboardOverview() {
           <ApiKeys />
         </div>
 
-        {console.log('🔧 About to render UsagePlans component')}
         {(() => {
           try {
             return <UsagePlans />
