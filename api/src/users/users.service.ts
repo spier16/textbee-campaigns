@@ -485,7 +485,7 @@ export class UsersService {
     return pipeline
   }
 
-  async getConversations(userId: string, page: number = 1, limit: number = 9, sortBy: string = 'newest', filter: string = 'all', campaignId?: string) {
+  async getConversations(userId: string, page: number = 1, limit: number = 9, sortBy: string = 'newest', filter: string = 'all', campaignIds?: string[]) {
     const userObjectId = new Types.ObjectId(userId)
     const skip = (page - 1) * limit
 
@@ -658,16 +658,20 @@ export class UsersService {
         break
     }
 
-    // Apply campaign filtering if specified
-    if (campaignId) {
-      // First get the campaign name
-      const campaign = await this.campaignModel.findById(campaignId)
-      if (campaign) {
+    // Apply campaign filtering if specified (OR logic - conversations from any of the selected campaigns)
+    if (campaignIds && campaignIds.length > 0) {
+      // Get campaign names for all selected campaign IDs
+      const campaigns = await this.campaignModel.find({
+        _id: { $in: campaignIds.map(id => new Types.ObjectId(id)) }
+      }).select('name')
+
+      if (campaigns.length > 0) {
+        const campaignNames = campaigns.map(campaign => campaign.name)
         filteredConversations = filteredConversations.filter(conv =>
-          conv.firstCampaignName === campaign.name
+          campaignNames.includes(conv.firstCampaignName)
         )
       } else {
-        // If campaign not found, return empty results
+        // If no campaigns found, return empty results
         filteredConversations = []
       }
     }

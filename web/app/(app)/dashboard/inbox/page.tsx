@@ -17,6 +17,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -209,8 +215,8 @@ function ConversationList({
   isFetching,
   onLoadMore,
   campaignsForFilter,
-  selectedCampaignFilter,
-  setSelectedCampaignFilter
+  selectedCampaignFilters,
+  setSelectedCampaignFilters
 }: {
   conversations: Conversation[]
   selectedConversation: Conversation | null
@@ -237,8 +243,8 @@ function ConversationList({
   isFetching: boolean
   onLoadMore: () => void
   campaignsForFilter: any[]
-  selectedCampaignFilter: string | null
-  setSelectedCampaignFilter: (campaignId: string | null) => void
+  selectedCampaignFilters: string[]
+  setSelectedCampaignFilters: (campaignIds: string[]) => void
 }) {
   const [showDatePicker, setShowDatePicker] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -425,24 +431,68 @@ function ConversationList({
             </SelectContent>
           </Select>
 
-          <Select value={selectedCampaignFilter || 'all'} onValueChange={(value) => setSelectedCampaignFilter(value === 'all' ? null : value)}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue placeholder="All campaigns" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="font-semibold bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-200 border-l-2 border-blue-400">
-                <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="w-[180px] justify-between">
+                <span className="truncate">
+                  {selectedCampaignFilters.length === 0
+                    ? "All campaigns"
+                    : selectedCampaignFilters.length === 1
+                    ? campaignsForFilter.find(c => c._id === selectedCampaignFilters[0])?.name || "Unknown campaign"
+                    : `Filtering for ${selectedCampaignFilters.length} campaigns`
+                  }
+                </span>
+                <ChevronDown className="h-4 w-4 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-[220px]" align="start">
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault()
+                  setSelectedCampaignFilters([])
+                }}
+                className="font-semibold bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/30 focus:bg-blue-100 dark:focus:bg-blue-900/30"
+              >
+                <div className="flex items-center gap-2 w-full cursor-pointer">
+                  <Checkbox
+                    checked={selectedCampaignFilters.length === 0}
+                    onChange={() => {}}
+                    className="h-4 w-4 pointer-events-none"
+                  />
                   <Users className="h-4 w-4" />
-                  All campaigns
+                  <span>All campaigns</span>
                 </div>
-              </SelectItem>
-              {campaignsForFilter.map((campaign) => (
-                <SelectItem key={campaign._id} value={campaign._id}>
-                  {campaign.name} ({campaign.sentMessages})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              </DropdownMenuItem>
+              {campaignsForFilter.map((campaign) => {
+                const isSelected = selectedCampaignFilters.includes(campaign._id)
+                return (
+                  <DropdownMenuItem
+                    key={campaign._id}
+                    onSelect={(e) => {
+                      e.preventDefault()
+                      if (isSelected) {
+                        setSelectedCampaignFilters(selectedCampaignFilters.filter(id => id !== campaign._id))
+                      } else {
+                        setSelectedCampaignFilters([...selectedCampaignFilters, campaign._id])
+                      }
+                    }}
+                    className="hover:bg-accent focus:bg-accent"
+                  >
+                    <div className="flex items-center gap-2 w-full cursor-pointer">
+                      <Checkbox
+                        checked={isSelected}
+                        onChange={() => {}}
+                        className="h-4 w-4 pointer-events-none"
+                      />
+                      <span className="truncate">
+                        {campaign.name} ({campaign.sentMessages})
+                      </span>
+                    </div>
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {dateFilter === 'custom' && (
             <Button 
@@ -1161,7 +1211,7 @@ export default function InboxPage() {
   const [autoRefreshInterval] = useState(15) // Default to 15 seconds
   const [lastSeenTimestamps, setLastSeenTimestamps] = useState<Record<string, Date>>({})
   const [selectedInboxFilter, setSelectedInboxFilter] = useState<'all' | 'unread' | 'unreplied' | 'awaiting-reply' | 'starred'>('all')
-  const [selectedCampaignFilter, setSelectedCampaignFilter] = useState<string | null>(null)
+  const [selectedCampaignFilters, setSelectedCampaignFilters] = useState<string[]>([])
   const [selectedOtherFilter, setSelectedOtherFilter] = useState<'archived' | 'spam' | null>(null)
   const [checkedConversations, setCheckedConversations] = useState<Set<string>>(new Set())
   const refreshTimerRef = useRef(null)
@@ -1224,7 +1274,7 @@ export default function InboxPage() {
     hasNextPage,
     refetch
   } = useInfiniteQuery({
-    queryKey: ['conversations', selectedInboxFilter, selectedOtherFilter, selectedCampaignFilter, sortBy],
+    queryKey: ['conversations', selectedInboxFilter, selectedOtherFilter, selectedCampaignFilters, sortBy],
     queryFn: async ({ pageParam = 1 }) => {
       const filterValue = selectedOtherFilter || selectedInboxFilter
       const params = new URLSearchParams({
@@ -1234,9 +1284,10 @@ export default function InboxPage() {
         filter: filterValue
       })
 
-      // Add campaign filter if selected
-      if (selectedCampaignFilter) {
-        params.append('campaignId', selectedCampaignFilter)
+      // Add campaign filters if selected (OR logic - conversations from any of the selected campaigns)
+      if (selectedCampaignFilters.length > 0) {
+        // Send as comma-separated values for OR logic
+        params.append('campaignIds', selectedCampaignFilters.join(','))
       }
 
       const response = await httpBrowserClient.get(
@@ -1805,8 +1856,8 @@ export default function InboxPage() {
             isFetching={isFetching}
             onLoadMore={loadMoreConversations}
             campaignsForFilter={campaignsForFilter}
-            selectedCampaignFilter={selectedCampaignFilter}
-            setSelectedCampaignFilter={setSelectedCampaignFilter}
+            selectedCampaignFilters={selectedCampaignFilters}
+            setSelectedCampaignFilters={setSelectedCampaignFilters}
           />
         </div>
 

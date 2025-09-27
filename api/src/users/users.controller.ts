@@ -78,12 +78,21 @@ export class UsersController {
     @Query('limit') limit: string = '9',
     @Query('sortBy') sortBy: string = 'newest',
     @Query('filter') filter: string = 'all',
-    @Query('campaignId') campaignId?: string
+    @Query('campaignId') campaignId?: string,
+    @Query('campaignIds') campaignIds?: string
   ) {
     const pageNum = parseInt(page, 10) || 1
     const limitNum = Math.min(parseInt(limit, 10) || 9, 100) // Max 100 per page
 
-    return await this.usersService.getConversations(req.user._id, pageNum, limitNum, sortBy, filter, campaignId)
+    // Handle both single campaignId (backward compatibility) and multiple campaignIds
+    let campaignIdArray: string[] | undefined
+    if (campaignIds) {
+      campaignIdArray = campaignIds.split(',').filter(id => id.trim())
+    } else if (campaignId) {
+      campaignIdArray = [campaignId]
+    }
+
+    return await this.usersService.getConversations(req.user._id, pageNum, limitNum, sortBy, filter, campaignIdArray)
   }
 
   @Get('conversations/counts')
