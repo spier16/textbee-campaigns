@@ -4,7 +4,8 @@
       "Read(//mnt/c/Users/**)",
       "Bash(curl:*)",
       "WebSearch",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(printenv)"
     ],
     "deny": [],
     "ask": []
