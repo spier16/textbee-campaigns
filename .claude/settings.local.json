@@ -5,7 +5,8 @@
       "Bash(curl:*)",
       "WebSearch",
       "Bash(wc:*)",
-      "Bash(printenv)"
+      "Bash(printenv)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

@@ -46,7 +46,24 @@ export const authOptions = {
             accessToken,
           }
         } catch (e) {
-          console.log(e)
+          console.error('=== SERVER-SIDE LOGIN ERROR ===')
+          console.error('Error:', e)
+          console.error('Error message:', e?.message)
+          console.error('Error response status:', e?.response?.status)
+          console.error('Error response headers:', e?.response?.headers)
+          console.error('Error response data (first 500 chars):',
+            typeof e?.response?.data === 'string'
+              ? e.response.data.substring(0, 500)
+              : e?.response?.data
+          )
+          console.error('Request URL:', e?.config?.url)
+          console.error('Request baseURL:', e?.config?.baseURL)
+          console.error('Full request URL:', e?.config?.baseURL + e?.config?.url)
+          console.error('Request method:', e?.config?.method)
+          console.error('Request headers:', e?.config?.headers)
+          console.error('API Base URL from env:', process.env.NEXT_PUBLIC_API_BASE_URL)
+          console.error('Container runtime:', process.env.CONTAINER_RUNTIME)
+          console.error('=== END SERVER-SIDE LOGIN ERROR ===')
 
           return null
         }

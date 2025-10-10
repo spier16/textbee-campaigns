@@ -52,7 +52,30 @@ export default function LoginForm() {
         })
       }
     } catch (error) {
-      console.error('login error:', error)
+      console.error('=== LOGIN ERROR DEBUG ===')
+      console.error('Full error object:', error)
+      console.error('Error type:', typeof error)
+      console.error('Error message:', error?.message)
+      console.error('Error stack:', error?.stack)
+
+      // Log axios-specific error details if available
+      if (error?.response) {
+        console.error('Response status:', error.response.status)
+        console.error('Response headers:', error.response.headers)
+        console.error('Response data:', error.response.data)
+      }
+
+      if (error?.config) {
+        console.error('Request URL:', error.config.url)
+        console.error('Request method:', error.config.method)
+        console.error('Request headers:', error.config.headers)
+        console.error('Request data:', error.config.data)
+      }
+
+      console.error('User agent:', navigator.userAgent)
+      console.error('Current URL:', window.location.href)
+      console.error('=== END LOGIN ERROR DEBUG ===')
+
       form.setError('root', {
         type: 'manual',
         message: 'An unexpected error occurred. Please try again.',
