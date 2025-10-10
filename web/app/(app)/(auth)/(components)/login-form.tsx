@@ -38,18 +38,32 @@ export default function LoginForm() {
 
   const onSubmit = async (data: LoginFormValues) => {
     try {
+      console.log('=== STARTING LOGIN ===')
+      console.log('Calling signIn with email:', data.email)
+
       const result = await signIn('email-password-login', {
-        redirect: true,
+        redirect: false, // Changed to false to see result
         callbackUrl: Routes.dashboard,
         email: data.email,
         password: data.password,
       })
+
+      console.log('=== SIGNIN RESULT ===')
+      console.log('Result:', result)
+      console.log('Result error:', result?.error)
+      console.log('Result status:', result?.status)
+      console.log('Result ok:', result?.ok)
+      console.log('Result url:', result?.url)
+      console.log('=== END SIGNIN RESULT ===')
 
       if (result?.error) {
         form.setError('root', {
           type: 'manual',
           message: 'Invalid email or password',
         })
+      } else if (result?.ok) {
+        // Manually redirect on success
+        router.push(Routes.dashboard)
       }
     } catch (error) {
       console.error('=== LOGIN ERROR DEBUG ===')

@@ -38,6 +38,12 @@ export const authOptions = {
             password,
           })
 
+          console.log('=== AUTHORIZE SUCCESS ===')
+          console.log('Response status:', res.status)
+          console.log('Response data structure:', JSON.stringify(res.data, null, 2))
+          console.log('User object:', JSON.stringify(res.data.data.user, null, 2))
+          console.log('=== END AUTHORIZE SUCCESS ===')
+
           const user = res.data.data.user
           const accessToken = res.data.data.accessToken
 
@@ -143,6 +149,11 @@ export const authOptions = {
   },
   callbacks: {
     async jwt({ token, user, trigger, session }) {
+      console.log('=== JWT CALLBACK ===')
+      console.log('Trigger:', trigger)
+      console.log('User object:', JSON.stringify(user, null, 2))
+      console.log('Token object:', JSON.stringify(token, null, 2))
+
       if (trigger === 'update') {
         if (session.name !== token.name) {
           token.name = session.name
@@ -154,12 +165,17 @@ export const authOptions = {
       }
 
       if (user) {
+        console.log('Setting token properties from user')
+        console.log('user._id:', user._id)
+        console.log('user.role:', user.role)
+
         token.id = user._id
         token.role = user.role
         token.accessToken = user.accessToken
         token.avatar = user.avatar
         token.phone = user.phone
       }
+      console.log('=== END JWT CALLBACK ===')
       return token
     },
     async session({ session, token }): Promise<any> {
