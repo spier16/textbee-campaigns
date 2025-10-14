@@ -54,7 +54,7 @@ httpServerClient.interceptors.response.use(
 
     // If status is not 2xx, treat as error
     if (response.status >= 300) {
-      const error = new Error(`HTTP Error ${response.status}`)
+      const error: any = new Error(`HTTP Error ${response.status}`)
       error.response = response
       throw error
     }
