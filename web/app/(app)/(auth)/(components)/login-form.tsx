@@ -37,9 +37,51 @@ export default function LoginForm() {
   })
 
   const onSubmit = async (data: LoginFormValues) => {
+    // Store original fetch to restore later
+    const originalFetch = window.fetch
+
     try {
       console.log('=== STARTING LOGIN ===')
       console.log('Calling signIn with email:', data.email)
+      console.log('Window location:', window.location.href)
+      console.log('Window origin:', window.location.origin)
+
+      // Intercept fetch to see what NextAuth is doing
+      window.fetch = async (input, init?) => {
+        const url = typeof input === 'string' ? input : input.url
+        console.log('=== NEXTAUTH FETCH INTERCEPTED ===')
+        console.log('URL:', url)
+        console.log('Method:', init?.method || 'GET')
+        console.log('Headers:', init?.headers)
+        console.log('Body preview:', typeof init?.body === 'string' ? init.body.substring(0, 200) : init?.body)
+
+        try {
+          const response = await originalFetch(input, init)
+          console.log('Response status:', response.status)
+          console.log('Response statusText:', response.statusText)
+          console.log('Response content-type:', response.headers.get('content-type'))
+          console.log('Response headers:', Array.from(response.headers.entries()))
+
+          // Clone so we can read it without consuming the body
+          const clonedResponse = response.clone()
+          const text = await clonedResponse.text()
+          console.log('Response length:', text.length, 'characters')
+          console.log('Response preview (first 500 chars):', text.substring(0, 500))
+
+          if (text.trim().startsWith('<!')) {
+            console.error('!!!!! RESPONSE IS HTML, NOT JSON !!!!!')
+            console.error('HTML Title:', text.match(/<title>(.*?)<\/title>/i)?.[1] || 'No title')
+          }
+          console.log('=== END FETCH INTERCEPT ===')
+
+          return response
+        } catch (fetchError) {
+          console.error('=== FETCH FAILED ===')
+          console.error('Error:', fetchError)
+          console.error('=== END FETCH FAILED ===')
+          throw fetchError
+        }
+      }
 
       const result = await signIn('email-password-login', {
         redirect: false, // Changed to false to see result
@@ -47,6 +89,9 @@ export default function LoginForm() {
         email: data.email,
         password: data.password,
       })
+
+      // Restore original fetch
+      window.fetch = originalFetch
 
       console.log('=== SIGNIN RESULT ===')
       console.log('Result:', result)
@@ -94,6 +139,9 @@ export default function LoginForm() {
         type: 'manual',
         message: 'An unexpected error occurred. Please try again.',
       })
+    } finally {
+      // Always restore original fetch
+      window.fetch = originalFetch
     }
   }
 
