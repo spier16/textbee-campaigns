@@ -48,7 +48,11 @@ export default function LoginForm() {
 
       // Intercept fetch to see what NextAuth is doing
       window.fetch = async (input, init?) => {
-        const url = typeof input === 'string' ? input : input.url
+        const url = typeof input === 'string'
+          ? input
+          : input instanceof Request
+            ? input.url
+            : input.href
         console.log('=== NEXTAUTH FETCH INTERCEPTED ===')
         console.log('URL:', url)
         console.log('Method:', init?.method || 'GET')
