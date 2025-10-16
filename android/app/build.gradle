@@ -75,13 +75,13 @@ android {
         prod {
             dimension "environment"
             applicationId "com.vernu.sms"
-            buildConfigField "String", "API_BASE_URL", "\"${localProperties.getProperty('prod.api.base.url', 'http://3.19.235.15:3001/api/v1/')}\""
-            buildConfigField "String", "DASHBOARD_URL", "\"${localProperties.getProperty('prod.dashboard.url', 'http://3.19.235.15:3001/dashboard')}\""
-            buildConfigField "String", "DOWNLOAD_URL", "\"${localProperties.getProperty('prod.download.url', 'http://3.19.235.15:3001/download')}\""
+            buildConfigField "String", "API_BASE_URL", "\"${localProperties.getProperty('prod.api.base.url', 'https://hivesms.com/api/v1/')}\""
+            buildConfigField "String", "DASHBOARD_URL", "\"${localProperties.getProperty('prod.dashboard.url', 'https://hivesms.com/dashboard')}\""
+            buildConfigField "String", "DOWNLOAD_URL", "\"${localProperties.getProperty('prod.download.url', 'https://hivesms.com/download')}\""
             buildConfigField "String", "ENVIRONMENT", '"production"'
             resValue "string", "app_name", "SMS Gateway"
-            resValue "string", "dashboard_url", "${localProperties.getProperty('prod.dashboard.url', 'http://3.19.235.15:3001/dashboard')}"
-            resValue "string", "dashboard_link_text", "Go to ${localProperties.getProperty('prod.dashboard.url', 'http://3.19.235.15:3001/dashboard')}"
+            resValue "string", "dashboard_url", "${localProperties.getProperty('prod.dashboard.url', 'https://hivesms.com/dashboard')}"
+            resValue "string", "dashboard_link_text", "Go to ${localProperties.getProperty('prod.dashboard.url', 'https://hivesms.com/dashboard')}"
         }
     }
 
