@@ -1,4 +1,5 @@
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://textbee.dev'
+const isDevelopment = siteUrl.includes('localhost')
 
 export const Routes = {
   landingPage: siteUrl,
@@ -14,7 +15,9 @@ export const Routes = {
   dashboard: '/dashboard',
 
   downloadAndroidApp: `${siteUrl}/download`,
-  downloadAPK: `${siteUrl.replace('https://', 'https://dl.')}/textbee.apk`,
+  downloadAPK: isDevelopment
+    ? '/textbee.apk'
+    : `${siteUrl}/textbee.apk`,
   privacyPolicy: `${siteUrl}/privacy-policy`,
   refundPolicy: `${siteUrl}/refund-policy`,
   termsOfService: `${siteUrl}/terms-of-service`,
