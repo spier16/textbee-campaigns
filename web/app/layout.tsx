@@ -18,7 +18,7 @@ export default async function RootLayout({ children }: PropsWithChildren) {
 
   return (
     <html lang='en' suppressHydrationWarning>
-      <body>
+      <body suppressHydrationWarning>
         <main>{children}</main>
         <Analytics user={session?.user} />
         <Toaster />
