@@ -15,15 +15,36 @@ import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QrCode, Copy, Smartphone, Download, AlertTriangle } from 'lucide-react'
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 
-const QRCode = dynamic(() => import('react-qr-code'), { ssr: false })
+const QRCode = dynamic(() => import('react-qr-code'), {
+  ssr: false,
+  loading: () => <div className="h-[120px] w-[120px] bg-muted animate-pulse rounded" />
+})
+
+// Safe QR Code wrapper component
+function SafeQRCode({ value }: { value: string }) {
+  try {
+    if (!value || typeof value !== 'string' || value.length === 0) {
+      return <div className="h-[120px] w-[120px] bg-muted flex items-center justify-center rounded text-xs text-muted-foreground">Invalid QR Code</div>
+    }
+    return <QRCode value={value} size={120} level="M" />
+  } catch (error) {
+    console.error('QR Code generation error:', error)
+    return <div className="h-[120px] w-[120px] bg-muted flex items-center justify-center rounded text-xs text-muted-foreground">QR Code Error</div>
+  }
+}
 
 export default function GenerateApiKey() {
   const [isGenerateKeyModalOpen, setIsGenerateKeyModalOpen] = useState(false)
   const [isConfirmGenerateKeyModalOpen, setIsConfirmGenerateKeyModalOpen] =
     useState(false)
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const handleConfirmGenerateKey = () => {
     setIsConfirmGenerateKeyModalOpen(true)
@@ -112,8 +133,10 @@ export default function GenerateApiKey() {
 
           <div className='space-y-6'>
             <div className='flex justify-center p-4 bg-muted dark:bg-white rounded-lg '>
-              {generatedApiKey?.data && typeof generatedApiKey.data === 'string' && generatedApiKey.data.length > 0 && (
-                <QRCode value={generatedApiKey.data} size={120} />
+              {isMounted && generatedApiKey?.data ? (
+                <SafeQRCode value={generatedApiKey.data} />
+              ) : (
+                <div className="h-[120px] w-[120px] bg-muted animate-pulse rounded" />
               )}
             </div>
 
