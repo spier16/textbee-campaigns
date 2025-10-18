@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import { Menu, LogOut, LayoutDashboard, MessageSquarePlus, Home, MessageSquareText, Users, UserCircle, ContactRound, Inbox, Megaphone, Loader2 } from 'lucide-react'
 import { signOut, useSession } from 'next-auth/react'
 import { Routes } from '@/config/routes'
@@ -175,6 +175,7 @@ export default function AppHeader() {
         </Button>
       </SheetTrigger>
       <SheetContent side='right' className='w-[300px] sm:w-[400px]'>
+        <SheetTitle className='sr-only'>Navigation Menu</SheetTitle>
         <nav className='flex flex-col gap-4'>
           {isAuthenticated ? (
             <>

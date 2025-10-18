@@ -1,3 +1,5 @@
+'use client'
+
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -14,7 +16,9 @@ import httpBrowserClient from '@/lib/httpBrowserClient'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QrCode, Copy, Smartphone, Download, AlertTriangle } from 'lucide-react'
 import React, { useState } from 'react'
-import QRCode from 'react-qr-code'
+import dynamic from 'next/dynamic'
+
+const QRCode = dynamic(() => import('react-qr-code'), { ssr: false })
 
 export default function GenerateApiKey() {
   const [isGenerateKeyModalOpen, setIsGenerateKeyModalOpen] = useState(false)
@@ -108,8 +112,8 @@ export default function GenerateApiKey() {
 
           <div className='space-y-6'>
             <div className='flex justify-center p-4 bg-muted dark:bg-white rounded-lg '>
-              {generatedApiKey?.data && (
-                <QRCode value={generatedApiKey?.data} size={120} />
+              {generatedApiKey?.data && typeof generatedApiKey.data === 'string' && generatedApiKey.data.length > 0 && (
+                <QRCode value={generatedApiKey.data} size={120} />
               )}
             </div>
 
