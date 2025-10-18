@@ -20,19 +20,28 @@ import dynamic from 'next/dynamic'
 
 const QRCode = dynamic(() => import('react-qr-code'), {
   ssr: false,
-  loading: () => <div className="h-[120px] w-[120px] bg-muted animate-pulse rounded" />
+  loading: () => <div className="h-[200px] w-[200px] bg-muted animate-pulse rounded" />
 })
 
 // Safe QR Code wrapper component
 function SafeQRCode({ value }: { value: string }) {
   try {
     if (!value || typeof value !== 'string' || value.length === 0) {
-      return <div className="h-[120px] w-[120px] bg-muted flex items-center justify-center rounded text-xs text-muted-foreground">Invalid QR Code</div>
+      return <div className="h-[200px] w-[200px] bg-muted flex items-center justify-center rounded text-xs text-muted-foreground">Invalid QR Code</div>
     }
-    return <QRCode value={value} size={120} level="M" />
+    return (
+      <QRCode
+        value={value}
+        size={200}
+        level="M"
+        bgColor="#ffffff"
+        fgColor="#000000"
+        style={{ maxWidth: "100%", height: "auto" }}
+      />
+    )
   } catch (error) {
     console.error('QR Code generation error:', error)
-    return <div className="h-[120px] w-[120px] bg-muted flex items-center justify-center rounded text-xs text-muted-foreground">QR Code Error</div>
+    return <div className="h-[200px] w-[200px] bg-muted flex items-center justify-center rounded text-xs text-muted-foreground">QR Code Error</div>
   }
 }
 
@@ -136,7 +145,7 @@ export default function GenerateApiKey() {
               {isMounted && generatedApiKey?.data ? (
                 <SafeQRCode value={generatedApiKey.data} />
               ) : (
-                <div className="h-[120px] w-[120px] bg-muted animate-pulse rounded" />
+                <div className="h-[200px] w-[200px] bg-muted animate-pulse rounded" />
               )}
             </div>
 
