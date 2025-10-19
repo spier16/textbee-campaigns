@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Smartphone, Battery, Signal, Copy, Settings, Clock, Pause } from 'lucide-react'
+import { Smartphone, Battery, Signal, Copy, Settings, Clock, Pause, Phone } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
@@ -43,6 +43,7 @@ interface Device {
   is_on_cooldown?: boolean
   cooldown_until?: string
   usagePlan?: string // Now just the ID
+  phoneNumber?: string
 }
 
 export default function DeviceList() {
@@ -225,6 +226,12 @@ export default function DeviceList() {
                             >
                               <Copy className='h-3 w-3' />
                             </Button>
+                          </div>
+                          <div className='flex items-center space-x-2'>
+                            <Phone className='h-3 w-3 text-muted-foreground' />
+                            <span className='text-xs text-muted-foreground'>
+                              {device.phoneNumber || 'Not detected'}
+                            </span>
                           </div>
                         </div>
                       </div>
