@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Inbox as InboxIcon, Calendar, ChevronDown, Search, Edit, Save, X, Plus, MessageSquarePlus, Mail, MailOpen, MessageCircle, Clock, Users, Megaphone, Star, Archive, Trash2, ArchiveRestore } from 'lucide-react'
+import { Inbox as InboxIcon, Calendar, ChevronDown, Search, Edit, Save, X, Plus, MessageSquarePlus, Mail, MailOpen, MessageCircle, Clock, Users, Megaphone, Star, Archive, Trash2, ArchiveRestore, Smartphone } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,11 +29,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { contactsApi } from '@/lib/api/contacts'
 import { campaignsApi } from '@/lib/api/campaigns'
-import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus } from '@/lib/utils'
+import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus, formatPhoneNumberDisplay } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import { ConversationSummary, ConversationsResponse } from '@/lib/types'
 
@@ -608,20 +618,80 @@ function MessengerInterface({
 }) {
   const [activeTab, setActiveTab] = useState('messages')
   const [newMessage, setNewMessage] = useState('')
+  const [selectedDeviceId, setSelectedDeviceId] = useState(conversation.deviceId)
+  const [showDeviceChangeDialog, setShowDeviceChangeDialog] = useState(false)
+  const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
+  // Fetch conversation metadata to get preferred device
+  const { data: conversationMetadata } = useQuery({
+    queryKey: ['conversation-metadata'],
+    queryFn: () =>
+      httpBrowserClient
+        .get(ApiEndpoints.users.getConversationMetadata())
+        .then((res) => res.data),
+  })
+
+  // Fetch devices list
+  const { data: devices } = useQuery({
+    queryKey: ['devices'],
+    queryFn: () =>
+      httpBrowserClient
+        .get(ApiEndpoints.gateway.listDevices())
+        .then((res) => res.data),
+  })
+
+  // Update selectedDeviceId when conversation metadata loads
+  useEffect(() => {
+    if (conversationMetadata && conversation.normalizedPhoneNumber) {
+      const metadata = conversationMetadata[conversation.normalizedPhoneNumber]
+      if (metadata?.preferredDeviceId) {
+        setSelectedDeviceId(metadata.preferredDeviceId)
+      } else if (conversation.deviceId) {
+        setSelectedDeviceId(conversation.deviceId)
+      }
+    }
+  }, [conversationMetadata, conversation.normalizedPhoneNumber, conversation.deviceId])
+
+  const updateDeviceMutation = useMutation({
+    mutationFn: async (deviceId: string) => {
+      const response = await httpBrowserClient.patch(
+        ApiEndpoints.users.updateConversationDevice(),
+        {
+          phoneNumber: conversation.normalizedPhoneNumber,
+          deviceId: deviceId
+        }
+      )
+      return response.data
+    },
+    onSuccess: () => {
+      toast({
+        title: "Device updated",
+        description: "Future messages will be sent from the selected device."
+      })
+      queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update device",
+        description: error.response?.data?.message || error.message || "An error occurred.",
+        variant: "destructive"
+      })
+    }
+  })
+
   const sendSmsMutation = useMutation({
     mutationFn: async (messageText: string) => {
-      if (!conversation.deviceId) {
+      if (!selectedDeviceId) {
         throw new Error('No device available to send message')
       }
 
       const response = await httpBrowserClient.post(
-        ApiEndpoints.gateway.sendSMS(conversation.deviceId),
+        ApiEndpoints.gateway.sendSMS(selectedDeviceId),
         {
-          deviceId: conversation.deviceId,
+          deviceId: selectedDeviceId,
           recipients: [conversation.phoneNumber],
           message: messageText
         }
@@ -695,21 +765,85 @@ function MessengerInterface({
     setNewMessage('')
   }
 
+  const handleDeviceChange = (newDeviceId: string) => {
+    if (newDeviceId === selectedDeviceId) return
+
+    setPendingDeviceId(newDeviceId)
+    setShowDeviceChangeDialog(true)
+  }
+
+  const confirmDeviceChange = () => {
+    if (pendingDeviceId) {
+      setSelectedDeviceId(pendingDeviceId)
+      updateDeviceMutation.mutate(pendingDeviceId)
+      setShowDeviceChangeDialog(false)
+      setPendingDeviceId(null)
+    }
+  }
+
+  const cancelDeviceChange = () => {
+    setShowDeviceChangeDialog(false)
+    setPendingDeviceId(null)
+  }
+
+  const selectedDevice = devices?.data?.find((d: any) => d._id === selectedDeviceId)
+  const pendingDevice = devices?.data?.find((d: any) => d._id === pendingDeviceId)
+  const selectedDevicePhone = selectedDevice?.phoneNumber || selectedDevice?.phoneNumber2
+  const pendingDevicePhone = pendingDevice?.phoneNumber || pendingDevice?.phoneNumber2
+
   return (
     <div className="flex flex-col h-full border-l">
-      {/* Header */}
-      <div className="p-4 border-b flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">{displayName}</h2>
-          {conversation.contact?.firstName && (
-            <p className="text-sm text-muted-foreground">{conversation.normalizedPhoneNumber}</p>
+      {/* Header with Device Selector */}
+      <div className="p-4 border-b">
+        {/* Contact name and close button */}
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <h2 className="text-lg font-semibold">{displayName}</h2>
+            {conversation.contact?.firstName && (
+              <p className="text-sm text-muted-foreground">{conversation.normalizedPhoneNumber}</p>
+            )}
+          </div>
+          {onClose && (
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
           )}
         </div>
-        {onClose && (
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        )}
+
+        {/* Device Selector */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Sending from:</label>
+          <Select
+            value={selectedDeviceId || ''}
+            onValueChange={handleDeviceChange}
+            disabled={!devices?.data?.length}
+          >
+            <SelectTrigger className="w-full h-10">
+              <SelectValue placeholder="Select a device" />
+            </SelectTrigger>
+            <SelectContent>
+              {devices?.data?.map((device: any) => (
+                <SelectItem
+                  key={device._id}
+                  value={device._id}
+                  disabled={!device.enabled}
+                  className="py-2"
+                >
+                  <div className={cn("flex flex-col", !device.enabled && "opacity-50")}>
+                    <div className="flex items-center gap-2 font-medium">
+                      <Smartphone className="h-4 w-4" />
+                      <span>{device.brand} {device.model}</span>
+                      {!device.enabled && <span className="text-xs">(disabled)</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground ml-6 mt-0.5">
+                      {formatPhoneNumberDisplay(device.phoneNumber)} • ID: {device._id}
+                    </div>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Tabs - Messages, Info, Notes */}
@@ -829,28 +963,28 @@ function MessengerInterface({
 
             {/* Message input area - fixed at bottom */}
             <div className="flex-shrink-0 p-4 border-t bg-background">
-              {!conversation.deviceId && (
-                <div className="mb-2 text-sm text-yellow-600 bg-yellow-50 p-2 rounded">
+              {!selectedDeviceId && (
+                <div className="text-sm text-yellow-600 bg-yellow-50 p-2 rounded mb-2">
                   No device available to send messages
                 </div>
               )}
               <div className="flex space-x-2">
                 <Input
-                  placeholder={conversation.deviceId ? "Type a message..." : "No device available"}
+                  placeholder={selectedDeviceId ? "Type a message..." : "No device available"}
                   className="flex-1"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && conversation.deviceId && newMessage.trim()) {
+                    if (e.key === 'Enter' && !e.shiftKey && selectedDeviceId && newMessage.trim()) {
                       e.preventDefault()
                       handleSendMessage()
                     }
                   }}
-                  disabled={!conversation.deviceId}
+                  disabled={!selectedDeviceId}
                 />
                 <Button
                   onClick={handleSendMessage}
-                  disabled={!newMessage.trim() || sendSmsMutation.isPending || !conversation.deviceId}
+                  disabled={!newMessage.trim() || sendSmsMutation.isPending || !selectedDeviceId}
                 >
                   {sendSmsMutation.isPending ? 'Sending...' : 'Send'}
                 </Button>
@@ -885,6 +1019,30 @@ function MessengerInterface({
           </div>
         )}
       </div>
+
+      {/* Device Change Confirmation Dialog */}
+      <AlertDialog open={showDeviceChangeDialog} onOpenChange={setShowDeviceChangeDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change Sending Device?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Messages to <strong>{displayName}</strong> will now be sent from a different phone number.
+              {selectedDevicePhone && pendingDevicePhone && (
+                <>
+                  {' '}You're switching from <strong>{formatPhoneNumberDisplay(selectedDevicePhone)}</strong> to <strong>{formatPhoneNumberDisplay(pendingDevicePhone)}</strong>.
+                </>
+              )}
+              {' '}This could be confusing to your client who has been receiving messages from your current number. Are you sure you want to make this change?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelDeviceChange}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeviceChange}>
+              Yes, Change Device
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -1,8 +1,43 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { parsePhoneNumberFromString } from 'libphonenumber-js'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+/**
+ * Formats a phone number for display with automatic country detection and fallbacks
+ * @param phoneNumber - The phone number to format (can be null/undefined)
+ * @returns Formatted phone number string or fallback message
+ * @example
+ * formatPhoneNumberDisplay('+12345678901') // Returns: "+1 234 567-8901"
+ * formatPhoneNumberDisplay('2345678901') // Returns: "+1 234 567-8901" (assumes US)
+ * formatPhoneNumberDisplay(null) // Returns: "Not detected"
+ */
+export function formatPhoneNumberDisplay(phoneNumber: string | null | undefined): string {
+  if (!phoneNumber) return 'Not detected'
+
+  try {
+    // Try to parse with automatic country detection
+    const parsed = parsePhoneNumberFromString(phoneNumber)
+    if (parsed && parsed.isValid()) {
+      // Use INTERNATIONAL format: "+1 234 567-8901"
+      return parsed.formatInternational()
+    }
+
+    // Fallback: Try parsing as US number
+    const usNumber = parsePhoneNumberFromString(phoneNumber, 'US')
+    if (usNumber && usNumber.isValid()) {
+      return usNumber.formatInternational()
+    }
+
+    // Return original if parsing fails
+    return phoneNumber
+  } catch (error) {
+    // Gracefully handle errors - return original number
+    return phoneNumber
+  }
 }
 
 export function normalizePhoneNumber(phoneNumber: string): string {

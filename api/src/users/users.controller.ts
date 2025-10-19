@@ -71,6 +71,14 @@ export class UsersController {
     return await this.usersService.toggleConversationStar(req.user._id, body.phoneNumber, body.isStarred)
   }
 
+  @Patch('conversations/device')
+  async updateConversationDevice(
+    @Request() req,
+    @Body() body: { phoneNumber: string; deviceId: string }
+  ) {
+    return await this.usersService.updateConversationDevice(req.user._id, body.phoneNumber, body.deviceId)
+  }
+
   @Get('conversations')
   async getConversations(
     @Request() req,

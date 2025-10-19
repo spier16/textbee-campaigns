@@ -8,6 +8,7 @@ import { Smartphone, Battery, Signal, Copy, Settings, Clock, Pause, Phone } from
 import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
+import { formatPhoneNumberDisplay } from '@/lib/utils'
 import { useQuery } from '@tanstack/react-query'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Progress } from '@/components/ui/progress'
@@ -230,7 +231,7 @@ export default function DeviceList() {
                           <div className='flex items-center space-x-2'>
                             <Phone className='h-3 w-3 text-muted-foreground' />
                             <span className='text-xs text-muted-foreground'>
-                              {device.phoneNumber || 'Not detected'}
+                              {formatPhoneNumberDisplay(device.phoneNumber)}
                             </span>
                           </div>
                         </div>

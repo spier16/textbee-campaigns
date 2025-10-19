@@ -229,14 +229,15 @@ export class UsersService {
       user: new Types.ObjectId(userId)
     })
 
-    const metadataMap: Record<string, { isArchived: boolean; isBlocked: boolean; isStarred: boolean; archivedAt?: Date; firstCampaignName?: string }> = {}
+    const metadataMap: Record<string, { isArchived: boolean; isBlocked: boolean; isStarred: boolean; archivedAt?: Date; firstCampaignName?: string; preferredDeviceId?: string }> = {}
     metadata.forEach(meta => {
       metadataMap[meta.normalizedPhoneNumber] = {
         isArchived: meta.isArchived,
         isBlocked: meta.isBlocked,
         isStarred: meta.isStarred,
         archivedAt: meta.archivedAt,
-        firstCampaignName: meta.firstCampaignName
+        firstCampaignName: meta.firstCampaignName,
+        preferredDeviceId: meta.preferredDeviceId
       }
     })
 
@@ -331,6 +332,20 @@ export class UsersService {
     )
 
     return { success: true, isStarred: result.isStarred }
+  }
+
+  async updateConversationDevice(userId: string, phoneNumber: string, deviceId: string) {
+    const result = await this.conversationMetadataModel.findOneAndUpdate(
+      { user: new Types.ObjectId(userId), normalizedPhoneNumber: phoneNumber },
+      {
+        $set: {
+          preferredDeviceId: deviceId
+        }
+      },
+      { upsert: true, new: true }
+    )
+
+    return { success: true, deviceId: result.preferredDeviceId }
   }
 
   // Helper function to check and populate first campaign information for conversations

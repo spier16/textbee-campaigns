@@ -58,6 +58,7 @@ export const ApiEndpoints = {
     blockContacts: () => '/users/conversations/block',
     unblockContacts: () => '/users/conversations/unblock',
     toggleConversationStar: () => '/users/conversations/star',
+    updateConversationDevice: () => '/users/conversations/device',
     getConversations: () => '/users/conversations',
     getConversationCounts: () => '/users/conversations/counts',
   },

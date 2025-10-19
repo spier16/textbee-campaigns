@@ -27,6 +27,7 @@ import { ApiEndpoints } from '@/config/api'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Spinner } from '@/components/ui/spinner'
 import httpBrowserClient from '@/lib/httpBrowserClient'
+import { formatPhoneNumberDisplay } from '@/lib/utils'
 
 const DEFAULT_MAX_FILE_SIZE = 1024 * 1024 // 1 MB
 const DEFAULT_MAX_ROWS = 50
@@ -216,7 +217,7 @@ export default function BulkSMSSend() {
                       value={device._id}
                       disabled={!device.enabled}
                     >
-                      {device.brand} - {device.model}{' '}
+                      {device.brand} - {device.model} ({device._id} - {formatPhoneNumberDisplay(device.phoneNumber)}){' '}
                       {device.enabled ? '' : ' (disabled)'}
                     </SelectItem>
                   ))}

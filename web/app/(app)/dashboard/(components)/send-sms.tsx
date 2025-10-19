@@ -27,6 +27,7 @@ import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Spinner } from '@/components/ui/spinner'
+import { formatPhoneNumberDisplay } from '@/lib/utils'
 
 export default function SendSms() {
   const { data: devices, isLoading: isLoadingDevices } = useQuery({
@@ -102,7 +103,7 @@ export default function SendSms() {
                             value={device._id}
                             disabled={!device.enabled}
                           >
-                            {device.brand} {device.model}{' '}
+                            {device.brand} {device.model} ({device._id} - {formatPhoneNumberDisplay(device.phoneNumber)}){' '}
                             {device.enabled ? '' : '(disabled)'}
                           </SelectItem>
                         ))}

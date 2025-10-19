@@ -33,6 +33,9 @@ export class ConversationMetadata {
 
   @Prop({ type: String })
   firstCampaignName?: string
+
+  @Prop({ type: String })
+  preferredDeviceId?: string
 }
 
 export const ConversationMetadataSchema = SchemaFactory.createForClass(ConversationMetadata)
