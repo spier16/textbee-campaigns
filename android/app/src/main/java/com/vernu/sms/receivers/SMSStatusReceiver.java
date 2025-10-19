@@ -8,6 +8,7 @@ import android.telephony.SmsManager;
 import android.util.Log;
 
 import com.vernu.sms.AppConstants;
+import com.vernu.sms.TextBeeUtils;
 import com.vernu.sms.dtos.SMSDTO;
 import com.vernu.sms.helpers.SharedPreferenceHelper;
 import com.vernu.sms.workers.SMSStatusUpdateWorker;
@@ -23,12 +24,22 @@ public class SMSStatusReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String smsId = intent.getStringExtra("sms_id");
         String smsBatchId = intent.getStringExtra("sms_batch_id");
+        int subscriptionId = intent.getIntExtra("subscription_id", -1);
         String action = intent.getAction();
-        
+
         SMSDTO smsDTO = new SMSDTO();
         smsDTO.setSmsId(smsId);
         smsDTO.setSmsBatchId(smsBatchId);
-        
+
+        // Get phone number for the subscription ID if available
+        if (subscriptionId != -1) {
+            String phoneNumber = TextBeeUtils.getPhoneNumberForSubscription(context, subscriptionId);
+            if (phoneNumber != null && !phoneNumber.isEmpty()) {
+                smsDTO.setSenderPhoneNumber(phoneNumber);
+                Log.d(TAG, "Setting sender phone number: " + phoneNumber + " for subscription ID: " + subscriptionId);
+            }
+        }
+
         if (SMS_SENT.equals(action)) {
             handleSentStatus(context, getResultCode(), smsDTO);
         } else if (SMS_DELIVERED.equals(action)) {

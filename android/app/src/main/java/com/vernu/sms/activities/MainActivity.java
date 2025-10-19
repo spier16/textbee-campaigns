@@ -9,11 +9,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.telephony.SubscriptionInfo;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.Switch;
@@ -36,6 +38,7 @@ import com.vernu.sms.observers.SmsObserver;
 import com.google.firebase.crashlytics.FirebaseCrashlytics;
 import android.provider.Telephony;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -49,6 +52,8 @@ public class MainActivity extends AppCompatActivity {
     private Button registerDeviceBtn, grantSMSPermissionBtn, scanQRBtn, checkUpdatesBtn;
     private ImageButton copyDeviceIdImgBtn;
     private TextView deviceBrandAndModelTxt, deviceIdTxt, appVersionNameTxt, appVersionCodeTxt;
+    private TextView phoneNumber1Txt, phoneNumber2Txt;
+    private LinearLayout phoneNumber2Layout;
     private RadioGroup defaultSimSlotRadioGroup;
     private SmsObserver smsObserver;
     private static final int SCAN_QR_REQUEST_CODE = 49374;
@@ -75,6 +80,9 @@ public class MainActivity extends AppCompatActivity {
         deviceBrandAndModelTxt = findViewById(R.id.deviceBrandAndModelTxt);
         deviceIdTxt = findViewById(R.id.deviceIdTxt);
         copyDeviceIdImgBtn = findViewById(R.id.copyDeviceIdImgBtn);
+        phoneNumber1Txt = findViewById(R.id.phoneNumber1Txt);
+        phoneNumber2Txt = findViewById(R.id.phoneNumber2Txt);
+        phoneNumber2Layout = findViewById(R.id.phoneNumber2Layout);
         defaultSimSlotRadioGroup = findViewById(R.id.defaultSimSlotRadioGroup);
         appVersionNameTxt = findViewById(R.id.appVersionNameTxt);
         appVersionCodeTxt = findViewById(R.id.appVersionCodeTxt);
@@ -121,6 +129,7 @@ public class MainActivity extends AppCompatActivity {
             grantSMSPermissionBtn.setEnabled(false);
             grantSMSPermissionBtn.setText("Permission Granted");
             renderAvailableSimOptions();
+            updatePhoneNumberDisplay();
         } else {
             Snackbar.make(grantSMSPermissionBtn, "Please Grant Required Permissions to continue: " + Arrays.toString(missingPermissions), Snackbar.LENGTH_SHORT).show();
             grantSMSPermissionBtn.setEnabled(true);
@@ -147,6 +156,15 @@ public class MainActivity extends AppCompatActivity {
             registerDeviceInput.setEnabled(isCheked);
             registerDeviceInput.setAppVersionCode(BuildConfig.VERSION_CODE);
             registerDeviceInput.setAppVersionName(BuildConfig.VERSION_NAME);
+
+            // Get and set phone numbers for dual-SIM support
+            String[] phoneNumbers = TextBeeUtils.getPhoneNumbers(mContext);
+            if (phoneNumbers[0] != null && !phoneNumbers[0].isEmpty()) {
+                registerDeviceInput.setPhoneNumber(phoneNumbers[0]);
+            }
+            if (phoneNumbers[1] != null && !phoneNumbers[1].isEmpty()) {
+                registerDeviceInput.setPhoneNumber2(phoneNumbers[1]);
+            }
 
             Call<RegisterDeviceResponseDTO> apiCall = ApiManager.getApiService().updateDevice(deviceId, key, registerDeviceInput);
             apiCall.enqueue(new Callback<RegisterDeviceResponseDTO>() {
@@ -259,9 +277,16 @@ public class MainActivity extends AppCompatActivity {
             applyRadioButtonStyle(defaultSimSlotRadioBtn);
             defaultSimSlotRadioGroup.addView(defaultSimSlotRadioBtn);
             
-            // Create radio buttons for each SIM with proper styling
+            // Create radio buttons for each SIM with proper styling and phone number
             TextBeeUtils.getAvailableSimSlots(mContext).forEach(subscriptionInfo -> {
+                String phoneNumber = TextBeeUtils.getPhoneNumberForSubscription(mContext, subscriptionInfo.getSubscriptionId());
                 String simInfo = "SIM " + (subscriptionInfo.getSimSlotIndex() + 1) + " (" + subscriptionInfo.getDisplayName() + ")";
+
+                // Add phone number if available
+                if (phoneNumber != null && !phoneNumber.isEmpty()) {
+                    simInfo += " - " + phoneNumber;
+                }
+
                 RadioButton radioButton = new RadioButton(mContext);
                 radioButton.setText(simInfo);
                 radioButton.setId(subscriptionInfo.getSubscriptionId());
@@ -345,6 +370,7 @@ public class MainActivity extends AppCompatActivity {
             grantSMSPermissionBtn.setEnabled(false);
             grantSMSPermissionBtn.setText("Permission Granted");
             renderAvailableSimOptions();
+            updatePhoneNumberDisplay();
         } else {
             Snackbar.make(findViewById(R.id.grantSMSPermissionBtn), "Please Grant Required Permissions to continue", Snackbar.LENGTH_SHORT).show();
         }
@@ -379,7 +405,18 @@ public class MainActivity extends AppCompatActivity {
                     registerDeviceInput.setOs(Build.VERSION.BASE_OS);
                     registerDeviceInput.setAppVersionCode(BuildConfig.VERSION_CODE);
                     registerDeviceInput.setAppVersionName(BuildConfig.VERSION_NAME);
-                    
+
+                    // Get and set phone numbers for dual-SIM support
+                    String[] phoneNumbers = TextBeeUtils.getPhoneNumbers(mContext);
+                    if (phoneNumbers[0] != null && !phoneNumbers[0].isEmpty()) {
+                        registerDeviceInput.setPhoneNumber(phoneNumbers[0]);
+                        Log.d(TAG, "Setting phone number for SIM 1: " + phoneNumbers[0]);
+                    }
+                    if (phoneNumbers[1] != null && !phoneNumbers[1].isEmpty()) {
+                        registerDeviceInput.setPhoneNumber2(phoneNumbers[1]);
+                        Log.d(TAG, "Setting phone number for SIM 2: " + phoneNumbers[1]);
+                    }
+
                     // If the user provided a device ID, use it for updating instead of creating new
                     if (!deviceIdInput.isEmpty()) {
                         Log.d(TAG, "Updating device with deviceId: "+ deviceIdInput);
@@ -500,6 +537,17 @@ public class MainActivity extends AppCompatActivity {
                     updateDeviceInput.setAppVersionCode(BuildConfig.VERSION_CODE);
                     updateDeviceInput.setAppVersionName(BuildConfig.VERSION_NAME);
 
+                    // Get and set phone numbers for dual-SIM support
+                    String[] phoneNumbers = TextBeeUtils.getPhoneNumbers(mContext);
+                    if (phoneNumbers[0] != null && !phoneNumbers[0].isEmpty()) {
+                        updateDeviceInput.setPhoneNumber(phoneNumbers[0]);
+                        Log.d(TAG, "Setting phone number for SIM 1: " + phoneNumbers[0]);
+                    }
+                    if (phoneNumbers[1] != null && !phoneNumbers[1].isEmpty()) {
+                        updateDeviceInput.setPhoneNumber2(phoneNumbers[1]);
+                        Log.d(TAG, "Setting phone number for SIM 2: " + phoneNumbers[1]);
+                    }
+
                     Call<RegisterDeviceResponseDTO> apiCall = ApiManager.getApiService().updateDevice(deviceIdToUse, apiKey, updateDeviceInput);
                     apiCall.enqueue(new Callback<RegisterDeviceResponseDTO>() {
                         @Override
@@ -569,6 +617,51 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 handleUpdateDevice();
             }
+        }
+    }
+
+    /**
+     * Updates the phone number display in the device info card
+     * Shows detected phone numbers for SIM 1 and SIM 2 (if dual-SIM)
+     */
+    private void updatePhoneNumberDisplay() {
+        try {
+            String[] phoneNumbers = TextBeeUtils.getPhoneNumbers(mContext);
+
+            // Update phone number 1
+            if (phoneNumbers[0] != null && !phoneNumbers[0].isEmpty()) {
+                phoneNumber1Txt.setText(phoneNumbers[0]);
+                phoneNumber1Txt.setTextColor(getResources().getColor(R.color.text_primary));
+            } else {
+                phoneNumber1Txt.setText("Not detected");
+                phoneNumber1Txt.setTextColor(getResources().getColor(R.color.text_secondary));
+            }
+
+            // Update phone number 2 and show/hide the layout
+            if (phoneNumbers[1] != null && !phoneNumbers[1].isEmpty()) {
+                phoneNumber2Txt.setText(phoneNumbers[1]);
+                phoneNumber2Txt.setTextColor(getResources().getColor(R.color.text_primary));
+                phoneNumber2Layout.setVisibility(View.VISIBLE);
+            } else {
+                // Check if there are multiple SIM slots available
+                List<SubscriptionInfo> sims = TextBeeUtils.getAvailableSimSlots(mContext);
+                if (sims != null && sims.size() > 1) {
+                    // Show "Not detected" for second SIM if device has dual SIM
+                    phoneNumber2Txt.setText("Not detected");
+                    phoneNumber2Txt.setTextColor(getResources().getColor(R.color.text_secondary));
+                    phoneNumber2Layout.setVisibility(View.VISIBLE);
+                } else {
+                    // Hide second phone number layout if device has single SIM
+                    phoneNumber2Layout.setVisibility(View.GONE);
+                }
+            }
+
+            Log.d(TAG, "Phone number display updated - Phone 1: " + (phoneNumbers[0] != null ? phoneNumbers[0] : "Not detected") +
+                    ", Phone 2: " + (phoneNumbers[1] != null ? phoneNumbers[1] : "Not detected"));
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating phone number display", e);
+            phoneNumber1Txt.setText("Error");
+            phoneNumber2Layout.setVisibility(View.GONE);
         }
     }
 

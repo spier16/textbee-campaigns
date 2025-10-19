@@ -66,6 +66,10 @@ export class SMS {
   @Prop({ type: String })
   campaignId?: string
 
+  // Track which phone number sent/received the SMS (useful for dual-SIM)
+  @Prop({ type: String })
+  senderPhoneNumber?: string
+
   // misc metadata for debugging
   @Prop({ type: Object })
   metadata: Record<string, any>

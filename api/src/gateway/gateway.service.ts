@@ -169,10 +169,27 @@ export class GatewayService {
     if (input.enabled !== false) {
       input.enabled = true;
     }
-    
+
+    // Phone number change detection
+    const updateData: any = { ...input }
+    if (input.phoneNumber && device.phoneNumber && input.phoneNumber !== device.phoneNumber) {
+      updateData.previousPhoneNumber = device.phoneNumber
+      updateData.phoneNumberLastUpdated = new Date()
+      console.log(`Phone number changed for device ${deviceId}: ${device.phoneNumber} -> ${input.phoneNumber}`)
+    } else if (input.phoneNumber && !device.phoneNumber) {
+      updateData.phoneNumberLastUpdated = new Date()
+      console.log(`Phone number set for device ${deviceId}: ${input.phoneNumber}`)
+    }
+
+    // Same for phoneNumber2 (dual-SIM)
+    if (input.phoneNumber2 && device.phoneNumber2 && input.phoneNumber2 !== device.phoneNumber2) {
+      updateData.phoneNumberLastUpdated = new Date()
+      console.log(`Phone number 2 changed for device ${deviceId}: ${device.phoneNumber2} -> ${input.phoneNumber2}`)
+    }
+
     return await this.deviceModel.findByIdAndUpdate(
       deviceId,
-      { $set: input },
+      { $set: updateData },
       { new: true },
     )
   }
@@ -885,7 +902,7 @@ export class GatewayService {
     const updateData: any = {
       status: normalizedStatus, // Store normalized status
     };
-    
+
     // Update timestamps based on status
     if (normalizedStatus === 'sent' && dto.sentAtInMillis) {
       updateData.sentAt = new Date(dto.sentAtInMillis);
@@ -896,7 +913,12 @@ export class GatewayService {
       updateData.errorCode = dto.errorCode;
       updateData.errorMessage = dto.errorMessage || 'Unknown error';
     }
-    
+
+    // Include sender phone number if provided (for tracking dual-SIM)
+    if (dto.senderPhoneNumber) {
+      updateData.senderPhoneNumber = dto.senderPhoneNumber;
+    }
+
     // Update the SMS
     await this.smsModel.findByIdAndUpdate(dto.smsId, { $set: updateData });
     

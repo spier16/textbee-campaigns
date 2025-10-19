@@ -90,6 +90,18 @@ export class Device {
 
   @Prop({ type: Date })
   lastMessageSentAt?: Date
+
+  @Prop({ type: String })
+  phoneNumber: string
+
+  @Prop({ type: String })
+  phoneNumber2: string
+
+  @Prop({ type: Date })
+  phoneNumberLastUpdated: Date
+
+  @Prop({ type: String })
+  previousPhoneNumber: string
 }
 
 export const DeviceSchema = SchemaFactory.createForClass(Device)

@@ -33,6 +33,12 @@ export class RegisterDeviceInputDTO {
 
   @ApiProperty({ type: String })
   appVersionCode?: number
+
+  @ApiProperty({ type: String })
+  phoneNumber?: string
+
+  @ApiProperty({ type: String })
+  phoneNumber2?: string
 }
 
 export class SMSData {
@@ -142,6 +148,15 @@ export class DeviceDTO {
 
   @ApiProperty({ type: String })
   buildId: string
+
+  @ApiProperty({ type: String })
+  phoneNumber?: string
+
+  @ApiProperty({ type: String })
+  phoneNumber2?: string
+
+  @ApiProperty({ type: Date })
+  phoneNumberLastUpdated?: Date
 }
 
 export class RetrieveSMSDTO {
@@ -298,4 +313,11 @@ export class UpdateSMSStatusDTO {
     description: 'Error message if the message failed',
   })
   errorMessage?: string
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    description: 'The phone number that sent the SMS',
+  })
+  senderPhoneNumber?: string
 }

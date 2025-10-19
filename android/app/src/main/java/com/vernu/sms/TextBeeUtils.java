@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
@@ -36,6 +37,100 @@ public class TextBeeUtils {
         SubscriptionManager subscriptionManager = SubscriptionManager.from(context);
         return subscriptionManager.getActiveSubscriptionInfoList();
 
+    }
+
+    /**
+     * Get phone number for a specific subscription ID
+     * Returns the phone number from subscription info or TelephonyManager
+     * Falls back to manually set phone number in shared preferences
+     */
+    public static String getPhoneNumberForSubscription(Context context, int subscriptionId) {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "READ_PHONE_STATE permission not granted");
+            return null;
+        }
+
+        try {
+            SubscriptionManager subscriptionManager = SubscriptionManager.from(context);
+            List<SubscriptionInfo> subscriptionInfoList = subscriptionManager.getActiveSubscriptionInfoList();
+
+            if (subscriptionInfoList != null) {
+                for (SubscriptionInfo info : subscriptionInfoList) {
+                    if (info.getSubscriptionId() == subscriptionId) {
+                        String phoneNumber = info.getNumber();
+                        if (phoneNumber != null && !phoneNumber.isEmpty()) {
+                            return phoneNumber;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: Try TelephonyManager
+            TelephonyManager telephonyManager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+            if (telephonyManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                TelephonyManager specificTelephonyManager = telephonyManager.createForSubscriptionId(subscriptionId);
+                String phoneNumber = specificTelephonyManager.getLine1Number();
+                if (phoneNumber != null && !phoneNumber.isEmpty()) {
+                    return phoneNumber;
+                }
+            }
+
+            Log.d(TAG, "Could not retrieve phone number for subscription " + subscriptionId);
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting phone number for subscription " + subscriptionId, e);
+        }
+
+        return null;
+    }
+
+    /**
+     * Get phone numbers for all active SIM slots
+     * Returns array with up to 2 phone numbers [phoneNumber1, phoneNumber2]
+     */
+    public static String[] getPhoneNumbers(Context context) {
+        String[] phoneNumbers = new String[2];
+
+        List<SubscriptionInfo> subscriptionInfoList = getAvailableSimSlots(context);
+        if (subscriptionInfoList != null && !subscriptionInfoList.isEmpty()) {
+            for (int i = 0; i < Math.min(subscriptionInfoList.size(), 2); i++) {
+                SubscriptionInfo info = subscriptionInfoList.get(i);
+                int slotIndex = info.getSimSlotIndex();
+                String phoneNumber = getPhoneNumberForSubscription(context, info.getSubscriptionId());
+
+                if (slotIndex >= 0 && slotIndex < 2) {
+                    phoneNumbers[slotIndex] = phoneNumber;
+                }
+            }
+        }
+
+        // Check for manually set phone numbers in shared preferences
+        String manuallySet1 = SharedPreferenceHelper.getSharedPreferenceString(context, AppConstants.SHARED_PREFS_PHONE_NUMBER_SIM_1_KEY, null);
+        String manuallySet2 = SharedPreferenceHelper.getSharedPreferenceString(context, AppConstants.SHARED_PREFS_PHONE_NUMBER_SIM_2_KEY, null);
+
+        boolean wasManuallySet1 = SharedPreferenceHelper.getSharedPreferenceBoolean(context, AppConstants.SHARED_PREFS_PHONE_NUMBER_MANUALLY_SET_1_KEY, false);
+        boolean wasManuallySet2 = SharedPreferenceHelper.getSharedPreferenceBoolean(context, AppConstants.SHARED_PREFS_PHONE_NUMBER_MANUALLY_SET_2_KEY, false);
+
+        // Use manually set phone numbers if they exist and were explicitly set by user
+        if (wasManuallySet1 && manuallySet1 != null && !manuallySet1.isEmpty()) {
+            phoneNumbers[0] = manuallySet1;
+        }
+        if (wasManuallySet2 && manuallySet2 != null && !manuallySet2.isEmpty()) {
+            phoneNumbers[1] = manuallySet2;
+        }
+
+        return phoneNumbers;
+    }
+
+    /**
+     * Get phone number for a specific SIM slot index (0 or 1)
+     */
+    public static String getPhoneNumberForSimSlot(Context context, int simSlotIndex) {
+        if (simSlotIndex < 0 || simSlotIndex > 1) {
+            return null;
+        }
+
+        String[] phoneNumbers = getPhoneNumbers(context);
+        return phoneNumbers[simSlotIndex];
     }
 
     public static void startStickyNotificationService(Context context) {

@@ -15,6 +15,7 @@ public class SMSDTO {
     private long failedAtInMillis;
     private String errorCode;
     private String errorMessage;
+    private String senderPhoneNumber;
 
     public SMSDTO() {
     }
@@ -106,5 +107,13 @@ public class SMSDTO {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public String getSenderPhoneNumber() {
+        return senderPhoneNumber;
+    }
+
+    public void setSenderPhoneNumber(String senderPhoneNumber) {
+        this.senderPhoneNumber = senderPhoneNumber;
     }
 }
