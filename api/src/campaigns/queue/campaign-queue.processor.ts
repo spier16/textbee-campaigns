@@ -8,6 +8,7 @@ import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../sche
 import { Device, DeviceDocument } from '../../gateway/schemas/device.schema'
 import { SmsQueueService } from '../../gateway/queue/sms-queue.service'
 import { UsagePlanService } from '../../gateway/usage-plan.service'
+import { DeviceUsageCalculatorService } from '../../gateway/services/device-usage-calculator.service'
 import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
 
@@ -26,6 +27,7 @@ export class CampaignQueueProcessor {
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     private smsQueueService: SmsQueueService,
     private usagePlanService: UsagePlanService,
+    private usageCalculator: DeviceUsageCalculatorService,
     @InjectQueue('campaign-queue') private campaignQueue: Queue,
   ) {}
 
@@ -285,46 +287,30 @@ export class CampaignQueueProcessor {
 
   private async canDeviceSendNow(device: DeviceDocument): Promise<boolean> {
     try {
-      this.logger.debug(`Checking device ${device._id} availability:`)
-      this.logger.debug(`- Enabled: ${device.enabled}`)
-      this.logger.debug(`- On cooldown: ${device.is_on_cooldown}`)
-      this.logger.debug(`- Cooldown until: ${device.cooldown_until}`)
-      this.logger.debug(`- Messages sent today: ${device.messages_sent_today}`)
-      this.logger.debug(`- Messages sent this hour: ${device.messages_sent_this_hour}`)
-
       // Check if device is enabled
       if (!device.enabled) {
         this.logger.debug(`Device ${device._id} is disabled`)
         return false
       }
 
-      // Check if device is on cooldown
-      if (device.is_on_cooldown && device.cooldown_until) {
-        if (new Date() < device.cooldown_until) {
-          this.logger.debug(`Device ${device._id} is on cooldown until ${device.cooldown_until}`)
-          return false
-        }
-      }
-
-      // Check current tier limits
-      const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
-      if (!currentTier) {
-        this.logger.debug(`Device ${device._id} has no current tier`)
+      // Check if device is on cooldown (rolling window based)
+      if (device.is_on_cooldown) {
+        this.logger.debug(`Device ${device._id} is on cooldown`)
         return false
       }
 
-      this.logger.debug(`Device ${device._id} tier ${currentTier.tier}: dailyLimit=${currentTier.dailyLimit}, timeDelay=${currentTier.timeDelayBetweenMessages}s`)
+      // Get current usage stats (rolling window)
+      const stats = await this.usageCalculator.getDeviceUsageStats(device)
 
-      // Check if daily limit exceeded
-      if (device.messages_sent_today >= currentTier.dailyLimit) {
-        this.logger.debug(`Device ${device._id} has exceeded daily limit: ${device.messages_sent_today}/${currentTier.dailyLimit}`)
-        return false
-      }
+      this.logger.debug(`Checking device ${device._id} availability:`)
+      this.logger.debug(`- Enabled: ${device.enabled}`)
+      this.logger.debug(`- On cooldown: ${device.is_on_cooldown}`)
+      this.logger.debug(`- Messages in window: ${stats.messagesSentInWindow}/${stats.currentTierLimit}`)
+      this.logger.debug(`- Usage percentage: ${stats.usagePercentage.toFixed(1)}%`)
 
-      // Check hourly rate limit (simplified)
-      const maxHourlyMessages = Math.floor(3600 / currentTier.timeDelayBetweenMessages)
-      if (device.messages_sent_this_hour >= maxHourlyMessages) {
-        this.logger.debug(`Device ${device._id} has exceeded hourly limit: ${device.messages_sent_this_hour}/${maxHourlyMessages}`)
+      // Check if limit exceeded in rolling window
+      if (stats.isOverLimit) {
+        this.logger.debug(`Device ${device._id} has exceeded limit in rolling window: ${stats.messagesSentInWindow}/${stats.currentTierLimit}`)
         return false
       }
 

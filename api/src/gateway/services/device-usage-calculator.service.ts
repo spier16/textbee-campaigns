@@ -1,0 +1,219 @@
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common'
+import { InjectModel } from '@nestjs/mongoose'
+import { Model, Types } from 'mongoose'
+import { Device, DeviceDocument } from '../schemas/device.schema'
+import { SMS, SMSDocument } from '../schemas/sms.schema'
+import { UsagePlan, UsagePlanDocument } from '../schemas/usage-plan.schema'
+import { UsagePlanService } from '../usage-plan.service'
+
+export interface DeviceUsageStats {
+  messagesSentInWindow: number
+  currentTierLimit: number
+  usagePercentage: number
+  windowMinutes: number
+  isOverLimit: boolean
+  shouldBeOnCooldown: boolean
+  estimatedCooldownEndTime: Date | null
+  oldestMessageTime: Date | null
+}
+
+export interface CooldownUpdateResult {
+  needsUpdate: boolean
+  newCooldownStatus: boolean
+}
+
+@Injectable()
+export class DeviceUsageCalculatorService {
+  private readonly logger = new Logger(DeviceUsageCalculatorService.name)
+
+  constructor(
+    @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
+    @InjectModel(SMS.name) private smsModel: Model<SMSDocument>,
+    @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
+    @Inject(forwardRef(() => UsagePlanService)) private usagePlanService: UsagePlanService,
+  ) {}
+
+  /**
+   * Calculate how many campaign messages were sent from a device in the rolling window
+   */
+  async calculateMessagesInWindow(
+    deviceId: string | Types.ObjectId,
+    windowMinutes: number,
+    campaignOnly: boolean = true,
+  ): Promise<{ count: number; oldestMessageTime: Date | null }> {
+    const cutoffTime = new Date(Date.now() - windowMinutes * 60 * 1000)
+
+    const query: any = {
+      device: deviceId,
+      sentAt: { $gte: cutoffTime },
+      status: { $in: ['sent', 'delivered'] }, // Only count successfully sent messages
+    }
+
+    if (campaignOnly) {
+      query.campaignId = { $exists: true, $ne: null }
+    }
+
+    // Count messages in window
+    const count = await this.smsModel.countDocuments(query).exec()
+
+    // Find oldest message in window (for estimating cooldown end)
+    const oldestMessage = await this.smsModel
+      .findOne(query)
+      .sort({ sentAt: 1 }) // Oldest first
+      .select('sentAt')
+      .exec()
+
+    return {
+      count,
+      oldestMessageTime: oldestMessage?.sentAt || null,
+    }
+  }
+
+  /**
+   * Get comprehensive usage statistics for a device
+   */
+  async getDeviceUsageStats(device: DeviceDocument): Promise<DeviceUsageStats> {
+    // Default stats if no usage plan
+    if (!device.usagePlan) {
+      return {
+        messagesSentInWindow: 0,
+        currentTierLimit: 0,
+        usagePercentage: 0,
+        windowMinutes: 1440,
+        isOverLimit: false,
+        shouldBeOnCooldown: false,
+        estimatedCooldownEndTime: null,
+        oldestMessageTime: null,
+      }
+    }
+
+    // Get usage plan
+    const usagePlan = await this.getUsagePlanById(device.usagePlan)
+    if (!usagePlan) {
+      this.logger.warn(`Usage plan not found for device ${device._id}`)
+      return {
+        messagesSentInWindow: 0,
+        currentTierLimit: 0,
+        usagePercentage: 0,
+        windowMinutes: 1440,
+        isOverLimit: false,
+        shouldBeOnCooldown: false,
+        estimatedCooldownEndTime: null,
+        oldestMessageTime: null,
+      }
+    }
+
+    const windowMinutes = usagePlan.usageWindowMinutes || 1440
+    const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
+
+    if (!currentTier) {
+      this.logger.warn(`Current tier ${device.current_tier} not found in usage plan for device ${device._id}`)
+      return {
+        messagesSentInWindow: 0,
+        currentTierLimit: 0,
+        usagePercentage: 0,
+        windowMinutes,
+        isOverLimit: false,
+        shouldBeOnCooldown: false,
+        estimatedCooldownEndTime: null,
+        oldestMessageTime: null,
+      }
+    }
+
+    // Calculate messages in window
+    const { count, oldestMessageTime } = await this.calculateMessagesInWindow(
+      device._id,
+      windowMinutes,
+      true, // Campaign only
+    )
+
+    const usagePercentage = Math.min((count / currentTier.dailyLimit) * 100, 100)
+    const isOverLimit = count >= currentTier.dailyLimit
+
+    // Determine if device should be on cooldown
+    const isMaxTier = device.current_tier === usagePlan.tiers[usagePlan.tiers.length - 1].tier
+    const shouldBeOnCooldown = isMaxTier && isOverLimit
+
+    // Estimate cooldown end time
+    let estimatedCooldownEndTime: Date | null = null
+    if (shouldBeOnCooldown && oldestMessageTime) {
+      estimatedCooldownEndTime = new Date(
+        oldestMessageTime.getTime() + windowMinutes * 60 * 1000,
+      )
+    }
+
+    return {
+      messagesSentInWindow: count,
+      currentTierLimit: currentTier.dailyLimit,
+      usagePercentage,
+      windowMinutes,
+      isOverLimit,
+      shouldBeOnCooldown,
+      estimatedCooldownEndTime,
+      oldestMessageTime,
+    }
+  }
+
+  /**
+   * Check if device cooldown status needs updating and return new status
+   */
+  async checkAndUpdateCooldownStatus(device: DeviceDocument): Promise<CooldownUpdateResult> {
+    const stats = await this.getDeviceUsageStats(device)
+
+    const needsUpdate = device.is_on_cooldown !== stats.shouldBeOnCooldown
+
+    return {
+      needsUpdate,
+      newCooldownStatus: stats.shouldBeOnCooldown,
+    }
+  }
+
+  /**
+   * Batch recalculate usage and cooldown status for all devices with usage plans
+   */
+  async batchRecalculateAllDevices(): Promise<void> {
+    this.logger.log('Starting batch recalculation of device usage...')
+
+    const devices = await this.deviceModel
+      .find({ usagePlan: { $exists: true, $ne: null } })
+      .exec()
+
+    this.logger.log(`Found ${devices.length} devices with usage plans`)
+
+    let updatedCount = 0
+
+    for (const device of devices) {
+      try {
+        const { needsUpdate, newCooldownStatus } = await this.checkAndUpdateCooldownStatus(device)
+
+        if (needsUpdate) {
+          device.is_on_cooldown = newCooldownStatus
+          await device.save()
+          updatedCount++
+
+          this.logger.debug(
+            `Device ${device._id} cooldown status updated to ${newCooldownStatus}`,
+          )
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to recalculate usage for device ${device._id}`,
+          error.stack,
+        )
+      }
+    }
+
+    this.logger.log(
+      `Batch recalculation complete. Updated ${updatedCount} of ${devices.length} devices`,
+    )
+  }
+
+  /**
+   * Helper to get usage plan by ID (supports both custom and template plans)
+   */
+  private async getUsagePlanById(
+    planId: string | Types.ObjectId,
+  ): Promise<UsagePlan | null> {
+    return await this.usagePlanService.getUsagePlanById(planId)
+  }
+}

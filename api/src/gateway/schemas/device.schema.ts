@@ -67,23 +67,8 @@ export class Device {
   @Prop({ type: Date })
   last_tier_upgrade: Date
 
-  @Prop({ type: Number, default: 0 })
-  messages_sent_today: number
-
-  @Prop({ type: Number, default: 0 })
-  messages_sent_this_hour: number
-
-  @Prop({ type: Date })
-  hourly_counter_reset: Date
-
-  @Prop({ type: Date })
-  daily_counter_reset: Date
-
   @Prop({ type: MongooseSchema.Types.Mixed })
   usagePlan?: Types.ObjectId | string
-
-  @Prop({ type: Date })
-  cooldown_until?: Date
 
   @Prop({ type: Boolean, default: false })
   is_on_cooldown?: boolean

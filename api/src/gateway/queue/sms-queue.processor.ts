@@ -11,6 +11,7 @@ import { Logger } from '@nestjs/common'
 import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../../campaigns/schemas/campaign-message.schema'
 import { UsagePlanService } from '../usage-plan.service'
 import { GatewayService } from '../gateway.service'
+import { DeviceUsageCalculatorService } from '../services/device-usage-calculator.service'
 
 @Processor('sms')
 export class SmsQueueProcessor {
@@ -24,6 +25,7 @@ export class SmsQueueProcessor {
     private webhookService: WebhookService,
     private usagePlanService: UsagePlanService,
     private gatewayService: GatewayService,
+    private usageCalculator: DeviceUsageCalculatorService,
   ) {}
 
   @Process({
@@ -54,47 +56,20 @@ export class SmsQueueProcessor {
         `SMS Job ${job.id} completed, success: ${response.successCount}, failures: ${response.failureCount}`,
       )
 
-      // Update device SMS count and daily usage counters with proper reset logic
-      const now = new Date()
-      const today = now.toISOString().split('T')[0]
-      const currentHour = now.getHours()
-
-      // Get current device state to check reset needs
-      const currentDevice = await this.deviceModel.findById(deviceId)
-      let updateData: any = {
-        $inc: {
-          sentSMSCount: response.successCount,
-        },
-        $set: {}
-      }
-
-      // Handle daily counter reset
-      const lastDailyReset = currentDevice.daily_counter_reset
-      const needsDailyReset = !lastDailyReset || lastDailyReset.toISOString().split('T')[0] !== today
-
-      if (needsDailyReset) {
-        updateData.$set.messages_sent_today = response.successCount
-        updateData.$set.daily_counter_reset = now
-      } else {
-        updateData.$inc.messages_sent_today = response.successCount
-      }
-
-      // Handle hourly counter reset
-      const lastHourlyReset = currentDevice.hourly_counter_reset
-      const needsHourlyReset = !lastHourlyReset ||
-        lastHourlyReset.toISOString().split('T')[0] !== today ||
-        lastHourlyReset.getHours() !== currentHour
-
-      if (needsHourlyReset) {
-        updateData.$set.messages_sent_this_hour = response.successCount
-        updateData.$set.hourly_counter_reset = now
-      } else {
-        updateData.$inc.messages_sent_this_hour = response.successCount
-      }
-
+      // Update device: increment total count and set last message timestamp
       await this.deviceModel
-        .findByIdAndUpdate(deviceId, updateData)
+        .findByIdAndUpdate(deviceId, {
+          $inc: {
+            sentSMSCount: response.successCount,
+          },
+          $set: {
+            lastMessageSentAt: new Date(),
+          },
+        })
         .exec()
+
+      // Check tier progression after batch completes
+      await this.gatewayService.checkTierProgression(deviceId)
 
       // Update batch status
       const smsBatch = await this.smsBatchModel.findByIdAndUpdate(
@@ -220,39 +195,28 @@ export class SmsQueueProcessor {
   }
 
   /**
-   * Check if device can send message now (re-validates device availability)
+   * Check if device can send message now (re-validates device availability using rolling window)
    */
   private async canDeviceSendNow(device: any): Promise<boolean> {
     try {
-      // Check if device is on cooldown
-      if (device.is_on_cooldown && device.cooldown_until) {
-        if (new Date() < device.cooldown_until) {
-          return false
-        }
-      }
-
-      // Check current tier limits
-      const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
-      if (!currentTier) {
+      // Check if device is on cooldown (rolling window based)
+      if (device.is_on_cooldown) {
+        this.logger.debug(`Device ${device._id} is on cooldown`)
         return false
       }
 
-      // Refresh device data to get latest counters
+      // Get fresh device data
       const freshDevice = await this.deviceModel.findById(device._id)
       if (!freshDevice) {
         return false
       }
 
-      // Check if daily limit exceeded
-      if (freshDevice.messages_sent_today >= currentTier.dailyLimit) {
-        this.logger.debug(`Device ${device._id} has reached daily limit: ${freshDevice.messages_sent_today}/${currentTier.dailyLimit}`)
-        return false
-      }
+      // Get current usage stats (rolling window)
+      const stats = await this.usageCalculator.getDeviceUsageStats(freshDevice)
 
-      // Check hourly rate limit
-      const maxHourlyMessages = Math.ceil(3600 / currentTier.timeDelayBetweenMessages)
-      if (freshDevice.messages_sent_this_hour >= maxHourlyMessages) {
-        this.logger.debug(`Device ${device._id} has reached hourly limit: ${freshDevice.messages_sent_this_hour}/${maxHourlyMessages}`)
+      // Check if limit exceeded in rolling window
+      if (stats.isOverLimit) {
+        this.logger.debug(`Device ${device._id} has exceeded limit in rolling window: ${stats.messagesSentInWindow}/${stats.currentTierLimit}`)
         return false
       }
 

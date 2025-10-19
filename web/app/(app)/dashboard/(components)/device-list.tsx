@@ -40,11 +40,12 @@ interface Device {
   createdAt: string
   current_tier: number
   messages_sent_today: number
-  daily_counter_reset?: string
   is_on_cooldown?: boolean
-  cooldown_until?: string
-  usagePlan?: string // Now just the ID
+  usagePlan?: string
   phoneNumber?: string
+  usage_window_minutes?: number
+  usage_percentage?: number
+  estimated_cooldown_end?: string
 }
 
 export default function DeviceList() {
@@ -287,7 +288,7 @@ export default function DeviceList() {
                         <div className='space-y-1'>
                           <div className='flex items-center justify-between text-xs'>
                             <span className='text-muted-foreground'>
-                              Daily Usage ({device.messages_sent_today}/{currentTier.dailyLimit})
+                              Usage (Last {device.usage_window_minutes ? Math.round(device.usage_window_minutes / 60) : 24}h) ({device.messages_sent_today}/{currentTier.dailyLimit})
                             </span>
                             <span className='text-muted-foreground'>
                               {Math.round(usagePercentage)}%
@@ -306,9 +307,9 @@ export default function DeviceList() {
                           />
                         </div>
 
-                        {onCooldown && device.cooldown_until && (
+                        {onCooldown && device.estimated_cooldown_end && (
                           <div className='text-xs text-muted-foreground'>
-                            Cooldown until: {new Date(device.cooldown_until).toLocaleString()}
+                            Cooldown until ~{new Date(device.estimated_cooldown_end).toLocaleString()}
                           </div>
                         )}
                       </div>

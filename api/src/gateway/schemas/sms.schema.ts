@@ -77,5 +77,8 @@ export class SMS {
 
 export const SMSSchema = SchemaFactory.createForClass(SMS)
 
-
+// Index for efficient received message queries
 SMSSchema.index({ device: 1, type: 1, receivedAt: -1 })
+
+// Index for rolling window usage calculations (campaign messages by device and time)
+SMSSchema.index({ device: 1, campaignId: 1, sentAt: -1 })

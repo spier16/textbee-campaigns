@@ -21,13 +21,13 @@ import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { sendSmsSchema } from '@/lib/schemas'
 import type { SendSmsFormData } from '@/lib/schemas'
-import { MessageSquare, Send, Plus, X, UserCircle, Check } from 'lucide-react'
+import { MessageSquare, Send, Plus, X, UserCircle, Check, Smartphone } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Spinner } from '@/components/ui/spinner'
-import { formatPhoneNumberDisplay } from '@/lib/utils'
+import { formatPhoneNumberDisplay, cn } from '@/lib/utils'
 
 export default function SendSms() {
   const { data: devices, isLoading: isLoadingDevices } = useQuery({
@@ -93,7 +93,7 @@ export default function SendSms() {
                   control={control}
                   render={({ field }) => (
                     <Select onValueChange={field.onChange} value={field.value}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-10">
                         <SelectValue placeholder='Select a device' />
                       </SelectTrigger>
                       <SelectContent>
@@ -102,9 +102,18 @@ export default function SendSms() {
                             key={device._id}
                             value={device._id}
                             disabled={!device.enabled}
+                            className="py-2"
                           >
-                            {device.brand} {device.model} ({device._id} - {formatPhoneNumberDisplay(device.phoneNumber)}){' '}
-                            {device.enabled ? '' : '(disabled)'}
+                            <div className={cn("flex flex-col", !device.enabled && "opacity-50")}>
+                              <div className="flex items-center gap-2 font-medium">
+                                <Smartphone className="h-4 w-4" />
+                                <span>{device.brand} {device.model}</span>
+                                {!device.enabled && <span className="text-xs">(disabled)</span>}
+                              </div>
+                              <div className="text-xs text-muted-foreground ml-6 mt-0.5">
+                                {formatPhoneNumberDisplay(device.phoneNumber)} • ID: {device._id}
+                              </div>
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>

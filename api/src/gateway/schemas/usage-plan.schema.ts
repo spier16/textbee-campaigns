@@ -23,6 +23,9 @@ export class UsagePlan {
   @Prop({ type: String })
   description?: string
 
+  @Prop({ type: Number, default: 1440 })
+  usageWindowMinutes: number // Rolling window period in minutes (default: 1440 = 24 hours)
+
   @Prop({
     type: [{
       tier: { type: Number, required: true },

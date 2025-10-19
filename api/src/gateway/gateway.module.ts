@@ -17,6 +17,8 @@ import { SmsQueueProcessor } from './queue/sms-queue.processor'
 import { SmsStatusUpdateTask } from './tasks/sms-status-update.task'
 import { UsagePlanService } from './usage-plan.service'
 import { CampaignMessage, CampaignMessageSchema } from '../campaigns/schemas/campaign-message.schema'
+import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
+import { DeviceUsageSchedulerService } from './services/device-usage-scheduler.service'
 
 @Module({
   imports: [
@@ -61,7 +63,7 @@ import { CampaignMessage, CampaignMessageSchema } from '../campaigns/schemas/cam
     ConfigModule,
   ],
   controllers: [GatewayController],
-  providers: [GatewayService, UsagePlanService, SmsQueueService, SmsQueueProcessor, SmsStatusUpdateTask],
-  exports: [MongooseModule, GatewayService, SmsQueueService, UsagePlanService],
+  providers: [GatewayService, UsagePlanService, DeviceUsageCalculatorService, DeviceUsageSchedulerService, SmsQueueService, SmsQueueProcessor, SmsStatusUpdateTask],
+  exports: [MongooseModule, GatewayService, SmsQueueService, UsagePlanService, DeviceUsageCalculatorService],
 })
 export class GatewayModule {}

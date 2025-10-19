@@ -29,6 +29,12 @@ export class CreateUsagePlanDTO {
   @IsString()
   description?: string
 
+  @ApiProperty({ required: false, default: 1440, description: 'Rolling window period in minutes (default: 1440 = 24 hours)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  usageWindowMinutes?: number
+
   @ApiProperty({ type: [UsagePlanTierDTO] })
   @IsArray()
   @ValidateNested({ each: true })
@@ -51,6 +57,12 @@ export class UpdateUsagePlanDTO {
   @IsOptional()
   @IsString()
   description?: string
+
+  @ApiProperty({ required: false, description: 'Rolling window period in minutes' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  usageWindowMinutes?: number
 
   @ApiProperty({ type: [UsagePlanTierDTO], required: false })
   @IsOptional()

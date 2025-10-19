@@ -12,6 +12,7 @@ const PREDEFINED_PLANS = [
     _id: 'template_verizon_business',
     name: 'Verizon Business SIM',
     description: 'Best for high-volume sending',
+    usageWindowMinutes: 1440, // 24 hours rolling window
     tiers: [
       { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 70 },  // 10%
       { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 140 }, // 20%
@@ -29,6 +30,7 @@ const PREDEFINED_PLANS = [
     _id: 'template_verizon_prepaid',
     name: 'Verizon Prepaid SIM',
     description: 'Reliable mid-volume option',
+    usageWindowMinutes: 1440, // 24 hours rolling window
     tiers: [
       { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 20 },  // 10%
       { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 40 },  // 20%
@@ -46,6 +48,7 @@ const PREDEFINED_PLANS = [
     _id: 'template_total_wireless',
     name: 'Total Wireless SIM',
     description: "Reliable mid-volume option on Verizon's network",
+    usageWindowMinutes: 1440, // 24 hours rolling window
     tiers: [
       { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
       { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
@@ -63,6 +66,7 @@ const PREDEFINED_PLANS = [
     _id: 'template_tracfone',
     name: 'Tracfone SIM',
     description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
+    usageWindowMinutes: 1440, // 24 hours rolling window
     tiers: [
       { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
       { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
@@ -295,7 +299,6 @@ export class UsagePlanService {
     device.usagePlan = assignUsagePlanDto.usagePlanId as any
     device.current_tier = 1
     device.is_on_cooldown = false
-    device.cooldown_until = undefined
 
     return await device.save()
   }
@@ -328,6 +331,7 @@ export class UsagePlanService {
     const defaultPlanData: CreateUsagePlanDTO = {
       name: 'Default Plan',
       description: 'Automatically created default usage plan',
+      usageWindowMinutes: 1440, // 24 hours rolling window
       tiers: [
         { tier: 1, timeDelayBetweenMessages: 2, dailyLimit: 50 },
         { tier: 2, timeDelayBetweenMessages: 1, dailyLimit: 100 },
@@ -351,67 +355,5 @@ export class UsagePlanService {
 
     const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
     return currentTier || null
-  }
-
-  async checkAndProgressTier(device: DeviceDocument): Promise<boolean> {
-    if (!device.usagePlan) {
-      return false
-    }
-
-    const usagePlan = await this.getUsagePlanById(device.usagePlan)
-    if (!usagePlan) {
-      return false
-    }
-
-    const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
-    if (!currentTier) {
-      return false
-    }
-
-    // Check if daily limit exceeded
-    if (device.messages_sent_today >= currentTier.dailyLimit) {
-      // Find next tier
-      const nextTier = usagePlan.tiers.find(t => t.tier === device.current_tier + 1)
-
-      if (nextTier) {
-        // Upgrade tier
-        device.current_tier = nextTier.tier
-        device.last_tier_upgrade = new Date()
-        await device.save()
-        return true
-      } else {
-        // No next tier available, put on cooldown
-        device.is_on_cooldown = true
-        device.cooldown_until = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-        await device.save()
-      }
-    }
-
-    return false
-  }
-
-  async checkAndResetCooldown(device: DeviceDocument): Promise<boolean> {
-    if (!device.is_on_cooldown || !device.cooldown_until) {
-      return false
-    }
-
-    const now = new Date()
-
-    // Check if cooldown period has passed
-    if (now >= device.cooldown_until) {
-      // Reset cooldown and check if we can move to next tier
-      device.is_on_cooldown = false
-      device.cooldown_until = undefined
-
-      // If messages sent in last 24 hours is now 0, we can progress
-      if (device.messages_sent_today === 0) {
-        await this.checkAndProgressTier(device)
-      }
-
-      await device.save()
-      return true
-    }
-
-    return false
   }
 }

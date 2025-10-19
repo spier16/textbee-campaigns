@@ -22,6 +22,7 @@ import { WebhookService } from '../webhook/webhook.service'
 import { BillingService } from '../billing/billing.service'
 import { SmsQueueService } from './queue/sms-queue.service'
 import { UsagePlan, UsagePlanDocument } from './schemas/usage-plan.schema'
+import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
 
 @Injectable()
 export class GatewayService {
@@ -34,6 +35,7 @@ export class GatewayService {
     private webhookService: WebhookService,
     private billingService: BillingService,
     private smsQueueService: SmsQueueService,
+    private usageCalculator: DeviceUsageCalculatorService,
   ) {}
 
   private async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
@@ -142,9 +144,40 @@ export class GatewayService {
   }
 
   async getDevicesForUser(user: User): Promise<any> {
-    return await this.deviceModel
+    const devices = await this.deviceModel
       .find({ user: user._id })
       .exec()
+
+    // Enrich devices with real-time rolling window usage stats
+    const enrichedDevices = await Promise.all(
+      devices.map(async (device) => {
+        const deviceObj = device.toObject()
+
+        // Calculate current window usage if device has a usage plan
+        if (device.usagePlan) {
+          try {
+            const stats = await this.usageCalculator.getDeviceUsageStats(device)
+
+            return {
+              ...deviceObj,
+              // Add calculated fields for frontend (backward compatible)
+              messages_sent_today: stats.messagesSentInWindow,
+              usage_window_minutes: stats.windowMinutes,
+              usage_percentage: stats.usagePercentage,
+              estimated_cooldown_end: stats.estimatedCooldownEndTime,
+            }
+          } catch (error) {
+            console.error(`Failed to calculate usage for device ${device._id}:`, error)
+            // Return device without calculated stats if calculation fails
+            return deviceObj
+          }
+        }
+
+        return deviceObj
+      })
+    )
+
+    return enrichedDevices
   }
 
   async getDeviceById(deviceId: string): Promise<any> {
@@ -223,22 +256,21 @@ export class GatewayService {
       )
     }
 
-    // Check if device is on cooldown
+    // Check if device is on cooldown (rolling window based)
     if (device.is_on_cooldown) {
-      // Try to reset cooldown first
-      const cooldownReset = await this.checkAndResetCooldown(device)
-      if (!cooldownReset && device.is_on_cooldown) {
-        const cooldownUntil = device.cooldown_until
-          ? new Date(device.cooldown_until).toLocaleString()
-          : 'unknown'
-        throw new HttpException(
-          {
-            success: false,
-            error: `Device is on cooldown until ${cooldownUntil}. Please wait before sending more messages.`,
-          },
-          HttpStatus.TOO_MANY_REQUESTS,
-        )
-      }
+      // Get current usage stats to estimate cooldown end
+      const stats = await this.usageCalculator.getDeviceUsageStats(device)
+      const cooldownMessage = stats.estimatedCooldownEndTime
+        ? `Device is on cooldown until approximately ${stats.estimatedCooldownEndTime.toLocaleString()}`
+        : 'Device is on cooldown. Please wait before sending more messages.'
+
+      throw new HttpException(
+        {
+          success: false,
+          error: cooldownMessage,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      )
     }
 
     const message = smsData.message || smsData.smsBody
@@ -390,19 +422,21 @@ export class GatewayService {
         )
       }
 
+      // Update device: increment total count and last message timestamp
       this.deviceModel
         .findByIdAndUpdate(deviceId, {
           $inc: {
             sentSMSCount: response.successCount,
-            messages_sent_today: response.successCount,
-            messages_sent_this_hour: response.successCount,
+          },
+          $set: {
+            lastMessageSentAt: new Date(),
           },
         })
         .exec()
         .then(async (updatedDevice) => {
           if (updatedDevice) {
-            // Check if device needs tier progression
-            await this.checkAndProgressTier(updatedDevice)
+            // Check if device needs tier progression based on rolling window usage
+            await this.checkTierProgression(updatedDevice._id)
           }
         })
         .catch((e) => {
@@ -453,22 +487,21 @@ export class GatewayService {
       )
     }
 
-    // Check if device is on cooldown
+    // Check if device is on cooldown (rolling window based)
     if (device.is_on_cooldown) {
-      // Try to reset cooldown first
-      const cooldownReset = await this.checkAndResetCooldown(device)
-      if (!cooldownReset && device.is_on_cooldown) {
-        const cooldownUntil = device.cooldown_until
-          ? new Date(device.cooldown_until).toLocaleString()
-          : 'unknown'
-        throw new HttpException(
-          {
-            success: false,
-            error: `Device is on cooldown until ${cooldownUntil}. Please wait before sending more messages.`,
-          },
-          HttpStatus.TOO_MANY_REQUESTS,
-        )
-      }
+      // Get current usage stats to estimate cooldown end
+      const stats = await this.usageCalculator.getDeviceUsageStats(device)
+      const cooldownMessage = stats.estimatedCooldownEndTime
+        ? `Device is on cooldown until approximately ${stats.estimatedCooldownEndTime.toLocaleString()}`
+        : 'Device is on cooldown. Please wait before sending more messages.'
+
+      throw new HttpException(
+        {
+          success: false,
+          error: cooldownMessage,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      )
     }
 
     if (
@@ -612,15 +645,16 @@ export class GatewayService {
           .findByIdAndUpdate(deviceId, {
             $inc: {
               sentSMSCount: response.successCount,
-              messages_sent_today: response.successCount,
-              messages_sent_this_hour: response.successCount,
+            },
+            $set: {
+              lastMessageSentAt: new Date(),
             },
           })
           .exec()
           .then(async (updatedDevice) => {
             if (updatedDevice) {
-              // Check if device needs tier progression
-              await this.checkAndProgressTier(updatedDevice)
+              // Check if device needs tier progression based on rolling window usage
+              await this.checkTierProgression(updatedDevice._id)
             }
           })
           .catch((e) => {
@@ -1040,63 +1074,42 @@ export class GatewayService {
     };
   }
 
-  private async checkAndProgressTier(device: DeviceDocument): Promise<boolean> {
-    if (!device.usagePlan) {
+  /**
+   * Check and update tier progression based on rolling window usage
+   * Now takes deviceId instead of device document to ensure fresh data
+   */
+  async checkTierProgression(deviceId: string | Types.ObjectId): Promise<boolean> {
+    const device = await this.deviceModel.findById(deviceId).exec()
+    if (!device || !device.usagePlan) {
       return false
     }
+
+    // Get current usage stats from rolling window
+    const stats = await this.usageCalculator.getDeviceUsageStats(device)
 
     const usagePlan = await this.getUsagePlanById(device.usagePlan)
     if (!usagePlan) {
       return false
     }
 
-    const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
-    if (!currentTier) {
-      return false
-    }
-
-    // Check if daily limit exceeded
-    if (device.messages_sent_today >= currentTier.dailyLimit) {
+    // Check if current tier limit exceeded
+    if (stats.isOverLimit) {
       // Find next tier
       const nextTier = usagePlan.tiers.find(t => t.tier === device.current_tier + 1)
 
       if (nextTier) {
-        // Upgrade tier
+        // Upgrade to next tier
         device.current_tier = nextTier.tier
         device.last_tier_upgrade = new Date()
         await device.save()
+        console.log(`Device ${device._id} upgraded to tier ${nextTier.tier}`)
         return true
       } else {
         // No next tier available, put on cooldown
         device.is_on_cooldown = true
-        device.cooldown_until = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
         await device.save()
+        console.log(`Device ${device._id} entered cooldown`)
       }
-    }
-
-    return false
-  }
-
-  private async checkAndResetCooldown(device: DeviceDocument): Promise<boolean> {
-    if (!device.is_on_cooldown || !device.cooldown_until) {
-      return false
-    }
-
-    const now = new Date()
-
-    // Check if cooldown period has passed
-    if (now >= device.cooldown_until) {
-      // Reset cooldown and check if we can move to next tier
-      device.is_on_cooldown = false
-      device.cooldown_until = undefined
-
-      // If messages sent in last 24 hours is now 0, we can progress
-      if (device.messages_sent_today === 0) {
-        await this.checkAndProgressTier(device)
-      }
-
-      await device.save()
-      return true
     }
 
     return false
