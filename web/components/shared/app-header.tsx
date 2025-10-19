@@ -247,7 +247,7 @@ export default function AppHeader() {
             href={Routes.landingPage}
           >
             <span className='font-bold'>
-              Grahams<span className='text-primary'>Scams</span>
+              Hive<span className='text-primary'>SMS</span>
               <span className='text-xs align-center text-gray-500 dark:text-gray-400'>
                 .com
               </span>

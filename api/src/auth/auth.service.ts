@@ -374,7 +374,10 @@ export class AuthService {
     }
     if (apiKey.usageCount > 0) {
       throw new HttpException(
-        { error: 'Api key cannot be deleted' },
+        {
+          error:
+            'This API key cannot be deleted because it has been used. API keys with usage history must be retained for audit purposes.',
+        },
         HttpStatus.BAD_REQUEST,
       )
     }
