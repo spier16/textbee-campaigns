@@ -1,6 +1,6 @@
-import { Process, Processor } from '@nestjs/bull'
+import { Process, Processor, InjectQueue } from '@nestjs/bull'
 import { InjectModel } from '@nestjs/mongoose'
-import { Job } from 'bull'
+import { Job, Queue } from 'bull'
 import { Model } from 'mongoose'
 import * as firebaseAdmin from 'firebase-admin'
 import { Device } from '../schemas/device.schema'
@@ -9,6 +9,7 @@ import { SMSBatch } from '../schemas/sms-batch.schema'
 import { WebhookService } from 'src/webhook/webhook.service'
 import { Logger } from '@nestjs/common'
 import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../../campaigns/schemas/campaign-message.schema'
+import { ScheduleType } from '../../campaigns/schemas/campaign.schema'
 import { UsagePlanService } from '../usage-plan.service'
 import { GatewayService } from '../gateway.service'
 import { DeviceUsageCalculatorService } from '../services/device-usage-calculator.service'
@@ -22,6 +23,7 @@ export class SmsQueueProcessor {
     @InjectModel(SMS.name) private smsModel: Model<SMS>,
     @InjectModel(SMSBatch.name) private smsBatchModel: Model<SMSBatch>,
     @InjectModel(CampaignMessage.name) private campaignMessageModel: Model<CampaignMessageDocument>,
+    @InjectQueue('sms') private smsQueue: Queue,
     private webhookService: WebhookService,
     private usagePlanService: UsagePlanService,
     private gatewayService: GatewayService,
@@ -141,6 +143,22 @@ export class SmsQueueProcessor {
       // Update status to sending
       campaignMessage.status = MessageStatus.SENDING
       await campaignMessage.save()
+
+      // Re-check device availability before sending (limit might have been exceeded since scheduling)
+      const device = await this.deviceModel.findById(deviceId)
+      if (!device) {
+        campaignMessage.status = MessageStatus.FAILED
+        campaignMessage.lastError = 'Device not found'
+        await campaignMessage.save()
+        return
+      }
+
+      const canSend = await this.canDeviceSendNow(device)
+      if (!canSend) {
+        this.logger.debug(`Device ${deviceId} cannot send message ${campaignMessageId} now - rescheduling`)
+        await this.rescheduleCampaignMessage(campaignMessage, device)
+        return
+      }
 
       // Use the same GatewayService method that manual messaging uses
       const smsData = {
@@ -274,17 +292,82 @@ export class SmsQueueProcessor {
       return
     }
 
-    // Calculate next available slot based on device delay
-    const delayMs = currentTier.timeDelayBetweenMessages * 1000
-    const nextAvailableTime = new Date(Date.now() + delayMs)
+    // Load campaign to check sending windows
+    const Campaign = this.campaignMessageModel.db.model('Campaign')
+    const campaign = await Campaign.findById(campaignMessage.campaign)
+    if (!campaign) {
+      campaignMessage.status = MessageStatus.FAILED
+      campaignMessage.lastError = 'Campaign not found'
+      await campaignMessage.save()
+      return
+    }
 
-    // Update campaign message
+    // Get device usage stats to determine appropriate delay
+    const stats = await this.usageCalculator.getDeviceUsageStats(device)
+
+    let delayMs: number
+    if (stats.estimatedCooldownEndTime) {
+      // Device is at limit - wait until oldest message ages out of the rolling window
+      delayMs = Math.max(0, stats.estimatedCooldownEndTime.getTime() - Date.now())
+      this.logger.debug(`Device ${device._id} at limit. Rescheduling after cooldown ends: ${stats.estimatedCooldownEndTime}`)
+    } else {
+      // Device not at limit - use tier delay
+      delayMs = currentTier.timeDelayBetweenMessages * 1000
+    }
+
+    // Calculate next device-available time
+    let nextAvailableTime = new Date(Date.now() + delayMs)
+
+    // Check if that time is within campaign sending windows
+    if (!this.isInSendingWindow(campaign, nextAvailableTime)) {
+      this.logger.debug(`Calculated time ${nextAvailableTime} is outside campaign sending window, finding next valid window`)
+
+      // Find next valid sending window
+      const nextValidWindow = this.getNextSendingWindow(campaign, nextAvailableTime)
+
+      if (!nextValidWindow) {
+        // No more valid windows - campaign might be ended or no more windows available
+        campaignMessage.status = MessageStatus.FAILED
+        campaignMessage.lastError = 'No valid sending windows available'
+        await campaignMessage.save()
+        this.logger.warn(`No valid sending windows found for campaign message ${campaignMessage._id}`)
+        return
+      }
+
+      nextAvailableTime = nextValidWindow
+      delayMs = Math.max(0, nextAvailableTime.getTime() - Date.now())
+      this.logger.debug(`Adjusted reschedule time to next valid window: ${nextAvailableTime}`)
+    }
+
+    // Update campaign message status and time
     campaignMessage.status = MessageStatus.SCHEDULED
     campaignMessage.scheduledTime = nextAvailableTime
     campaignMessage.lastError = 'Device not available, rescheduled'
     await campaignMessage.save()
 
-    this.logger.debug(`Rescheduled campaign message ${campaignMessage._id} to ${nextAvailableTime}`)
+    this.logger.debug(`Rescheduled campaign message ${campaignMessage._id} to ${nextAvailableTime} (delay: ${delayMs}ms)`)
+
+    // Re-queue the message with the calculated delay
+    await this.smsQueue.add(
+      'send-campaign-message',
+      {
+        deviceId: device._id.toString(),
+        campaignMessageId: campaignMessage._id.toString(),
+      },
+      {
+        priority: campaignMessage.priority || 1,
+        attempts: 3,
+        delay: delayMs,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: 50,
+        removeOnFail: 100,
+      },
+    )
+
+    this.logger.debug(`Re-queued campaign message ${campaignMessage._id} with delay ${delayMs}ms`)
   }
 
   /**
@@ -309,5 +392,164 @@ export class SmsQueueProcessor {
     } catch (error) {
       this.logger.error('Error updating campaign stats after send:', error)
     }
+  }
+
+  /**
+   * Check if a given time is within campaign's valid sending windows
+   */
+  private isInSendingWindow(campaign: any, now: Date): boolean {
+    const campaignDate = now.toISOString().split('T')[0]
+
+    // Check if we're within campaign date range
+    if (campaignDate < campaign.campaignStartDate || campaignDate > campaign.campaignEndDate) {
+      return false
+    }
+
+    // For 'now' and 'later' schedule types, we can send anytime within date range
+    if (campaign.scheduleType === ScheduleType.NOW || campaign.scheduleType === ScheduleType.LATER) {
+      return true
+    }
+
+    // For 'windows' schedule type
+    if (campaign.scheduleType === ScheduleType.WINDOWS && campaign.sendingWindows) {
+      return campaign.sendingWindows.some(window => {
+        const windowStart = new Date(`${window.startDate}T${window.startTime}`)
+        const windowEnd = new Date(`${window.endDate}T${window.endTime}`)
+        return now >= windowStart && now <= windowEnd
+      })
+    }
+
+    // For 'weekday' schedule type
+    if (campaign.scheduleType === ScheduleType.WEEKDAY && campaign.weekdayWindows && campaign.weekdayEnabled) {
+      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+      const currentDay = dayNames[now.getDay()]
+
+      if (!campaign.weekdayEnabled[currentDay]) {
+        return false
+      }
+
+      const todayWindows = campaign.weekdayWindows[currentDay]
+      if (!todayWindows || todayWindows.length === 0) {
+        return false
+      }
+
+      const currentTime = now.getHours() * 60 + now.getMinutes()
+
+      return todayWindows.some(window => {
+        const [startHour, startMin] = window.startTime.split(':').map(Number)
+        const [endHour, endMin] = window.endTime.split(':').map(Number)
+        const startTime = startHour * 60 + startMin
+        const endTime = endHour * 60 + endMin
+
+        return currentTime >= startTime && currentTime <= endTime
+      })
+    }
+
+    return false
+  }
+
+  /**
+   * Find the next valid sending window for a campaign after a given time
+   */
+  private getNextSendingWindow(campaign: any, afterTime: Date): Date | null {
+    // Check if campaign has ended
+    const afterDate = afterTime.toISOString().split('T')[0]
+    if (afterDate > campaign.campaignEndDate) {
+      return null
+    }
+
+    // For 'now' and 'later' schedule types, next valid time is immediately (if within date range)
+    if (campaign.scheduleType === ScheduleType.NOW || campaign.scheduleType === ScheduleType.LATER) {
+      if (afterDate <= campaign.campaignEndDate) {
+        return afterTime
+      }
+      return null
+    }
+
+    // For 'windows' schedule type
+    if (campaign.scheduleType === ScheduleType.WINDOWS && campaign.sendingWindows) {
+      // Find next window that starts after afterTime
+      let nextWindow: Date | null = null
+
+      for (const window of campaign.sendingWindows) {
+        const windowStart = new Date(`${window.startDate}T${window.startTime}`)
+        const windowEnd = new Date(`${window.endDate}T${window.endTime}`)
+
+        // If we're before this window starts, this could be our next window
+        if (afterTime < windowStart && (!nextWindow || windowStart < nextWindow)) {
+          nextWindow = windowStart
+        }
+        // If we're currently in this window, return current time
+        else if (afterTime >= windowStart && afterTime <= windowEnd) {
+          return afterTime
+        }
+      }
+
+      return nextWindow
+    }
+
+    // For 'weekday' schedule type
+    if (campaign.scheduleType === ScheduleType.WEEKDAY && campaign.weekdayWindows && campaign.weekdayEnabled) {
+      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+      // Try to find a valid window in the next 14 days
+      for (let daysAhead = 0; daysAhead < 14; daysAhead++) {
+        const checkDate = new Date(afterTime)
+        checkDate.setDate(checkDate.getDate() + daysAhead)
+
+        const checkDateStr = checkDate.toISOString().split('T')[0]
+
+        // Check if this date is within campaign range
+        if (checkDateStr < campaign.campaignStartDate || checkDateStr > campaign.campaignEndDate) {
+          continue
+        }
+
+        const dayName = dayNames[checkDate.getDay()]
+
+        if (!campaign.weekdayEnabled[dayName]) {
+          continue
+        }
+
+        const dayWindows = campaign.weekdayWindows[dayName]
+        if (!dayWindows || dayWindows.length === 0) {
+          continue
+        }
+
+        // Sort windows by start time
+        const sortedWindows = [...dayWindows].sort((a, b) => {
+          const aTime = parseInt(a.startTime.replace(':', ''))
+          const bTime = parseInt(b.startTime.replace(':', ''))
+          return aTime - bTime
+        })
+
+        for (const window of sortedWindows) {
+          const [startHour, startMin] = window.startTime.split(':').map(Number)
+          const [endHour, endMin] = window.endTime.split(':').map(Number)
+
+          const windowStart = new Date(checkDate)
+          windowStart.setHours(startHour, startMin, 0, 0)
+
+          const windowEnd = new Date(checkDate)
+          windowEnd.setHours(endHour, endMin, 59, 999)
+
+          // If checking today, make sure we haven't passed this window yet
+          if (daysAhead === 0 && afterTime > windowEnd) {
+            continue
+          }
+
+          // If we're before this window, return its start time
+          if (afterTime < windowStart) {
+            return windowStart
+          }
+
+          // If we're currently in this window, return current time
+          if (afterTime >= windowStart && afterTime <= windowEnd) {
+            return afterTime
+          }
+        }
+      }
+    }
+
+    return null
   }
 }
