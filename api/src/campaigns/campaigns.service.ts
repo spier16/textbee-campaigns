@@ -541,6 +541,14 @@ export class CampaignsService {
         campaign._id.toString(),
         user._id.toString()
       )
+    } else if (updateStatusDto.status === CampaignStatus.SCHEDULED) {
+      // Schedule the campaign to start at specified time using queue
+      const startTime = this.calculateCampaignStartTime(campaign)
+      await this.campaignQueueService.scheduleCampaignStart(
+        campaign._id.toString(),
+        user._id.toString(),
+        startTime
+      )
     } else if (updateStatusDto.status === CampaignStatus.PAUSED) {
       await this.campaignQueueService.pauseCampaign(campaign._id.toString())
     } else if (updateStatusDto.status === CampaignStatus.RUNNING && oldStatus === CampaignStatus.PAUSED) {
@@ -678,6 +686,33 @@ export class CampaignsService {
     if (messages.length > 0) {
       await this.campaignMessageModel.insertMany(messages)
     }
+  }
+
+  /**
+   * Calculate when a campaign should start based on its schedule settings
+   */
+  private calculateCampaignStartTime(campaign: CampaignDocument): Date {
+    const now = new Date()
+
+    // If specific scheduled date and time are provided
+    if (campaign.scheduledDate && campaign.scheduledTime) {
+      const scheduledDateTime = new Date(`${campaign.scheduledDate}T${campaign.scheduledTime}`)
+      return scheduledDateTime > now ? scheduledDateTime : now
+    }
+
+    // If scheduleType is 'now', start immediately
+    if (campaign.scheduleType === 'now') {
+      return now
+    }
+
+    // For 'later' or other types, use campaign start date
+    if (campaign.campaignStartDate) {
+      const startDate = new Date(`${campaign.campaignStartDate}T00:00:00`)
+      return startDate > now ? startDate : now
+    }
+
+    // Default to now if no schedule info available
+    return now
   }
 
   private formatCampaignResponse(campaign: any): CampaignResponseDto {

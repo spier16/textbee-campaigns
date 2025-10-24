@@ -26,8 +26,8 @@ interface UsagePlan {
   name: string
   tiers: {
     tier: number
-    timeDelayBetweenMessages: number
-    dailyLimit: number
+    avg_wait_seconds: number
+    messages_per_cycle: number
   }[]
 }
 
@@ -102,7 +102,7 @@ export default function DeviceList() {
   const getUsagePercentage = (device: Device) => {
     const tier = getCurrentTier(device)
     if (!tier) return 0
-    return Math.min((device.messages_sent_today / tier.dailyLimit) * 100, 100)
+    return Math.min((device.messages_sent_today / tier.messages_per_cycle) * 100, 100)
   }
 
   const isDeviceOnCooldown = (device: Device) => {
@@ -280,7 +280,7 @@ export default function DeviceList() {
                             <span className='text-muted-foreground'>•</span>
                             <div className='flex items-center gap-1'>
                               <Clock className='h-3 w-3' />
-                              {formatTimeDelay(currentTier.timeDelayBetweenMessages)}
+                              {formatTimeDelay(currentTier.avg_wait_seconds)}
                             </div>
                           </div>
                         </div>
@@ -288,7 +288,7 @@ export default function DeviceList() {
                         <div className='space-y-1'>
                           <div className='flex items-center justify-between text-xs'>
                             <span className='text-muted-foreground'>
-                              Usage (Last {device.usage_window_minutes ? Math.round(device.usage_window_minutes / 60) : 24}h) ({device.messages_sent_today}/{currentTier.dailyLimit})
+                              Usage (Last {device.usage_window_minutes ? Math.round(device.usage_window_minutes / 60) : 24}h) ({device.messages_sent_today}/{currentTier.messages_per_cycle})
                             </span>
                             <span className='text-muted-foreground'>
                               {Math.round(usagePercentage)}%

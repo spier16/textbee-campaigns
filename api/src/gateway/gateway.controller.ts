@@ -34,6 +34,8 @@ import {
 } from './usage-plan.dto'
 import { GatewayService } from './gateway.service'
 import { UsagePlanService } from './usage-plan.service'
+import { PlanSwitchingService } from './services/plan-switching.service'
+import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
 import { CanModifyDevice } from './guards/can-modify-device.guard'
 
 @ApiTags('gateway')
@@ -43,6 +45,8 @@ export class GatewayController {
   constructor(
     private readonly gatewayService: GatewayService,
     private readonly usagePlanService: UsagePlanService,
+    private readonly planSwitchingService: PlanSwitchingService,
+    private readonly deviceUsageCalculator: DeviceUsageCalculatorService,
   ) {}
 
   @UseGuards(AuthGuard)
@@ -250,5 +254,58 @@ export class GatewayController {
   ) {
     const data = await this.usagePlanService.assignUsagePlanToDevice(req.user, deviceId, assignUsagePlanDto);
     return { data };
+  }
+
+  @ApiOperation({ summary: 'Get device usage statistics (rolling window)' })
+  @UseGuards(AuthGuard, CanModifyDevice)
+  @Get('/devices/:id/usage-stats')
+  async getDeviceUsageStats(@Param('id') deviceId: string, @Request() req) {
+    const device = await this.gatewayService.getDeviceById(deviceId);
+    const stats = await this.deviceUsageCalculator.getDeviceUsageStats(device);
+    return { data: stats };
+  }
+
+  @ApiOperation({ summary: 'Get recommended tier for device on a plan' })
+  @UseGuards(AuthGuard, CanModifyDevice)
+  @Get('/devices/:id/recommended-tier/:planId')
+  async getRecommendedTier(
+    @Param('id') deviceId: string,
+    @Param('planId') planId: string,
+  ) {
+    const data = await this.planSwitchingService.getRecommendedTier(deviceId, planId);
+    return { data };
+  }
+
+  @ApiOperation({ summary: 'Switch device to new plan with auto-tier placement' })
+  @UseGuards(AuthGuard, CanModifyDevice)
+  @Post('/devices/:id/switch-plan')
+  async switchDevicePlan(
+    @Param('id') deviceId: string,
+    @Body() body: { newPlanId: string },
+  ) {
+    const data = await this.planSwitchingService.switchDevicePlan(deviceId, body.newPlanId);
+    return { data };
+  }
+
+  @ApiOperation({ summary: 'Batch switch multiple devices to a new plan' })
+  @UseGuards(AuthGuard)
+  @Post('/devices/batch-switch-plan')
+  async batchSwitchDevices(
+    @Body() body: { deviceIds: string[]; newPlanId: string },
+  ) {
+    const data = await this.planSwitchingService.batchSwitchDevices(
+      body.deviceIds,
+      body.newPlanId
+    );
+    return { data };
+  }
+
+  @ApiOperation({ summary: 'Reset device historical performance data' })
+  @UseGuards(AuthGuard, CanModifyDevice)
+  @Post('/devices/:id/reset-history')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async resetDeviceHistory(@Param('id') deviceId: string) {
+    await this.planSwitchingService.resetDeviceHistory(deviceId);
+    return { message: 'Device history reset successfully' };
   }
 }

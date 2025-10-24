@@ -5,6 +5,7 @@ import { Device, DeviceDocument } from '../schemas/device.schema'
 import { SMS, SMSDocument } from '../schemas/sms.schema'
 import { UsagePlan, UsagePlanDocument } from '../schemas/usage-plan.schema'
 import { UsagePlanService } from '../usage-plan.service'
+import { SmsQueueService } from '../queue/sms-queue.service'
 
 export interface DeviceUsageStats {
   messagesSentInWindow: number
@@ -31,6 +32,7 @@ export class DeviceUsageCalculatorService {
     @InjectModel(SMS.name) private smsModel: Model<SMSDocument>,
     @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
     @Inject(forwardRef(() => UsagePlanService)) private usagePlanService: UsagePlanService,
+    @Inject(forwardRef(() => SmsQueueService)) private smsQueueService: SmsQueueService,
   ) {}
 
   /**
@@ -127,8 +129,8 @@ export class DeviceUsageCalculatorService {
       true, // Campaign only
     )
 
-    const usagePercentage = Math.min((count / currentTier.dailyLimit) * 100, 100)
-    const isOverLimit = count >= currentTier.dailyLimit
+    const usagePercentage = Math.min((count / currentTier.messages_per_cycle) * 100, 100)
+    const isOverLimit = count >= currentTier.messages_per_cycle
 
     // Determine if device should be on cooldown
     const isMaxTier = device.current_tier === usagePlan.tiers[usagePlan.tiers.length - 1].tier
@@ -144,7 +146,7 @@ export class DeviceUsageCalculatorService {
 
     return {
       messagesSentInWindow: count,
-      currentTierLimit: currentTier.dailyLimit,
+      currentTierLimit: currentTier.messages_per_cycle,
       usagePercentage,
       windowMinutes,
       isOverLimit,
@@ -184,9 +186,11 @@ export class DeviceUsageCalculatorService {
 
     for (const device of devices) {
       try {
+        const stats = await this.getDeviceUsageStats(device)
         const { needsUpdate, newCooldownStatus } = await this.checkAndUpdateCooldownStatus(device)
 
         if (needsUpdate) {
+          const wasOnCooldown = device.is_on_cooldown
           device.is_on_cooldown = newCooldownStatus
           await device.save()
           updatedCount++
@@ -194,6 +198,17 @@ export class DeviceUsageCalculatorService {
           this.logger.debug(
             `Device ${device._id} cooldown status updated to ${newCooldownStatus}`,
           )
+
+          // If device is coming OFF cooldown, schedule a wake-device job
+          if (wasOnCooldown && !newCooldownStatus) {
+            this.logger.log(`Device ${device._id} is coming off cooldown - scheduling wake-device job`)
+            await this.smsQueueService.scheduleWakeDevice(device._id.toString(), new Date())
+          }
+          // If device is going ON cooldown and we have an estimated end time, schedule wake job
+          else if (!wasOnCooldown && newCooldownStatus && stats.estimatedCooldownEndTime) {
+            this.logger.log(`Device ${device._id} entering cooldown - scheduling wake for ${stats.estimatedCooldownEndTime}`)
+            await this.smsQueueService.scheduleWakeDevice(device._id.toString(), stats.estimatedCooldownEndTime)
+          }
         }
       } catch (error) {
         this.logger.error(

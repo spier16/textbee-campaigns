@@ -24,8 +24,8 @@ import {
 
 interface UsagePlanTier {
   tier: number
-  timeDelayBetweenMessages: number
-  dailyLimit: number
+  avg_wait_seconds: number
+  messages_per_cycle: number
 }
 
 interface UsagePlan {
@@ -283,12 +283,12 @@ export default function UsagePlans() {
                             </Badge>
                             <div className="flex items-center gap-1 text-muted-foreground">
                               <Clock className="h-3 w-3" />
-                              {formatTimeDelay(tier.timeDelayBetweenMessages)}
+                              {formatTimeDelay(tier.avg_wait_seconds)}
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
                             <MessageCircle className="h-3 w-3" />
-                            {tier.dailyLimit} daily limit
+                            {tier.messages_per_cycle} daily limit
                           </div>
                         </div>
                       ))}

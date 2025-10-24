@@ -38,12 +38,12 @@ const PLAN_TEMPLATES = [
     description: 'Best for high-volume sending',
     maxDailyLimit: 700,
     tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 70 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 140 }, // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 280 }, // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 420 }, // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 560 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 700 },  // 100%
+      { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 70 },  // 10%
+      { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 140 }, // 20%
+      { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 280 }, // 40%
+      { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 420 }, // 60%
+      { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 560 },  // 80%
+      { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 700 },  // 100%
     ],
   },
   {
@@ -51,12 +51,12 @@ const PLAN_TEMPLATES = [
     description: 'Reliable mid-volume option',
     maxDailyLimit: 200,
     tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 20 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 40 },  // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 80 },  // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 120 }, // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 160 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 200 },  // 100%
+      { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 20 },  // 10%
+      { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 40 },  // 20%
+      { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 80 },  // 40%
+      { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 120 }, // 60%
+      { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 160 },  // 80%
+      { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 200 },  // 100%
     ],
   },
   {
@@ -64,12 +64,12 @@ const PLAN_TEMPLATES = [
     description: "Reliable mid-volume option on Verizon's network",
     maxDailyLimit: 150,
     tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },  // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },  // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },  // 100%
+      { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 15 },  // 10%
+      { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 30 },  // 20%
+      { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 60 },  // 40%
+      { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 90 },  // 60%
+      { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 120 },  // 80%
+      { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 150 },  // 100%
     ],
   },
   {
@@ -77,26 +77,26 @@ const PLAN_TEMPLATES = [
     description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
     maxDailyLimit: 150,
     tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },  // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },  // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },  // 100%
+      { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 15 },  // 10%
+      { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 30 },  // 20%
+      { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 60 },  // 40%
+      { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 90 },  // 60%
+      { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 120 },  // 80%
+      { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 150 },  // 100%
     ],
   },
 ]
 
 const tierSchema = z.object({
   tier: z.number().min(1),
-  timeDelayBetweenMessages: z.union([z.number().min(30, 'Time delay must be at least 30 seconds'), z.string()]).transform((val) => {
+  avg_wait_seconds: z.union([z.number().min(30, 'Time delay must be at least 30 seconds'), z.string()]).transform((val) => {
     if (typeof val === 'string') {
       const num = parseInt(val)
       return isNaN(num) ? 30 : num
     }
     return val
   }).refine((val) => val >= 30, { message: 'Time delay must be at least 30 seconds' }),
-  dailyLimit: z.union([z.number().min(1), z.string()]).transform((val) => {
+  messages_per_cycle: z.union([z.number().min(1), z.string()]).transform((val) => {
     if (typeof val === 'string') {
       const num = parseInt(val)
       return isNaN(num) || num < 1 ? 1 : num
@@ -134,8 +134,8 @@ interface UsagePlan {
   description?: string
   tiers: {
     tier: number
-    timeDelayBetweenMessages: number
-    dailyLimit: number
+    avg_wait_seconds: number
+    messages_per_cycle: number
   }[]
   isDefault: boolean
   isActive: boolean
@@ -170,8 +170,8 @@ export function CreateUsagePlanDialog({
           description: editingPlan.description || '',
           tiers: editingPlan.tiers.map((tier) => ({
             tier: tier.tier,
-            timeDelayBetweenMessages: tier.timeDelayBetweenMessages,
-            dailyLimit: tier.dailyLimit,
+            avg_wait_seconds: tier.avg_wait_seconds,
+            messages_per_cycle: tier.messages_per_cycle,
           })),
           isDefault: editingPlan.isDefault,
         }
@@ -179,7 +179,7 @@ export function CreateUsagePlanDialog({
           name: '',
           description: '',
           tiers: [
-            { tier: 1, timeDelayBetweenMessages: 30, dailyLimit: 50 },
+            { tier: 1, avg_wait_seconds: 30, messages_per_cycle: 50 },
           ],
           isDefault: false,
         },
@@ -253,8 +253,8 @@ export function CreateUsagePlanDialog({
     const nextTier = fields.length + 1
     append({
       tier: nextTier,
-      timeDelayBetweenMessages: 30,
-      dailyLimit: 100,
+      avg_wait_seconds: 30,
+      messages_per_cycle: 100,
     })
   }
 
@@ -468,7 +468,7 @@ export function CreateUsagePlanDialog({
                     <div className="grid grid-cols-2 gap-4">
                       <FormField
                         control={form.control}
-                        name={`tiers.${index}.timeDelayBetweenMessages`}
+                        name={`tiers.${index}.avg_wait_seconds`}
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Time Delay (seconds)</FormLabel>
@@ -501,7 +501,7 @@ export function CreateUsagePlanDialog({
 
                       <FormField
                         control={form.control}
-                        name={`tiers.${index}.dailyLimit`}
+                        name={`tiers.${index}.messages_per_cycle`}
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Daily Message Limit</FormLabel>

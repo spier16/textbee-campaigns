@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
-import { Cron, CronExpression } from '@nestjs/schedule'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model } from 'mongoose'
 import { Campaign, CampaignDocument, CampaignStatus } from '../schemas/campaign.schema'
@@ -120,73 +119,52 @@ export class CampaignQueueService {
   }
 
   /**
-   * Cron job to check for campaigns that should start
-   * Runs every minute to check for scheduled campaigns
+   * Schedule a campaign to start at a specific time
+   * Replaces cron-based campaign start checking
    */
-  @Cron(CronExpression.EVERY_MINUTE)
-  async checkScheduledCampaigns() {
-    const now = new Date()
-    this.logger.debug('Checking for campaigns that should start')
+  async scheduleCampaignStart(campaignId: string, userId: string, startTime: Date) {
+    const delay = Math.max(0, startTime.getTime() - Date.now())
 
-    try {
-      // Find campaigns that are scheduled and should start now
-      const campaigns = await this.campaignModel.find({
-        status: CampaignStatus.SCHEDULED,
-        campaignStartDate: { $lte: now.toISOString().split('T')[0] },
-      }).exec()
+    this.logger.debug(`Scheduling campaign ${campaignId} to start at ${startTime} (delay: ${delay}ms)`)
 
-      for (const campaign of campaigns) {
-        // Check if we're within the start time for today
-        if (this.shouldCampaignStartNow(campaign, now)) {
-          this.logger.log(`Starting scheduled campaign ${campaign._id}`)
-
-          // Update status to running
-          await this.campaignModel.findByIdAndUpdate(campaign._id, {
-            status: CampaignStatus.RUNNING,
-            startedAt: now,
-          })
-
-          // Add to queue
-          await this.addCampaignToQueue(
-            campaign._id.toString(),
-            campaign.user.toString()
-          )
-        }
+    await this.campaignQueue.add(
+      'start-campaign',
+      {
+        campaignId,
+        userId,
+      },
+      {
+        delay,
+        attempts: 3,
+        backoff: {
+          type: 'exponential' as const,
+          delay: 5000,
+        },
+        removeOnComplete: 10,
+        removeOnFail: 50,
       }
-    } catch (error) {
-      this.logger.error('Error checking scheduled campaigns:', error)
-    }
+    )
   }
 
   /**
-   * Cron job to resume processing for running campaigns
-   * This handles campaigns that may have been interrupted
+   * Schedule a batch dispatch of campaign messages
+   * This is useful for processing large campaigns in smaller batches
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
-  async resumeInterruptedCampaigns() {
-    this.logger.debug('Checking for interrupted campaigns')
+  async scheduleMessageDispatch(campaignId: string, delay: number = 0) {
+    this.logger.debug(`Scheduling message dispatch for campaign ${campaignId} with delay ${delay}ms`)
 
-    try {
-      const runningCampaigns = await this.campaignModel.find({
-        status: CampaignStatus.RUNNING,
-      }).exec()
-
-      for (const campaign of runningCampaigns) {
-        // Check if there are active jobs for this campaign
-        const activeJobs = await this.campaignQueue.getJobs(['active', 'waiting', 'delayed'])
-        const hasActiveJobs = activeJobs.some(job => job.data.campaignId === campaign._id.toString())
-
-        if (!hasActiveJobs) {
-          this.logger.log(`Resuming interrupted campaign ${campaign._id}`)
-          await this.addCampaignToQueue(
-            campaign._id.toString(),
-            campaign.user.toString()
-          )
-        }
+    await this.campaignQueue.add(
+      'dispatch-campaign-messages',
+      {
+        campaignId,
+      },
+      {
+        delay,
+        attempts: 2,
+        removeOnComplete: 5,
+        removeOnFail: 10,
       }
-    } catch (error) {
-      this.logger.error('Error resuming interrupted campaigns:', error)
-    }
+    )
   }
 
   /**

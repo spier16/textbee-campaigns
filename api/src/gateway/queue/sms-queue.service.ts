@@ -137,4 +137,28 @@ export class SmsQueueService {
       )
     }
   }
+
+  /**
+   * Schedule a wake-device job for when a device comes off cooldown
+   */
+  async scheduleWakeDevice(deviceId: string, wakeTime: Date) {
+    const delay = Math.max(0, wakeTime.getTime() - Date.now())
+
+    this.logger.debug(`Scheduling wake-device job for device ${deviceId} at ${wakeTime} (delay: ${delay}ms)`)
+
+    await this.smsQueue.add(
+      'wake-device',
+      { deviceId },
+      {
+        delay,
+        attempts: 2,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: 10,
+        removeOnFail: 50,
+      },
+    )
+  }
 }

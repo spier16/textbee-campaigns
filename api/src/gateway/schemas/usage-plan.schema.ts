@@ -6,8 +6,8 @@ export type UsagePlanDocument = UsagePlan & Document
 
 export interface UsagePlanTier {
   tier: number
-  timeDelayBetweenMessages: number // in seconds
-  dailyLimit: number
+  avg_wait_seconds: number // Average wait time between messages in seconds
+  messages_per_cycle: number // Maximum messages allowed in the rolling window
 }
 
 @Schema({ timestamps: true })
@@ -29,8 +29,8 @@ export class UsagePlan {
   @Prop({
     type: [{
       tier: { type: Number, required: true },
-      timeDelayBetweenMessages: { type: Number, required: true },
-      dailyLimit: { type: Number, required: true }
+      avg_wait_seconds: { type: Number, required: true },
+      messages_per_cycle: { type: Number, required: true }
     }],
     required: true
   })

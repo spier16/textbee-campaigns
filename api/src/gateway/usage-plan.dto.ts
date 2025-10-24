@@ -8,15 +8,15 @@ export class UsagePlanTierDTO {
   @Min(1)
   tier: number
 
-  @ApiProperty({ description: 'Time delay between messages in seconds' })
+  @ApiProperty({ description: 'Average wait time between messages in seconds' })
   @IsNumber()
   @Min(0)
-  timeDelayBetweenMessages: number
+  avg_wait_seconds: number
 
-  @ApiProperty({ description: 'Maximum daily message limit for this tier' })
+  @ApiProperty({ description: 'Maximum messages allowed in the rolling window' })
   @IsNumber()
   @Min(1)
-  dailyLimit: number
+  messages_per_cycle: number
 }
 
 export class CreateUsagePlanDTO {

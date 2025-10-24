@@ -19,6 +19,8 @@ import { UsagePlanService } from './usage-plan.service'
 import { CampaignMessage, CampaignMessageSchema } from '../campaigns/schemas/campaign-message.schema'
 import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
 import { DeviceUsageSchedulerService } from './services/device-usage-scheduler.service'
+import { RandomizedDelayService } from './services/randomized-delay.service'
+import { PlanSwitchingService } from './services/plan-switching.service'
 
 @Module({
   imports: [
@@ -63,7 +65,25 @@ import { DeviceUsageSchedulerService } from './services/device-usage-scheduler.s
     ConfigModule,
   ],
   controllers: [GatewayController],
-  providers: [GatewayService, UsagePlanService, DeviceUsageCalculatorService, DeviceUsageSchedulerService, SmsQueueService, SmsQueueProcessor, SmsStatusUpdateTask],
-  exports: [MongooseModule, GatewayService, SmsQueueService, UsagePlanService, DeviceUsageCalculatorService],
+  providers: [
+    GatewayService,
+    UsagePlanService,
+    DeviceUsageCalculatorService,
+    DeviceUsageSchedulerService,
+    RandomizedDelayService,
+    PlanSwitchingService,
+    SmsQueueService,
+    SmsQueueProcessor,
+    SmsStatusUpdateTask
+  ],
+  exports: [
+    MongooseModule,
+    GatewayService,
+    SmsQueueService,
+    UsagePlanService,
+    DeviceUsageCalculatorService,
+    RandomizedDelayService,
+    PlanSwitchingService
+  ],
 })
 export class GatewayModule {}

@@ -9,6 +9,7 @@ import { Device, DeviceDocument } from '../../gateway/schemas/device.schema'
 import { SmsQueueService } from '../../gateway/queue/sms-queue.service'
 import { UsagePlanService } from '../../gateway/usage-plan.service'
 import { DeviceUsageCalculatorService } from '../../gateway/services/device-usage-calculator.service'
+import { RandomizedDelayService } from '../../gateway/services/randomized-delay.service'
 import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
 
@@ -28,8 +29,57 @@ export class CampaignQueueProcessor {
     private smsQueueService: SmsQueueService,
     private usagePlanService: UsagePlanService,
     private usageCalculator: DeviceUsageCalculatorService,
+    private randomizedDelayService: RandomizedDelayService,
     @InjectQueue('campaign-queue') private campaignQueue: Queue,
   ) {}
+
+  @Process({
+    name: 'start-campaign',
+    concurrency: 3,
+  })
+  async startCampaign(job: Job<CampaignProcessJob>) {
+    const { campaignId, userId } = job.data
+    this.logger.debug(`Starting campaign ${campaignId} for user ${userId}`)
+
+    try {
+      const campaign = await this.campaignModel.findById(campaignId)
+      if (!campaign) {
+        this.logger.error(`Campaign ${campaignId} not found`)
+        return
+      }
+
+      if (campaign.status !== CampaignStatus.SCHEDULED) {
+        this.logger.debug(`Campaign ${campaignId} is not scheduled (status: ${campaign.status}), skipping`)
+        return
+      }
+
+      // Update status to running
+      await this.campaignModel.findByIdAndUpdate(campaignId, {
+        status: CampaignStatus.RUNNING,
+        startedAt: new Date(),
+      })
+
+      this.logger.log(`Campaign ${campaignId} started, transitioning to process-campaign`)
+
+      // Immediately trigger campaign processing
+      await this.campaignQueue.add(
+        'process-campaign',
+        { campaignId, userId },
+        {
+          attempts: 3,
+          backoff: {
+            type: 'exponential' as const,
+            delay: 5000,
+          },
+          removeOnComplete: 10,
+          removeOnFail: 50,
+        }
+      )
+    } catch (error) {
+      this.logger.error(`Error starting campaign ${campaignId}:`, error)
+      throw error
+    }
+  }
 
   @Process({
     name: 'process-campaign',
@@ -76,6 +126,41 @@ export class CampaignQueueProcessor {
       if (campaign) {
         await this.markCampaignAsFailed(campaign, error.message)
       }
+    }
+  }
+
+  @Process({
+    name: 'dispatch-campaign-messages',
+    concurrency: 5,
+  })
+  async dispatchCampaignMessages(job: Job<{ campaignId: string }>) {
+    const { campaignId } = job.data
+    this.logger.debug(`Dispatching messages for campaign ${campaignId}`)
+
+    try {
+      const campaign = await this.campaignModel.findById(campaignId)
+      if (!campaign || campaign.status !== CampaignStatus.RUNNING) {
+        this.logger.debug(`Campaign ${campaignId} not found or not running`)
+        return
+      }
+
+      const devices = await this.deviceModel
+        .find({
+          _id: { $in: campaign.sendDevices.map(id => new Types.ObjectId(id)) },
+          user: new Types.ObjectId(campaign.user.toString()),
+          enabled: true,
+        })
+        .exec()
+
+      if (devices.length === 0) {
+        this.logger.warn(`No available devices for campaign ${campaignId}`)
+        return
+      }
+
+      await this.scheduleMessages(campaign, devices)
+    } catch (error) {
+      this.logger.error(`Error dispatching messages for campaign ${campaignId}:`, error)
+      throw error
     }
   }
 
@@ -169,13 +254,16 @@ export class CampaignQueueProcessor {
 
       allDevicesUnavailable = false
 
-      // Calculate next available slot, considering previous messages scheduled for this device
+      // Calculate next available slot with randomization, considering previous messages scheduled for this device
       let scheduledTime: Date
       if (deviceNextAvailableTime.has(deviceId)) {
-        // Device already has messages scheduled, add tier delay to the last scheduled time
+        // Device already has messages scheduled, add randomized tier delay to the last scheduled time
         const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
-        const delayMs = currentTier ? currentTier.timeDelayBetweenMessages * 1000 : 300000 // Default 5 min
+        const avgWaitSeconds = currentTier ? currentTier.avg_wait_seconds : 300 // Default 5 min
+        const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(avgWaitSeconds)
+        const delayMs = randomizedWaitSeconds * 1000
         scheduledTime = new Date(deviceNextAvailableTime.get(deviceId).getTime() + delayMs)
+        this.logger.debug(`Scheduling next message for device ${device._id} with randomized delay: ${randomizedWaitSeconds}s (avg: ${avgWaitSeconds}s)`)
       } else {
         // First message for this device - check if it's the very first message of the campaign
         const isFirstMessageOfCampaign = await this.isFirstMessageOfCampaign(campaign, device)
@@ -184,7 +272,7 @@ export class CampaignQueueProcessor {
           scheduledTime = new Date()
           this.logger.debug(`First message of campaign - scheduling immediately for device ${device._id}`)
         } else {
-          // Not the first message globally, use normal calculation
+          // Not the first message globally, use normal calculation with randomization
           scheduledTime = await this.calculateNextAvailableSlot(device)
         }
       }
@@ -331,8 +419,9 @@ export class CampaignQueueProcessor {
       return now
     }
 
-    // Add delay based on tier settings
-    const delayMs = currentTier.timeDelayBetweenMessages * 1000
+    // Add randomized delay based on tier settings
+    const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(currentTier.avg_wait_seconds)
+    const delayMs = randomizedWaitSeconds * 1000
     return new Date(now.getTime() + delayMs)
   }
 

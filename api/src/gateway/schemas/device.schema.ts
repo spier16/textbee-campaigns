@@ -51,18 +51,14 @@ export class Device {
   @Prop({ type: Number, default: 0 })
   receivedSMSCount: number
 
-  // @deprecated Legacy field - replaced by usage plan system's timeDelayBetweenMessages
-  // TODO: Remove this field in future migration after all devices use usage plans
-  @Prop({ type: Number, default: 60 })
-  max_hourly_send_rate: number
-
-  // @deprecated Legacy field - replaced by usage plan system's dailyLimit per tier
-  // TODO: Remove this field in future migration after all devices use usage plans
-  @Prop({ type: Number, default: 50 })
-  daily_send_limit: number
-
   @Prop({ type: Number, default: 1 })
   current_tier: number
+
+  @Prop({ type: Number })
+  min_avg_wait_seconds?: number
+
+  @Prop({ type: Number })
+  max_messages_per_cycle?: number
 
   @Prop({ type: Date })
   last_tier_upgrade: Date

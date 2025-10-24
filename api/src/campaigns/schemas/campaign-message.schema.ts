@@ -52,6 +52,9 @@ export class CampaignMessage {
   @Prop({ type: Date })
   scheduledTime?: Date
 
+  @Prop({ type: Date })
+  not_before?: Date
+
   @Prop({ type: String })
   assignedDevice?: string
 
@@ -91,5 +94,7 @@ export const CampaignMessageSchema = SchemaFactory.createForClass(CampaignMessag
 CampaignMessageSchema.index({ user: 1, campaign: 1 })
 CampaignMessageSchema.index({ campaign: 1, status: 1 })
 CampaignMessageSchema.index({ status: 1, scheduledTime: 1 })
+CampaignMessageSchema.index({ status: 1, not_before: 1 })
+CampaignMessageSchema.index({ campaign: 1, status: 1, not_before: 1 })
 CampaignMessageSchema.index({ assignedDevice: 1, status: 1 })
 CampaignMessageSchema.index({ scheduledTime: 1, status: 1 })

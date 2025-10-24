@@ -13,6 +13,7 @@ import { ScheduleType } from '../../campaigns/schemas/campaign.schema'
 import { UsagePlanService } from '../usage-plan.service'
 import { GatewayService } from '../gateway.service'
 import { DeviceUsageCalculatorService } from '../services/device-usage-calculator.service'
+import { RandomizedDelayService } from '../services/randomized-delay.service'
 
 @Processor('sms')
 export class SmsQueueProcessor {
@@ -28,6 +29,7 @@ export class SmsQueueProcessor {
     private usagePlanService: UsagePlanService,
     private gatewayService: GatewayService,
     private usageCalculator: DeviceUsageCalculatorService,
+    private randomizedDelayService: RandomizedDelayService,
   ) {}
 
   @Process({
@@ -114,6 +116,76 @@ export class SmsQueueProcessor {
         $set: { status: newStatus },
       })
 
+      throw error
+    }
+  }
+
+  @Process({
+    name: 'wake-device',
+    concurrency: 5,
+  })
+  async handleWakeDevice(job: Job<{ deviceId: string }>) {
+    const { deviceId } = job.data
+    this.logger.debug(`Processing wake-device job for device ${deviceId}`)
+
+    try {
+      const device = await this.deviceModel.findById(deviceId)
+      if (!device) {
+        this.logger.error(`Device ${deviceId} not found`)
+        return
+      }
+
+      // Check if device is still on cooldown
+      const stats = await this.usageCalculator.getDeviceUsageStats(device)
+      if (stats.isOverLimit) {
+        this.logger.debug(`Device ${deviceId} still on cooldown, will be woken again later`)
+        return
+      }
+
+      this.logger.log(`Device ${deviceId} is now available - looking for pending campaign messages`)
+
+      // Find pending/scheduled campaign messages assigned to this device
+      const pendingMessages = await this.campaignMessageModel
+        .find({
+          assignedDevice: deviceId,
+          status: { $in: [MessageStatus.SCHEDULED, MessageStatus.PENDING] },
+        })
+        .sort({ scheduledTime: 1, priority: -1 })
+        .limit(10) // Process up to 10 messages at a time
+        .exec()
+
+      if (pendingMessages.length === 0) {
+        this.logger.debug(`No pending messages for device ${deviceId}`)
+        return
+      }
+
+      this.logger.log(`Found ${pendingMessages.length} pending messages for device ${deviceId}`)
+
+      // Re-queue the messages for immediate processing
+      for (const message of pendingMessages) {
+        await this.smsQueue.add(
+          'send-campaign-message',
+          {
+            deviceId: deviceId,
+            campaignMessageId: message._id.toString(),
+          },
+          {
+            priority: message.priority || 1,
+            attempts: 3,
+            delay: 0, // Send immediately
+            backoff: {
+              type: 'exponential',
+              delay: 5000,
+            },
+            removeOnComplete: 50,
+            removeOnFail: 100,
+          },
+        )
+      }
+
+      this.logger.log(`Re-queued ${pendingMessages.length} messages for device ${deviceId}`)
+    } catch (error) {
+      this.logger.error(`Error processing wake-device job for ${deviceId}:`, error)
       throw error
     }
   }
@@ -311,8 +383,10 @@ export class SmsQueueProcessor {
       delayMs = Math.max(0, stats.estimatedCooldownEndTime.getTime() - Date.now())
       this.logger.debug(`Device ${device._id} at limit. Rescheduling after cooldown ends: ${stats.estimatedCooldownEndTime}`)
     } else {
-      // Device not at limit - use tier delay
-      delayMs = currentTier.timeDelayBetweenMessages * 1000
+      // Device not at limit - use randomized tier delay
+      const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(currentTier.avg_wait_seconds)
+      delayMs = randomizedWaitSeconds * 1000
+      this.logger.debug(`Device ${device._id} using randomized delay: ${randomizedWaitSeconds}s (avg: ${currentTier.avg_wait_seconds}s)`)
     }
 
     // Calculate next device-available time

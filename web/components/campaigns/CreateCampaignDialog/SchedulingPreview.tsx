@@ -25,8 +25,8 @@ interface Device {
 // Usage plan interfaces
 interface UsagePlanTier {
   tier: number
-  timeDelayBetweenMessages: number // in seconds
-  dailyLimit: number
+  avg_wait_seconds: number // in seconds
+  messages_per_cycle: number
 }
 
 interface UsagePlan {
@@ -129,10 +129,10 @@ export function SchedulingPreview({
         campaignSegments: optimizedSchedule.campaignSegments,
         deviceUtilization: selectedDevices.map(device => {
           const currentTier = getCurrentTier(device)
-          const hourlyCapacity = currentTier && currentTier.timeDelayBetweenMessages > 0
-            ? Math.floor(3600 / currentTier.timeDelayBetweenMessages)
+          const hourlyCapacity = currentTier && currentTier.avg_wait_seconds > 0
+            ? Math.floor(3600 / currentTier.avg_wait_seconds)
             : 0
-          const dailyCapacity = currentTier?.dailyLimit || 0
+          const dailyCapacity = currentTier?.messages_per_cycle || 0
 
           return {
             deviceId: device._id,

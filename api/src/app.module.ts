@@ -21,6 +21,7 @@ import { BullModule } from '@nestjs/bull'
 import { SupportModule } from './support/support.module'
 import { ContactsModule } from './contacts/contacts.module'
 import { CampaignsModule } from './campaigns/campaigns.module'
+import { ModernizeSchemasMigration } from './migrations/modernize-schemas.migration'
 
 @Injectable()
 export class LoggerMiddleware implements NestMiddleware {
@@ -69,6 +70,7 @@ export class LoggerMiddleware implements NestMiddleware {
       provide: APP_GUARD,
       useClass: ThrottlerByIpGuard,
     },
+    ModernizeSchemasMigration,
   ],
 })
 export class AppModule implements NestModule {
