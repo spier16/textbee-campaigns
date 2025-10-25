@@ -122,6 +122,13 @@ const createUsagePlanSchema = (existingNames: string[] = [], currentPlanName?: s
       return !normalizedExisting.includes(normalizedName)
     }, 'A plan with this name already exists'),
   description: z.string().optional(),
+  tierPromotionCooldownHours: z.union([z.number().min(1, 'Cooldown must be at least 1 hour'), z.string()]).transform((val) => {
+    if (typeof val === 'string') {
+      const num = parseInt(val)
+      return isNaN(num) || num < 1 ? 24 : num
+    }
+    return val < 1 ? 24 : val
+  }),
   tiers: z.array(tierSchema).min(1, 'At least one tier is required'),
   isDefault: z.boolean().default(false),
 })
@@ -132,6 +139,7 @@ interface UsagePlan {
   _id: string
   name: string
   description?: string
+  tierPromotionCooldownHours?: number
   tiers: {
     tier: number
     avg_wait_seconds: number
@@ -168,6 +176,7 @@ export function CreateUsagePlanDialog({
       ? {
           name: editingPlan.name,
           description: editingPlan.description || '',
+          tierPromotionCooldownHours: editingPlan.tierPromotionCooldownHours || 24,
           tiers: editingPlan.tiers.map((tier) => ({
             tier: tier.tier,
             avg_wait_seconds: tier.avg_wait_seconds,
@@ -178,6 +187,7 @@ export function CreateUsagePlanDialog({
       : {
           name: '',
           description: '',
+          tierPromotionCooldownHours: 24,
           tiers: [
             { tier: 1, avg_wait_seconds: 30, messages_per_cycle: 50 },
           ],
@@ -282,6 +292,7 @@ export function CreateUsagePlanDialog({
     // Set form values
     form.setValue('name', template.name)
     form.setValue('description', template.description)
+    form.setValue('tierPromotionCooldownHours', 24)
     form.setValue('tiers', template.tiers)
     form.setValue('isDefault', false)
 
@@ -385,6 +396,33 @@ export function CreateUsagePlanDialog({
                         rows={2}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="tierPromotionCooldownHours"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tier Promotion Cooldown (hours)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="number"
+                        min="1"
+                        value={field.value === undefined ? '' : String(field.value)}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          field.onChange(v === '' ? undefined : Number(v))
+                        }}
+                        onWheel={(e) => e.currentTarget.blur()}
+                      />
+                    </FormControl>
+                    <div className="text-xs text-muted-foreground">
+                      How long devices wait after tier promotion before sending more campaign messages (default: 24 hours)
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -532,9 +570,7 @@ export function CreateUsagePlanDialog({
 
               <div className="bg-muted/50 p-4 rounded-lg">
                 <p className="text-sm text-muted-foreground">
-                  <strong>How tiers work:</strong> Devices start on Tier 1. When a device exceeds its daily limit,
-                  it goes on cooldown. After 24 hours with zero usage, the device is taken off cooldown and moves
-                  to the next tier (if available). Messages sent manually (not through campaigns) do not count against daily/hourly limits.
+                  <strong>How tiers work:</strong> Devices start on Tier 1. When a device exceeds its tier's daily limit, it automatically promotes to the next tier (if available) and enters a cooldown period. During cooldown, the device cannot send campaign messages. After cooldown ends, the device can use its new tier's higher limits. When a device at the maximum tier exceeds its limit, it goes on cooldown until the rolling usage window allows more messages. Messages sent manually (not through campaigns) do not count against daily limits.
                 </p>
               </div>
             </div>

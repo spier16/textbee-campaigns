@@ -133,15 +133,32 @@ export class DeviceUsageCalculatorService {
     const isOverLimit = count >= currentTier.messages_per_cycle
 
     // Determine if device should be on cooldown
-    const isMaxTier = device.current_tier === usagePlan.tiers[usagePlan.tiers.length - 1].tier
-    const shouldBeOnCooldown = isMaxTier && isOverLimit
-
-    // Estimate cooldown end time
+    let shouldBeOnCooldown = false
     let estimatedCooldownEndTime: Date | null = null
-    if (shouldBeOnCooldown && oldestMessageTime) {
-      estimatedCooldownEndTime = new Date(
-        oldestMessageTime.getTime() + windowMinutes * 60 * 1000,
-      )
+
+    // Check if device has an active tier promotion cooldown
+    if (device.cooldown_reason === 'tier_promotion' && device.cooldown_end_time) {
+      const now = new Date()
+      if (device.cooldown_end_time > now) {
+        // Tier promotion cooldown is still active
+        shouldBeOnCooldown = true
+        estimatedCooldownEndTime = device.cooldown_end_time
+      } else {
+        // Tier promotion cooldown has expired
+        shouldBeOnCooldown = false
+      }
+    }
+    // Check if device is at max tier and over limit (rolling window cooldown)
+    else {
+      const isMaxTier = device.current_tier === usagePlan.tiers[usagePlan.tiers.length - 1].tier
+      shouldBeOnCooldown = isMaxTier && isOverLimit
+
+      // Estimate cooldown end time for max tier cooldown
+      if (shouldBeOnCooldown && oldestMessageTime) {
+        estimatedCooldownEndTime = new Date(
+          oldestMessageTime.getTime() + windowMinutes * 60 * 1000,
+        )
+      }
     }
 
     return {
@@ -192,6 +209,13 @@ export class DeviceUsageCalculatorService {
         if (needsUpdate) {
           const wasOnCooldown = device.is_on_cooldown
           device.is_on_cooldown = newCooldownStatus
+
+          // Clear cooldown metadata when cooldown ends
+          if (!newCooldownStatus) {
+            device.cooldown_end_time = undefined
+            device.cooldown_reason = undefined
+          }
+
           await device.save()
           updatedCount++
 

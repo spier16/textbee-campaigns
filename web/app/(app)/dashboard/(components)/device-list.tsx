@@ -47,6 +47,8 @@ interface Device {
   current_tier: number
   messages_sent_today: number
   is_on_cooldown?: boolean
+  cooldown_end_time?: string
+  cooldown_reason?: 'tier_promotion' | 'max_tier_limit'
   usagePlan?: string
   phoneNumber?: string
   usage_window_minutes?: number
@@ -114,8 +116,28 @@ export default function DeviceList() {
   }
 
   const isDeviceOnCooldown = (device: Device) => {
-    if (!device.is_on_cooldown || !device.cooldown_until) return false
-    return new Date() < new Date(device.cooldown_until)
+    return device.is_on_cooldown || false
+  }
+
+  const getCooldownDisplay = (device: Device) => {
+    if (!device.is_on_cooldown) return null
+
+    let message = 'Cooldown'
+    let timeDisplay = null
+
+    if (device.cooldown_reason === 'tier_promotion') {
+      message = `Warming up to Tier ${device.current_tier}`
+    } else if (device.cooldown_reason === 'max_tier_limit') {
+      message = 'Max tier limit reached'
+    }
+
+    // Use cooldown_end_time if available, otherwise fall back to estimated_cooldown_end
+    const endTime = device.cooldown_end_time || device.estimated_cooldown_end
+    if (endTime) {
+      timeDisplay = new Date(endTime).toLocaleString()
+    }
+
+    return { message, timeDisplay }
   }
 
   const formatTimeDelay = (seconds: number) => {
@@ -194,6 +216,7 @@ export default function DeviceList() {
               const currentTier = getCurrentTier(device)
               const usagePercentage = getUsagePercentage(device)
               const onCooldown = isDeviceOnCooldown(device)
+              const cooldownInfo = getCooldownDisplay(device)
 
               return (
                 <Card key={device._id} className='border-0 shadow-none'>
@@ -214,13 +237,13 @@ export default function DeviceList() {
                             >
                               {device.enabled ? 'Enabled' : 'Disabled'}
                             </Badge>
-                            {onCooldown && (
+                            {onCooldown && cooldownInfo && (
                               <Badge
-                                variant="destructive"
+                                variant={device.cooldown_reason === 'tier_promotion' ? 'secondary' : 'destructive'}
                                 className='text-xs gap-1'
                               >
                                 <Pause className='h-3 w-3' />
-                                Cooldown
+                                {cooldownInfo.message}
                               </Badge>
                             )}
                           </div>
@@ -349,9 +372,9 @@ export default function DeviceList() {
                           />
                         </div>
 
-                        {onCooldown && device.estimated_cooldown_end && (
+                        {onCooldown && cooldownInfo && cooldownInfo.timeDisplay && (
                           <div className='text-xs text-muted-foreground'>
-                            Cooldown until ~{new Date(device.estimated_cooldown_end).toLocaleString()}
+                            {device.cooldown_reason === 'tier_promotion' ? 'Available' : 'Cooldown ends'} ~{cooldownInfo.timeDisplay}
                           </div>
                         )}
                       </div>

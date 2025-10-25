@@ -70,6 +70,12 @@ export class Device {
   is_on_cooldown?: boolean
 
   @Prop({ type: Date })
+  cooldown_end_time?: Date
+
+  @Prop({ type: String, enum: ['tier_promotion', 'max_tier_limit'] })
+  cooldown_reason?: 'tier_promotion' | 'max_tier_limit'
+
+  @Prop({ type: Date })
   lastMessageSentAt?: Date
 
   @Prop({ type: String })

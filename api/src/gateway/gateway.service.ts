@@ -23,6 +23,7 @@ import { BillingService } from '../billing/billing.service'
 import { SmsQueueService } from './queue/sms-queue.service'
 import { UsagePlan, UsagePlanDocument } from './schemas/usage-plan.schema'
 import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
+import { PREDEFINED_PLANS } from './constants/usage-plan-templates'
 
 @Injectable()
 export class GatewayService {
@@ -40,78 +41,6 @@ export class GatewayService {
 
   private async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
     if (typeof planId === 'string' && planId.startsWith('template_')) {
-      // Inline template plans to avoid circular dependencies
-      const PREDEFINED_PLANS = [
-        {
-          _id: 'template_verizon_business',
-          name: 'Verizon Business SIM',
-          description: 'Best for high-volume sending',
-          tiers: [
-            { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 70 },
-            { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 140 },
-            { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 280 },
-            { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 420 },
-            { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 560 },
-            { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 700 },
-          ],
-          isDefault: false,
-          isActive: true,
-          isTemplate: true,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          _id: 'template_verizon_prepaid',
-          name: 'Verizon Prepaid SIM',
-          description: 'Reliable mid-volume option',
-          tiers: [
-            { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 20 },
-            { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 40 },
-            { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 80 },
-            { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 120 },
-            { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 160 },
-            { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 200 },
-          ],
-          isDefault: false,
-          isActive: true,
-          isTemplate: true,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          _id: 'template_total_wireless',
-          name: 'Total Wireless SIM',
-          description: "Reliable mid-volume option on Verizon's network",
-          tiers: [
-            { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 15 },
-            { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 30 },
-            { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 60 },
-            { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 90 },
-            { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 120 },
-            { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 150 },
-          ],
-          isDefault: false,
-          isActive: true,
-          isTemplate: true,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          _id: 'template_tracfone',
-          name: 'Tracfone SIM',
-          description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
-          tiers: [
-            { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 15 },
-            { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 30 },
-            { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 60 },
-            { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 90 },
-            { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 120 },
-            { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 150 },
-          ],
-          isDefault: false,
-          isActive: true,
-          isTemplate: true,
-          createdAt: new Date().toISOString(),
-        },
-      ]
-
       const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
       return templatePlan ? templatePlan as any : null
     }
@@ -1119,14 +1048,34 @@ export class GatewayService {
           }
         }
 
+        // Apply tier promotion cooldown
+        const cooldownHours = (usagePlan as any).tierPromotionCooldownHours || 24
+        const cooldownEndTime = new Date(Date.now() + cooldownHours * 60 * 60 * 1000)
+
+        device.is_on_cooldown = true
+        device.cooldown_end_time = cooldownEndTime
+        device.cooldown_reason = 'tier_promotion'
+
         await device.save()
-        console.log(`Device ${device._id} upgraded to tier ${nextTier.tier}`)
+        console.log(`Device ${device._id} upgraded to tier ${nextTier.tier} and placed on cooldown until ${cooldownEndTime}`)
+
+        // Schedule wake-device job for when cooldown ends
+        await this.smsQueueService.scheduleWakeDevice(device._id.toString(), cooldownEndTime)
+
         return true
       } else {
-        // No next tier available, put on cooldown
+        // No next tier available, put on max tier cooldown
         device.is_on_cooldown = true
+        device.cooldown_reason = 'max_tier_limit'
+
+        // Calculate cooldown end time based on rolling window
+        if (stats.estimatedCooldownEndTime) {
+          device.cooldown_end_time = stats.estimatedCooldownEndTime
+          await this.smsQueueService.scheduleWakeDevice(device._id.toString(), stats.estimatedCooldownEndTime)
+        }
+
         await device.save()
-        console.log(`Device ${device._id} entered cooldown`)
+        console.log(`Device ${device._id} entered max tier cooldown`)
       }
     }
 
