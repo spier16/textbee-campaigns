@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Smartphone, Battery, Signal, Copy, Settings, Clock, Pause, Phone } from 'lucide-react'
+import { Smartphone, Battery, Signal, Copy, Settings, Clock, Pause, Phone, MessageSquare, Timer } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
@@ -20,6 +20,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 interface UsagePlan {
   _id: string
@@ -46,6 +52,8 @@ interface Device {
   usage_window_minutes?: number
   usage_percentage?: number
   estimated_cooldown_end?: string
+  min_avg_wait_seconds?: number
+  max_messages_per_cycle?: number
 }
 
 export default function DeviceList() {
@@ -229,11 +237,45 @@ export default function DeviceList() {
                               <Copy className='h-3 w-3' />
                             </Button>
                           </div>
-                          <div className='flex items-center space-x-2'>
-                            <Phone className='h-3 w-3 text-muted-foreground' />
-                            <span className='text-xs text-muted-foreground'>
-                              {formatPhoneNumberDisplay(device.phoneNumber)}
-                            </span>
+                          <div className='flex items-center justify-between'>
+                            <div className='flex items-center space-x-2'>
+                              <Phone className='h-3 w-3 text-muted-foreground' />
+                              <span className='text-xs text-muted-foreground'>
+                                {formatPhoneNumberDisplay(device.phoneNumber)}
+                              </span>
+                            </div>
+                            {(device.max_messages_per_cycle !== undefined || device.min_avg_wait_seconds !== undefined) && (
+                              <TooltipProvider>
+                                <div className='flex items-center gap-3'>
+                                  {device.max_messages_per_cycle !== undefined && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <div className='flex items-center gap-1 text-xs text-muted-foreground'>
+                                          <MessageSquare className='h-3 w-3' />
+                                          <span>{device.max_messages_per_cycle}</span>
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Max daily messages (historical limit)</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                  {device.min_avg_wait_seconds !== undefined && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <div className='flex items-center gap-1 text-xs text-muted-foreground'>
+                                          <Timer className='h-3 w-3' />
+                                          <span>{formatTimeDelay(device.min_avg_wait_seconds)}</span>
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Minimum send delay (historical limit)</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                              </TooltipProvider>
+                            )}
                           </div>
                         </div>
                       </div>

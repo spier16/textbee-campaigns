@@ -1101,6 +1101,24 @@ export class GatewayService {
         // Upgrade to next tier
         device.current_tier = nextTier.tier
         device.last_tier_upgrade = new Date()
+
+        // Update historical limits to track best performance achieved
+        // Always update min_avg_wait_seconds (wait time is cycle-independent)
+        if (!device.min_avg_wait_seconds || nextTier.avg_wait_seconds < device.min_avg_wait_seconds) {
+          device.min_avg_wait_seconds = nextTier.avg_wait_seconds
+          console.log(`Device ${device._id} historical min_avg_wait_seconds updated to ${nextTier.avg_wait_seconds}s`)
+        }
+
+        // Only update max_messages_per_cycle if using standard 24-hour window (1440 minutes)
+        // This prevents debug/test cycles with non-standard windows from corrupting historical data
+        const usageWindowMinutes = (usagePlan as any).usageWindowMinutes || 1440
+        if (usageWindowMinutes === 1440) {
+          if (!device.max_messages_per_cycle || nextTier.messages_per_cycle > device.max_messages_per_cycle) {
+            device.max_messages_per_cycle = nextTier.messages_per_cycle
+            console.log(`Device ${device._id} historical max_messages_per_cycle updated to ${nextTier.messages_per_cycle}`)
+          }
+        }
+
         await device.save()
         console.log(`Device ${device._id} upgraded to tier ${nextTier.tier}`)
         return true

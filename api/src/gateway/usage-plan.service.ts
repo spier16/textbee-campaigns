@@ -5,6 +5,7 @@ import { UsagePlan, UsagePlanDocument } from './schemas/usage-plan.schema'
 import { Device, DeviceDocument } from './schemas/device.schema'
 import { User } from '../users/schemas/user.schema'
 import { CreateUsagePlanDTO, UpdateUsagePlanDTO, AssignUsagePlanDTO } from './usage-plan.dto'
+import { PlanSwitchingService } from './services/plan-switching.service'
 
 // Pre-defined plan templates
 const PREDEFINED_PLANS = [
@@ -87,6 +88,7 @@ export class UsagePlanService {
   constructor(
     @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
+    private planSwitchingService: PlanSwitchingService,
   ) {}
 
   async createUsagePlan(createUsagePlanDto: CreateUsagePlanDTO, user: User): Promise<UsagePlan> {
@@ -295,12 +297,9 @@ export class UsagePlanService {
       throw new HttpException('Device not found', HttpStatus.NOT_FOUND)
     }
 
-    // Assign the plan and reset tier to 1
-    device.usagePlan = assignUsagePlanDto.usagePlanId as any
-    device.current_tier = 1
-    device.is_on_cooldown = false
-
-    return await device.save()
+    // Use PlanSwitchingService for intelligent tier placement based on historical performance
+    // This automatically places the device at the highest tier it has historically achieved
+    return await this.planSwitchingService.switchDevicePlan(deviceId, assignUsagePlanDto.usagePlanId)
   }
 
   async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {

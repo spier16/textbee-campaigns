@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
-import { Model } from 'mongoose'
+import { Model, Types } from 'mongoose'
 import { Device, DeviceDocument } from '../schemas/device.schema'
 import { UsagePlan, UsagePlanDocument } from '../schemas/usage-plan.schema'
 
@@ -24,6 +24,99 @@ export class PlanSwitchingService {
   ) {}
 
   /**
+   * Get usage plan by ID, supporting both template and user-created plans
+   */
+  private async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
+    // Handle template plans
+    if (typeof planId === 'string' && planId.startsWith('template_')) {
+      const PREDEFINED_PLANS = [
+        {
+          _id: 'template_verizon_business',
+          name: 'Verizon Business SIM',
+          description: 'Best for high-volume sending',
+          usageWindowMinutes: 1440,
+          tiers: [
+            { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 70 },
+            { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 140 },
+            { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 280 },
+            { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 420 },
+            { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 560 },
+            { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 700 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'template_verizon_prepaid',
+          name: 'Verizon Prepaid SIM',
+          description: 'Reliable mid-volume option',
+          usageWindowMinutes: 1440,
+          tiers: [
+            { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 20 },
+            { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 40 },
+            { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 80 },
+            { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 120 },
+            { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 160 },
+            { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 200 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'template_total_wireless',
+          name: 'Total Wireless SIM',
+          description: "Reliable mid-volume option on Verizon's network",
+          usageWindowMinutes: 1440,
+          tiers: [
+            { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 15 },
+            { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 30 },
+            { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 60 },
+            { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 90 },
+            { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 120 },
+            { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 150 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'template_tracfone',
+          name: 'Tracfone SIM',
+          description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
+          usageWindowMinutes: 1440,
+          tiers: [
+            { tier: 1, avg_wait_seconds: 300, messages_per_cycle: 15 },
+            { tier: 2, avg_wait_seconds: 240, messages_per_cycle: 30 },
+            { tier: 3, avg_wait_seconds: 180, messages_per_cycle: 60 },
+            { tier: 4, avg_wait_seconds: 120, messages_per_cycle: 90 },
+            { tier: 5, avg_wait_seconds: 90, messages_per_cycle: 120 },
+            { tier: 6, avg_wait_seconds: 60, messages_per_cycle: 150 },
+          ],
+          isDefault: false,
+          isActive: true,
+          isTemplate: true,
+          createdAt: new Date().toISOString(),
+        },
+      ]
+
+      const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
+      return templatePlan ? templatePlan as any : null
+    }
+
+    // Handle user-created plans
+    if (Types.ObjectId.isValid(planId as string)) {
+      return await this.usagePlanModel.findById(planId).exec()
+    }
+
+    return null
+  }
+
+  /**
    * Switch a device to a new usage plan and auto-place at highest eligible tier
    *
    * @param deviceId - Device to switch
@@ -42,7 +135,7 @@ export class PlanSwitchingService {
       throw new NotFoundException(`Device ${deviceId} not found`)
     }
 
-    const newPlan = await this.usagePlanModel.findById(newPlanId).exec()
+    const newPlan = await this.getUsagePlanById(newPlanId)
     if (!newPlan) {
       throw new NotFoundException(`Usage plan ${newPlanId} not found`)
     }
@@ -53,19 +146,48 @@ export class PlanSwitchingService {
     const previousPlan = device.usagePlan?.toString()
     const previousTier = device.current_tier
 
+    // Find the tier configuration for the eligible tier
+    const tierConfig = newPlan.tiers.find(t => t.tier === eligibleTier)
+    if (!tierConfig) {
+      throw new NotFoundException(`Tier ${eligibleTier} not found in plan ${newPlanId}`)
+    }
+
     // Update device
     device.usagePlan = newPlanId as any
     device.current_tier = eligibleTier
     device.last_tier_upgrade = new Date()
+
+    // Initialize/update historical limits based on the tier being placed at
+    const hadHistoricalData = !!(device.min_avg_wait_seconds && device.max_messages_per_cycle)
+
+    // Always update min_avg_wait_seconds (wait time is cycle-independent)
+    if (!device.min_avg_wait_seconds || tierConfig.avg_wait_seconds < device.min_avg_wait_seconds) {
+      device.min_avg_wait_seconds = tierConfig.avg_wait_seconds
+      this.logger.log(
+        `Device ${deviceId} historical min_avg_wait_seconds set to ${tierConfig.avg_wait_seconds}s (tier ${eligibleTier})`
+      )
+    }
+
+    // Only update max_messages_per_cycle if using standard 24-hour window (1440 minutes)
+    const usageWindowMinutes = (newPlan as any).usageWindowMinutes || 1440
+    if (usageWindowMinutes === 1440) {
+      if (!device.max_messages_per_cycle || tierConfig.messages_per_cycle > device.max_messages_per_cycle) {
+        device.max_messages_per_cycle = tierConfig.messages_per_cycle
+        this.logger.log(
+          `Device ${deviceId} historical max_messages_per_cycle set to ${tierConfig.messages_per_cycle} (tier ${eligibleTier})`
+        )
+      }
+    }
 
     // Reset cooldown status (will be recalculated)
     device.is_on_cooldown = false
 
     await device.save()
 
+    const historyStatus = hadHistoricalData ? 'based on history' : 'initialized with tier 1 baseline'
     this.logger.log(
       `Device ${deviceId} switched from plan ${previousPlan} tier ${previousTier} ` +
-      `to plan ${newPlanId} tier ${eligibleTier} (auto-placed based on history)`
+      `to plan ${newPlanId} tier ${eligibleTier} (auto-placed ${historyStatus})`
     )
 
     return device
@@ -84,7 +206,7 @@ export class PlanSwitchingService {
    * @param plan - Target usage plan
    * @returns Tier number (1-based)
    */
-  findHighestEligibleTier(device: DeviceDocument, plan: UsagePlanDocument): number {
+  findHighestEligibleTier(device: DeviceDocument, plan: UsagePlanDocument | UsagePlan): number {
     // If no historical data, start at tier 1 (warm-up required)
     if (!device.min_avg_wait_seconds || !device.max_messages_per_cycle) {
       this.logger.log(
@@ -143,7 +265,7 @@ export class PlanSwitchingService {
       throw new NotFoundException(`Device ${deviceId} not found`)
     }
 
-    const plan = await this.usagePlanModel.findById(planId).exec()
+    const plan = await this.getUsagePlanById(planId)
     if (!plan) {
       throw new NotFoundException(`Usage plan ${planId} not found`)
     }
