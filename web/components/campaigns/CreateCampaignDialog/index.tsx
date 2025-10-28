@@ -62,7 +62,7 @@ interface Device {
 // Usage plan interfaces
 interface UsagePlanTier {
   tier: number
-  avg_wait_seconds: number // in seconds
+  min_wait_seconds: number // in seconds
   messages_per_cycle: number
 }
 
@@ -241,12 +241,12 @@ export function CreateCampaignDialog({
     }
 
     // Convert time delay to hourly rate for display
-    const messagesPerHour = currentTier.avg_wait_seconds > 0
-      ? Math.floor(3600 / currentTier.avg_wait_seconds)
+    const messagesPerHour = currentTier.min_wait_seconds > 0
+      ? Math.floor(3600 / currentTier.min_wait_seconds)
       : 0
 
     return {
-      hourlyInfo: `~${messagesPerHour}/hr (${formatTimeDelay(currentTier.avg_wait_seconds)} delay)`,
+      hourlyInfo: `~${messagesPerHour}/hr (${formatTimeDelay(currentTier.min_wait_seconds)} delay)`,
       dailyInfo: `${currentTier.messages_per_cycle}/day`
     }
   }

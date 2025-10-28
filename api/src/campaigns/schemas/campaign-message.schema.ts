@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose'
 import { Document, Types } from 'mongoose'
 import { User } from '../../users/schemas/user.schema'
-import { Campaign } from './campaign.schema'
+import { Campaign, CampaignStatus } from './campaign.schema'
 
 export type CampaignMessageDocument = CampaignMessage & Document
 
@@ -9,6 +9,7 @@ export enum MessageStatus {
   PENDING = 'pending',
   SCHEDULED = 'scheduled',
   QUEUED = 'queued',
+  CLAIMED = 'claimed',
   SENDING = 'sending',
   SENT = 'sent',
   FAILED = 'failed',
@@ -61,6 +62,24 @@ export class CampaignMessage {
   @Prop({ type: Number, default: 1 })
   priority: number
 
+  // Queue management fields
+  @Prop({ type: String })
+  claimedBy?: string // Device ID that claimed this message
+
+  @Prop({ type: Date })
+  claimUntil?: Date // Visibility timeout - when claim expires
+
+  @Prop({ type: Date })
+  queuedAt?: Date // When message was added to queue (for tie-breaking)
+
+  @Prop({
+    type: String,
+    enum: Object.values(CampaignStatus),
+    required: true,
+    default: CampaignStatus.DRAFT
+  })
+  campaignStatus: CampaignStatus // Denormalized from Campaign for efficient filtering
+
   // Delivery tracking
   @Prop({ type: Date })
   sentAt?: Date
@@ -93,8 +112,18 @@ export const CampaignMessageSchema = SchemaFactory.createForClass(CampaignMessag
 // Add indexes for efficient queries
 CampaignMessageSchema.index({ user: 1, campaign: 1 })
 CampaignMessageSchema.index({ campaign: 1, status: 1 })
-CampaignMessageSchema.index({ status: 1, scheduledTime: 1 })
-CampaignMessageSchema.index({ status: 1, not_before: 1 })
+
+// Primary queue query index - compound for atomic claim with FIFO ordering
+CampaignMessageSchema.index({
+  status: 1,
+  campaignStatus: 1,  // Enables filtering by campaign status without join
+  not_before: 1,
+  queuedAt: 1  // Tie-breaker for FIFO order
+})
+
+// Optional: per-campaign filtering (for analytics/monitoring)
 CampaignMessageSchema.index({ campaign: 1, status: 1, not_before: 1 })
+
+// Legacy indexes (can be removed in future cleanup)
 CampaignMessageSchema.index({ assignedDevice: 1, status: 1 })
 CampaignMessageSchema.index({ scheduledTime: 1, status: 1 })

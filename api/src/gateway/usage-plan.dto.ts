@@ -8,10 +8,10 @@ export class UsagePlanTierDTO {
   @Min(1)
   tier: number
 
-  @ApiProperty({ description: 'Average wait time between messages in seconds' })
+  @ApiProperty({ description: 'Minimum wait time between messages in seconds (with right-skewed randomization)' })
   @IsNumber()
   @Min(0)
-  avg_wait_seconds: number
+  min_wait_seconds: number
 
   @ApiProperty({ description: 'Maximum messages allowed in the rolling window' })
   @IsNumber()

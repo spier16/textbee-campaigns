@@ -55,6 +55,9 @@ export interface WeekdayEnabled {
   sunday: boolean
 }
 
+// CreateCampaignData is for internal UI state management
+// It includes fields like scheduledDate/scheduledTime/weekdayEnabled
+// that are converted to sendingWindows before sending to API
 export interface CreateCampaignData {
   name: string
   description: string
@@ -63,14 +66,14 @@ export interface CreateCampaignData {
   selectedTemplates: string[]
   sendDevices: string[]
   scheduleType: ScheduleType
-  scheduledDate: string
-  scheduledTime: string
+  scheduledDate: string // UI field only, converted to sendingWindows
+  scheduledTime: string // UI field only, converted to sendingWindows
   campaignStartDate: string
   campaignEndDate: string
   timezone: string
   sendingWindows: SendingWindow[]
   weekdayWindows: WeekdayWindows
-  weekdayEnabled: WeekdayEnabled
+  weekdayEnabled: WeekdayEnabled // UI field only, converted to sendingWindows
   excludeDnc: boolean
   includePreviouslyMessaged: boolean
 }

@@ -2,8 +2,9 @@ import { Injectable, Logger } from '@nestjs/common'
 import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
 import { InjectModel } from '@nestjs/mongoose'
-import { Model } from 'mongoose'
+import { Model, Types } from 'mongoose'
 import { Campaign, CampaignDocument, CampaignStatus } from '../schemas/campaign.schema'
+import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../schemas/campaign-message.schema'
 
 @Injectable()
 export class CampaignQueueService {
@@ -12,6 +13,7 @@ export class CampaignQueueService {
   constructor(
     @InjectQueue('campaign-queue') private readonly campaignQueue: Queue,
     @InjectModel(Campaign.name) private campaignModel: Model<CampaignDocument>,
+    @InjectModel(CampaignMessage.name) private campaignMessageModel: Model<CampaignMessageDocument>,
   ) {}
 
   /**
@@ -63,24 +65,58 @@ export class CampaignQueueService {
 
   /**
    * Pause a campaign's processing
+   * Propagates PAUSED status to all campaign messages for efficient worker filtering
+   * Workers will automatically skip these messages via denormalized campaignStatus field
    */
   async pauseCampaign(campaignId: string) {
-    const jobs = await this.campaignQueue.getJobs(['waiting', 'delayed'])
+    // Update campaign status
+    await this.campaignModel.findByIdAndUpdate(campaignId, {
+      status: CampaignStatus.PAUSED
+    })
 
+    // Propagate status to all messages for efficient worker filtering
+    // Workers will automatically stop claiming these messages
+    const result = await this.campaignMessageModel.updateMany(
+      { campaign: new Types.ObjectId(campaignId) },
+      { $set: { campaignStatus: CampaignStatus.PAUSED } }
+    )
+
+    this.logger.log(`Campaign ${campaignId} paused and ${result.modifiedCount} messages updated with PAUSED status`)
+
+    // Remove any legacy queue jobs (for backwards compatibility)
+    const jobs = await this.campaignQueue.getJobs(['waiting', 'delayed'])
     for (const job of jobs) {
       if (job.data.campaignId === campaignId) {
         await job.remove()
-        this.logger.debug(`Removed job ${job.id} for paused campaign ${campaignId}`)
+        this.logger.debug(`Removed legacy job ${job.id} for paused campaign ${campaignId}`)
       }
     }
   }
 
   /**
    * Resume a paused campaign
+   * Propagates RUNNING status to all campaign messages
+   * Workers will automatically start claiming these messages
    */
   async resumeCampaign(campaignId: string, userId: string) {
     this.logger.debug(`Resuming campaign ${campaignId}`)
-    await this.addCampaignToQueue(campaignId, userId)
+
+    // Update campaign status
+    await this.campaignModel.findByIdAndUpdate(campaignId, {
+      status: CampaignStatus.RUNNING,
+      $unset: { completedAt: '' }
+    })
+
+    // Propagate status to all messages
+    // Workers will automatically start claiming these messages
+    const result = await this.campaignMessageModel.updateMany(
+      { campaign: new Types.ObjectId(campaignId) },
+      { $set: { campaignStatus: CampaignStatus.RUNNING } }
+    )
+
+    this.logger.log(`Campaign ${campaignId} resumed and ${result.modifiedCount} messages updated with RUNNING status`)
+
+    // No need to add to queue - device workers continuously monitor the unified queue
   }
 
   /**
@@ -171,64 +207,44 @@ export class CampaignQueueService {
    * Check if a campaign should start now based on its schedule
    */
   private shouldCampaignStartNow(campaign: CampaignDocument, now: Date): boolean {
-    // If it has a specific scheduled time, check that
-    if (campaign.scheduledDate && campaign.scheduledTime) {
-      const scheduledDateTime = new Date(`${campaign.scheduledDate}T${campaign.scheduledTime}`)
-      return now >= scheduledDateTime
+    // Use sendingWindows for all schedule types
+    if (campaign.sendingWindows && campaign.sendingWindows.length > 0) {
+      const firstWindow = campaign.sendingWindows[0]
+      const windowStart = new Date(`${firstWindow.startDate}T${firstWindow.startTime}:00Z`)
+      return now >= windowStart
     }
 
+    // Fallback for campaigns without sendingWindows (shouldn't happen after migration)
     // For campaigns set to start "now", they should start immediately
     if (campaign.scheduleType === 'now') {
       return true
     }
 
-    // For "later" without specific time, start at beginning of start date
+    // For "later" without sendingWindows, start at beginning of start date
     if (campaign.scheduleType === 'later') {
       const startOfDay = new Date(campaign.campaignStartDate + 'T00:00:00')
       return now >= startOfDay
     }
 
-    // For window-based campaigns, check if we're in a valid window
-    return this.isInValidSendingWindow(campaign, now)
+    // Default: start immediately
+    return true
   }
 
   /**
    * Check if current time is within valid sending windows
    */
   private isInValidSendingWindow(campaign: CampaignDocument, now: Date): boolean {
-    if (campaign.scheduleType === 'windows' && campaign.sendingWindows) {
+    // Use unified sendingWindows array for all schedule types
+    if (campaign.sendingWindows && campaign.sendingWindows.length > 0) {
       return campaign.sendingWindows.some(window => {
-        const windowStart = new Date(`${window.startDate}T${window.startTime}`)
-        const windowEnd = new Date(`${window.endDate}T${window.endTime}`)
+        const windowStart = new Date(`${window.startDate}T${window.startTime}:00Z`)
+        const windowEnd = new Date(`${window.endDate}T${window.endTime}:59Z`)
         return now >= windowStart && now <= windowEnd
       })
     }
 
-    if (campaign.scheduleType === 'weekday' && campaign.weekdayWindows && campaign.weekdayEnabled) {
-      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-      const currentDay = dayNames[now.getDay()]
-
-      if (!campaign.weekdayEnabled[currentDay]) {
-        return false
-      }
-
-      const todayWindows = campaign.weekdayWindows[currentDay]
-      if (!todayWindows || todayWindows.length === 0) {
-        return false
-      }
-
-      const currentTime = now.getHours() * 60 + now.getMinutes()
-
-      return todayWindows.some(window => {
-        const [startHour, startMin] = window.startTime.split(':').map(Number)
-        const [endHour, endMin] = window.endTime.split(':').map(Number)
-        const startTime = startHour * 60 + startMin
-        const endTime = endHour * 60 + endMin
-
-        return currentTime >= startTime && currentTime <= endTime
-      })
-    }
-
-    return false
+    // Fallback: allow sending during campaign date range (for unmigrated campaigns)
+    const campaignDate = now.toISOString().split('T')[0]
+    return campaignDate >= campaign.campaignStartDate && campaignDate <= campaign.campaignEndDate
   }
 }

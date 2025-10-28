@@ -22,11 +22,13 @@ import { SupportModule } from './support/support.module'
 import { ContactsModule } from './contacts/contacts.module'
 import { CampaignsModule } from './campaigns/campaigns.module'
 import { ModernizeSchemasMigration } from './migrations/modernize-schemas.migration'
+import { MigrateCampaignSchedulingMigration } from './migrations/migrate-campaign-scheduling.migration'
 
 @Injectable()
 export class LoggerMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
-    console.log('req.originalUrl: ', req.originalUrl)
+    // Debug logging disabled - enable only in development if needed
+    // console.log('req.originalUrl: ', req.originalUrl)
     if (next) {
       next()
     }
@@ -71,6 +73,7 @@ export class LoggerMiddleware implements NestMiddleware {
       useClass: ThrottlerByIpGuard,
     },
     ModernizeSchemasMigration,
+    MigrateCampaignSchedulingMigration,
   ],
 })
 export class AppModule implements NestModule {

@@ -45,10 +45,17 @@ export class DeviceUsageCalculatorService {
   ): Promise<{ count: number; oldestMessageTime: Date | null }> {
     const cutoffTime = new Date(Date.now() - windowMinutes * 60 * 1000)
 
+    // Build query to count messages in rolling window
+    // For pending messages, use requestedAt (when queued to FCM)
+    // For sent/delivered messages, use sentAt (when device confirms)
     const query: any = {
       device: deviceId,
-      sentAt: { $gte: cutoffTime },
-      status: { $in: ['sent', 'delivered'] }, // Only count successfully sent messages
+      $or: [
+        // Pending messages - use requestedAt since sentAt isn't set yet
+        { status: 'pending', requestedAt: { $gte: cutoffTime } },
+        // Sent/delivered messages - use sentAt for accuracy
+        { status: { $in: ['sent', 'delivered'] }, sentAt: { $gte: cutoffTime } }
+      ]
     }
 
     if (campaignOnly) {
@@ -59,15 +66,21 @@ export class DeviceUsageCalculatorService {
     const count = await this.smsModel.countDocuments(query).exec()
 
     // Find oldest message in window (for estimating cooldown end)
+    // Sort by requestedAt for pending, sentAt for sent/delivered
     const oldestMessage = await this.smsModel
       .findOne(query)
-      .sort({ sentAt: 1 }) // Oldest first
-      .select('sentAt')
+      .sort({ requestedAt: 1, sentAt: 1 }) // Oldest first
+      .select('sentAt requestedAt status')
       .exec()
+
+    // Use the appropriate timestamp based on status
+    const oldestTime = oldestMessage?.status === 'pending'
+      ? oldestMessage.requestedAt
+      : (oldestMessage?.sentAt || oldestMessage?.requestedAt)
 
     return {
       count,
-      oldestMessageTime: oldestMessage?.sentAt || null,
+      oldestMessageTime: oldestTime || null,
     }
   }
 

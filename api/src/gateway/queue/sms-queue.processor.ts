@@ -135,7 +135,49 @@ export class SmsQueueProcessor {
         return
       }
 
-      // Check if device is still on cooldown
+      // Check if device has a pending tier upgrade (tier progression cooldown ended)
+      if (device.pending_tier_upgrade && device.cooldown_reason === 'tier_promotion') {
+        const usagePlan = await this.usagePlanService.getUsagePlanById(device.usagePlan.toString())
+        const nextTier = usagePlan?.tiers.find(t => t.tier === device.pending_tier_upgrade)
+
+        if (nextTier) {
+          // Perform the tier upgrade
+          device.current_tier = nextTier.tier
+          device.last_tier_upgrade = new Date()
+
+          // Update historical limits to track best performance achieved
+          if (!device.best_min_wait_seconds || nextTier.min_wait_seconds < device.best_min_wait_seconds) {
+            device.best_min_wait_seconds = nextTier.min_wait_seconds
+            this.logger.log(`Device ${device._id} historical best_min_wait_seconds updated to ${nextTier.min_wait_seconds}s`)
+          }
+
+          // Only update max_messages_per_cycle if using standard 24-hour window (1440 minutes)
+          const usageWindowMinutes = (usagePlan as any).usageWindowMinutes || 1440
+          if (usageWindowMinutes === 1440) {
+            if (!device.max_messages_per_cycle || nextTier.messages_per_cycle > device.max_messages_per_cycle) {
+              device.max_messages_per_cycle = nextTier.messages_per_cycle
+              this.logger.log(`Device ${device._id} historical max_messages_per_cycle updated to ${nextTier.messages_per_cycle}`)
+            }
+          }
+
+          // Clear cooldown and pending upgrade
+          device.is_on_cooldown = false
+          device.cooldown_end_time = undefined
+          device.cooldown_reason = undefined
+          device.pending_tier_upgrade = undefined
+
+          await device.save()
+          this.logger.log(`Device ${device._id} upgraded to tier ${nextTier.tier} after cooldown`)
+        }
+      } else {
+        // Clear cooldown for other cooldown reasons
+        device.is_on_cooldown = false
+        device.cooldown_end_time = undefined
+        device.cooldown_reason = undefined
+        await device.save()
+      }
+
+      // Check if device is still on cooldown (e.g., rolling window not cleared yet)
       const stats = await this.usageCalculator.getDeviceUsageStats(device)
       if (stats.isOverLimit) {
         this.logger.debug(`Device ${deviceId} still on cooldown, will be woken again later`)
@@ -184,6 +226,46 @@ export class SmsQueueProcessor {
       }
 
       this.logger.log(`Re-queued ${pendingMessages.length} messages for device ${deviceId}`)
+
+      // Trigger campaign processors for affected campaigns to continue scheduling
+      // This ensures campaigns resume scheduling new PENDING messages after cooldown
+      const uniqueCampaignIds = [...new Set(pendingMessages.map(m => m.campaign.toString()))]
+
+      if (uniqueCampaignIds.length > 0) {
+        this.logger.log(`Re-triggering ${uniqueCampaignIds.length} campaign(s) to continue scheduling`)
+
+        // Get the campaign queue to trigger campaign processing
+        const Queue = this.smsQueue.constructor as any
+        const campaignQueue = new Queue('campaign-queue', {
+          redis: (this.smsQueue as any).client
+        })
+
+        for (const campaignId of uniqueCampaignIds) {
+          // Find the campaign to get the userId
+          const Campaign = this.campaignMessageModel.db.model('Campaign')
+          const campaign = await Campaign.findById(campaignId)
+
+          if (campaign && campaign.status === 'running') {
+            await campaignQueue.add(
+              'process-campaign',
+              {
+                campaignId: campaignId,
+                userId: campaign.user.toString()
+              },
+              {
+                attempts: 3,
+                backoff: {
+                  type: 'exponential',
+                  delay: 5000,
+                },
+                removeOnComplete: 10,
+                removeOnFail: 50,
+              }
+            )
+            this.logger.log(`Re-triggered campaign ${campaignId} for processing`)
+          }
+        }
+      }
     } catch (error) {
       this.logger.error(`Error processing wake-device job for ${deviceId}:`, error)
       throw error
@@ -384,9 +466,9 @@ export class SmsQueueProcessor {
       this.logger.debug(`Device ${device._id} at limit. Rescheduling after cooldown ends: ${stats.estimatedCooldownEndTime}`)
     } else {
       // Device not at limit - use randomized tier delay
-      const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(currentTier.avg_wait_seconds)
+      const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(currentTier.min_wait_seconds)
       delayMs = randomizedWaitSeconds * 1000
-      this.logger.debug(`Device ${device._id} using randomized delay: ${randomizedWaitSeconds}s (avg: ${currentTier.avg_wait_seconds}s)`)
+      this.logger.debug(`Device ${device._id} using randomized delay: ${randomizedWaitSeconds}s (min: ${currentTier.min_wait_seconds}s)`)
     }
 
     // Calculate next device-available time
@@ -463,6 +545,20 @@ export class SmsQueueProcessor {
       })
 
       this.logger.debug(`Updated campaign ${campaignMessage.campaign} stats: incremented sentMessages`)
+
+      // Check if campaign is complete
+      const pendingCount = await this.campaignMessageModel.countDocuments({
+        campaign: campaignMessage.campaign,
+        status: { $in: [MessageStatus.PENDING, MessageStatus.SCHEDULED, MessageStatus.QUEUED] }
+      })
+
+      if (pendingCount === 0) {
+        await Campaign.findByIdAndUpdate(campaignMessage.campaign, {
+          status: 'completed',
+          completedAt: new Date()
+        })
+        this.logger.log(`Campaign ${campaignMessage.campaign} completed - all messages sent`)
+      }
     } catch (error) {
       this.logger.error('Error updating campaign stats after send:', error)
     }

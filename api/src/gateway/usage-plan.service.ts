@@ -210,7 +210,7 @@ export class UsagePlanService {
 
   async assignUsagePlanToDevice(user: User, deviceId: string, assignUsagePlanDto: AssignUsagePlanDTO): Promise<Device> {
     // Verify the usage plan belongs to the user
-    await this.getUserUsagePlan(user, assignUsagePlanDto.usagePlanId)
+    const plan = await this.getUserUsagePlan(user, assignUsagePlanDto.usagePlanId)
 
     // Find the device
     const device = await this.deviceModel.findOne({
@@ -222,9 +222,20 @@ export class UsagePlanService {
       throw new HttpException('Device not found', HttpStatus.NOT_FOUND)
     }
 
-    // Use PlanSwitchingService for intelligent tier placement based on historical performance
-    // This automatically places the device at the highest tier it has historically achieved
-    return await this.planSwitchingService.switchDevicePlan(deviceId, assignUsagePlanDto.usagePlanId)
+    // Assign the plan and start at tier 1 (no auto-tier placement)
+    // Users can manually advance to highest tier using the "Advance to highest tier" button
+    device.usagePlan = assignUsagePlanDto.usagePlanId as any
+    device.current_tier = 1
+    device.last_tier_upgrade = new Date()
+
+    // Reset cooldown status when switching plans
+    device.is_on_cooldown = false
+    device.cooldown_end_time = undefined
+    device.cooldown_reason = undefined
+
+    await device.save()
+
+    return device
   }
 
   async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
@@ -257,9 +268,9 @@ export class UsagePlanService {
       description: 'Automatically created default usage plan',
       usageWindowMinutes: 1440, // 24 hours rolling window
       tiers: [
-        { tier: 1, avg_wait_seconds: 2, messages_per_cycle: 50 },
-        { tier: 2, avg_wait_seconds: 1, messages_per_cycle: 100 },
-        { tier: 3, avg_wait_seconds: 0, messages_per_cycle: 200 },
+        { tier: 1, min_wait_seconds: 2, messages_per_cycle: 50 },
+        { tier: 2, min_wait_seconds: 1, messages_per_cycle: 100 },
+        { tier: 3, min_wait_seconds: 0, messages_per_cycle: 200 },
       ],
       isDefault: true,
     }
@@ -267,7 +278,7 @@ export class UsagePlanService {
     return await this.createUsagePlan(defaultPlanData, user)
   }
 
-  async getCurrentTierForDevice(device: DeviceDocument): Promise<{ tier: number; avg_wait_seconds: number; messages_per_cycle: number } | null> {
+  async getCurrentTierForDevice(device: DeviceDocument): Promise<{ tier: number; min_wait_seconds: number; messages_per_cycle: number } | null> {
     if (!device.usagePlan) {
       return null
     }

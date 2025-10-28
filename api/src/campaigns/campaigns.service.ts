@@ -670,6 +670,7 @@ export class CampaignsService {
       messages.push({
         user: user._id,
         campaign: campaign._id,
+        campaignStatus: campaign.status, // Denormalize campaign status for efficient worker filtering
         templateId: template._id.toString(),
         templateIndex: templateIndex % templates.length,
         content: processedContent, // Now contains processed content with substituted variables
@@ -694,18 +695,19 @@ export class CampaignsService {
   private calculateCampaignStartTime(campaign: CampaignDocument): Date {
     const now = new Date()
 
-    // If specific scheduled date and time are provided
-    if (campaign.scheduledDate && campaign.scheduledTime) {
-      const scheduledDateTime = new Date(`${campaign.scheduledDate}T${campaign.scheduledTime}`)
-      return scheduledDateTime > now ? scheduledDateTime : now
+    // Use the first sending window's start time if available
+    if (campaign.sendingWindows && campaign.sendingWindows.length > 0) {
+      const firstWindow = campaign.sendingWindows[0]
+      const windowStart = new Date(`${firstWindow.startDate}T${firstWindow.startTime}:00Z`)
+      return windowStart > now ? windowStart : now
     }
 
-    // If scheduleType is 'now', start immediately
+    // Fallback: If scheduleType is 'now', start immediately
     if (campaign.scheduleType === 'now') {
       return now
     }
 
-    // For 'later' or other types, use campaign start date
+    // For other types, use campaign start date
     if (campaign.campaignStartDate) {
       const startDate = new Date(`${campaign.campaignStartDate}T00:00:00`)
       return startDate > now ? startDate : now

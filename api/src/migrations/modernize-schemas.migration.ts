@@ -9,8 +9,8 @@ import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../camp
  * Migration script to modernize schemas for queue-based messaging system
  *
  * This migration:
- * 1. Populates historical min_avg_wait_seconds and max_messages_per_cycle for devices
- * 2. Renames usage plan tier fields (timeDelayBetweenMessages -> avg_wait_seconds, dailyLimit -> messages_per_cycle)
+ * 1. Populates historical best_min_wait_seconds and max_messages_per_cycle for devices
+ * 2. Renames usage plan tier fields (timeDelayBetweenMessages -> min_wait_seconds, dailyLimit -> messages_per_cycle)
  * 3. Adds not_before field to pending campaign messages
  *
  * Run this migration once after deploying new schemas
@@ -64,12 +64,12 @@ export class ModernizeSchemasMigration {
 
           if (currentTier) {
             // Check if using old field names (for backward compatibility during migration)
-            const avgWaitSeconds = (currentTier as any).avg_wait_seconds || (currentTier as any).timeDelayBetweenMessages
+            const minWaitSeconds = (currentTier as any).min_wait_seconds || (currentTier as any).avg_wait_seconds || (currentTier as any).timeDelayBetweenMessages
             const messagesPerCycle = (currentTier as any).messages_per_cycle || (currentTier as any).dailyLimit
 
             // Populate historical fields if not set
-            if (!device.min_avg_wait_seconds && avgWaitSeconds) {
-              device.min_avg_wait_seconds = avgWaitSeconds
+            if (!device.best_min_wait_seconds && minWaitSeconds) {
+              device.best_min_wait_seconds = minWaitSeconds
               needsUpdate = true
             }
 
@@ -112,7 +112,7 @@ export class ModernizeSchemasMigration {
           // Migrate tier data from old field names to new
           plan.tiers = plan.tiers.map((tier: any) => ({
             tier: tier.tier,
-            avg_wait_seconds: tier.avg_wait_seconds || tier.timeDelayBetweenMessages,
+            min_wait_seconds: tier.min_wait_seconds || tier.avg_wait_seconds || tier.timeDelayBetweenMessages,
             messages_per_cycle: tier.messages_per_cycle || tier.dailyLimit
           }))
           needsUpdate = true
@@ -167,7 +167,7 @@ export class ModernizeSchemasMigration {
       {},
       {
         $unset: {
-          min_avg_wait_seconds: '',
+          best_min_wait_seconds: '',
           max_messages_per_cycle: ''
         }
       }

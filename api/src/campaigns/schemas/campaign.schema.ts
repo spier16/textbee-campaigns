@@ -43,15 +43,6 @@ export interface WeekdayWindows {
   sunday: WeekdayWindow[]
 }
 
-export interface WeekdayEnabled {
-  monday: boolean
-  tuesday: boolean
-  wednesday: boolean
-  thursday: boolean
-  friday: boolean
-  saturday: boolean
-  sunday: boolean
-}
 
 @Schema({ timestamps: true })
 export class Campaign {
@@ -91,12 +82,6 @@ export class Campaign {
   })
   scheduleType: ScheduleType
 
-  @Prop({ type: String })
-  scheduledDate?: string
-
-  @Prop({ type: String })
-  scheduledTime?: string
-
   @Prop({ type: String, required: true })
   campaignStartDate: string
 
@@ -111,9 +96,6 @@ export class Campaign {
 
   @Prop({ type: Object })
   weekdayWindows?: WeekdayWindows
-
-  @Prop({ type: Object })
-  weekdayEnabled?: WeekdayEnabled
 
   // Contact filtering preferences
   @Prop({ type: Boolean, default: true })

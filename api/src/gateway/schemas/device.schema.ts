@@ -55,7 +55,7 @@ export class Device {
   current_tier: number
 
   @Prop({ type: Number })
-  min_avg_wait_seconds?: number
+  best_min_wait_seconds?: number // Lowest minimum wait time ever achieved (historical tracking)
 
   @Prop({ type: Number })
   max_messages_per_cycle?: number
@@ -74,6 +74,9 @@ export class Device {
 
   @Prop({ type: String, enum: ['tier_promotion', 'max_tier_limit'] })
   cooldown_reason?: 'tier_promotion' | 'max_tier_limit'
+
+  @Prop({ type: Number })
+  pending_tier_upgrade?: number
 
   @Prop({ type: Date })
   lastMessageSentAt?: Date

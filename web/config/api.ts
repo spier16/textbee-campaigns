@@ -39,6 +39,8 @@ export const ApiEndpoints = {
     updateUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
     deleteUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
     assignUsagePlan: (deviceId: string) => `/gateway/devices/${deviceId}/assign-plan`,
+    advanceDeviceTier: (deviceId: string) => `/gateway/devices/${deviceId}/advance-tier`,
+    resetDeviceHistory: (deviceId: string) => `/gateway/devices/${deviceId}/reset-history`,
   },
   billing: {
     currentSubscription: () => '/billing/current-subscription',

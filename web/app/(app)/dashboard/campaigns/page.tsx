@@ -640,6 +640,19 @@ export default function CampaignsPage() {
       return
     }
 
+    // Generate sending windows in UTC based on schedule type
+    const { generateSendingWindows } = await import('@/components/campaigns/utils/window-generator')
+    const sendingWindows = generateSendingWindows(createCampaignData)
+
+    if (sendingWindows.length === 0) {
+      toast({
+        title: "Invalid schedule configuration",
+        description: "Could not generate sending windows from the schedule configuration.",
+        variant: "destructive"
+      })
+      return
+    }
+
     // Prepare the campaign data for API
     const campaignDto: CreateCampaignDto = {
       name: createCampaignData.name.trim(),
@@ -648,14 +661,11 @@ export default function CampaignsPage() {
       selectedTemplates: createCampaignData.selectedTemplates,
       sendDevices: createCampaignData.sendDevices,
       scheduleType: createCampaignData.scheduleType,
-      scheduledDate: createCampaignData.scheduledDate || undefined,
-      scheduledTime: createCampaignData.scheduledTime || undefined,
       campaignStartDate: createCampaignData.campaignStartDate,
       campaignEndDate: createCampaignData.campaignEndDate,
       timezone: createCampaignData.timezone,
-      sendingWindows: createCampaignData.sendingWindows?.length > 0 ? createCampaignData.sendingWindows : undefined,
-      weekdayWindows: createCampaignData.weekdayWindows,
-      weekdayEnabled: createCampaignData.weekdayEnabled,
+      sendingWindows: sendingWindows,
+      weekdayWindows: createCampaignData.scheduleType === 'weekday' ? createCampaignData.weekdayWindows : undefined,
       excludeDnc: createCampaignData.excludeDnc,
       includePreviouslyMessaged: createCampaignData.includePreviouslyMessaged,
     }

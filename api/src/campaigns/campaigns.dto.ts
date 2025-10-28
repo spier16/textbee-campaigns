@@ -160,16 +160,6 @@ export class CreateCampaignDto {
   @IsEnum(ScheduleType)
   scheduleType: ScheduleType
 
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  scheduledDate?: string
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  scheduledTime?: string
-
   @ApiProperty({ description: 'Campaign start date (YYYY-MM-DD)' })
   @IsString()
   @IsNotEmpty()
@@ -196,11 +186,6 @@ export class CreateCampaignDto {
   @IsOptional()
   @IsObject()
   weekdayWindows?: any
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsObject()
-  weekdayEnabled?: any
 
   @ApiProperty({ description: 'Exclude DNC contacts', required: false, default: true })
   @IsOptional()

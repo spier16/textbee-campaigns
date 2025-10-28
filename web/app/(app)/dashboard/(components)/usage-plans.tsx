@@ -24,7 +24,7 @@ import {
 
 interface UsagePlanTier {
   tier: number
-  avg_wait_seconds: number
+  min_wait_seconds: number
   messages_per_cycle: number
 }
 
@@ -283,7 +283,7 @@ export default function UsagePlans() {
                             </Badge>
                             <div className="flex items-center gap-1 text-muted-foreground">
                               <Clock className="h-3 w-3" />
-                              {formatTimeDelay(tier.avg_wait_seconds)}
+                              {formatTimeDelay(tier.min_wait_seconds)}
                             </div>
                           </div>
                           <div className="flex items-center gap-1">

@@ -300,6 +300,14 @@ export class GatewayController {
     return { data };
   }
 
+  @ApiOperation({ summary: 'Advance device to highest eligible tier based on historical limits' })
+  @UseGuards(AuthGuard, CanModifyDevice)
+  @Post('/devices/:id/advance-tier')
+  async advanceDeviceToHighestTier(@Param('id') deviceId: string) {
+    const data = await this.planSwitchingService.advanceDeviceToHighestTier(deviceId);
+    return { data };
+  }
+
   @ApiOperation({ summary: 'Reset device historical performance data' })
   @UseGuards(AuthGuard, CanModifyDevice)
   @Post('/devices/:id/reset-history')

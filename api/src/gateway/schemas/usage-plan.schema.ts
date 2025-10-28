@@ -6,7 +6,7 @@ export type UsagePlanDocument = UsagePlan & Document
 
 export interface UsagePlanTier {
   tier: number
-  avg_wait_seconds: number // Average wait time between messages in seconds
+  min_wait_seconds: number // Minimum wait time between messages in seconds (with right-skewed randomization)
   messages_per_cycle: number // Maximum messages allowed in the rolling window
 }
 
@@ -32,7 +32,7 @@ export class UsagePlan {
   @Prop({
     type: [{
       tier: { type: Number, required: true },
-      avg_wait_seconds: { type: Number, required: true },
+      min_wait_seconds: { type: Number, required: true },
       messages_per_cycle: { type: Number, required: true }
     }],
     required: true

@@ -68,16 +68,6 @@ export interface WeekdayWindows {
   sunday: WeekdayWindow[]
 }
 
-export interface WeekdayEnabled {
-  monday: boolean
-  tuesday: boolean
-  wednesday: boolean
-  thursday: boolean
-  friday: boolean
-  saturday: boolean
-  sunday: boolean
-}
-
 export enum CampaignStatus {
   DRAFT = 'draft',
   SCHEDULED = 'scheduled',
@@ -102,14 +92,11 @@ export interface CreateCampaignDto {
   selectedTemplates: string[]
   sendDevices: string[]
   scheduleType: ScheduleType
-  scheduledDate?: string
-  scheduledTime?: string
   campaignStartDate: string
   campaignEndDate: string
   timezone: string
   sendingWindows?: SendingWindow[]
   weekdayWindows?: WeekdayWindows
-  weekdayEnabled?: WeekdayEnabled
   excludeDnc?: boolean
   includePreviouslyMessaged?: boolean
 }
@@ -139,6 +126,8 @@ export interface Campaign {
   campaignStartDate: string
   campaignEndDate: string
   timezone: string
+  sendingWindows?: SendingWindow[] // Unified scheduling format (all times in UTC)
+  weekdayWindows?: WeekdayWindows // Preserved for editing weekday-mode campaigns
   excludeDnc?: boolean
   includePreviouslyMessaged?: boolean
   isDeleted?: boolean

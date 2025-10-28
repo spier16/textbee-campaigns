@@ -116,9 +116,9 @@ export class CampaignQueueProcessor {
         return
       }
 
-      // Schedule messages based on campaign type and current time
-      this.logger.debug(`Found ${devices.length} devices for campaign ${campaignId}, calling scheduleMessages`)
-      await this.scheduleMessages(campaign, devices)
+      // Queue all messages with initial not_before calculation
+      this.logger.debug(`Found ${devices.length} devices for campaign ${campaignId}, calling queueAllMessages`)
+      await this.queueAllMessages(campaign)
 
     } catch (error) {
       this.logger.error(`Error processing campaign ${campaignId}:`, error)
@@ -129,39 +129,16 @@ export class CampaignQueueProcessor {
     }
   }
 
+  // DEPRECATED - These job handlers are no longer used with the new queue architecture
+  // Device workers now continuously pull from the unified message queue
+  // Keeping these for backwards compatibility during migration
   @Process({
     name: 'dispatch-campaign-messages',
     concurrency: 5,
   })
   async dispatchCampaignMessages(job: Job<{ campaignId: string }>) {
-    const { campaignId } = job.data
-    this.logger.debug(`Dispatching messages for campaign ${campaignId}`)
-
-    try {
-      const campaign = await this.campaignModel.findById(campaignId)
-      if (!campaign || campaign.status !== CampaignStatus.RUNNING) {
-        this.logger.debug(`Campaign ${campaignId} not found or not running`)
-        return
-      }
-
-      const devices = await this.deviceModel
-        .find({
-          _id: { $in: campaign.sendDevices.map(id => new Types.ObjectId(id)) },
-          user: new Types.ObjectId(campaign.user.toString()),
-          enabled: true,
-        })
-        .exec()
-
-      if (devices.length === 0) {
-        this.logger.warn(`No available devices for campaign ${campaignId}`)
-        return
-      }
-
-      await this.scheduleMessages(campaign, devices)
-    } catch (error) {
-      this.logger.error(`Error dispatching messages for campaign ${campaignId}:`, error)
-      throw error
-    }
+    this.logger.warn(`dispatch-campaign-messages job is deprecated with new queue architecture`)
+    // No-op - device workers handle message dispatch now
   }
 
   @Process({
@@ -169,25 +146,86 @@ export class CampaignQueueProcessor {
     concurrency: 10,
   })
   async scheduleMessagesJob(job: Job<{ campaignId: string }>) {
-    const { campaignId } = job.data
-
-    const campaign = await this.campaignModel.findById(campaignId)
-    if (!campaign || campaign.status !== CampaignStatus.RUNNING) {
-      return
-    }
-
-    const devices = await this.deviceModel
-      .find({
-        _id: { $in: campaign.sendDevices.map(id => new Types.ObjectId(id)) },
-        user: new Types.ObjectId(campaign.user.toString()),
-        enabled: true,
-      })
-      .exec()
-
-    await this.scheduleMessages(campaign, devices)
+    this.logger.warn(`schedule-messages job is deprecated with new queue architecture`)
+    // No-op - device workers handle message dispatch now
   }
 
-  private async scheduleMessages(campaign: CampaignDocument, devices: DeviceDocument[]) {
+  /**
+   * Queue all pending messages for a campaign with calculated not_before timestamps
+   * This replaces the complex batch scheduling logic with a simple upfront queueing approach
+   */
+  private async queueAllMessages(campaign: CampaignDocument) {
+    const now = new Date()
+    this.logger.debug(`queueAllMessages called for campaign ${campaign._id}`)
+
+    // Calculate initial not_before based on campaign's sending windows
+    const notBefore = this.calculateInitialNotBefore(campaign, now)
+    this.logger.debug(`Calculated not_before: ${notBefore.toISOString()} for campaign ${campaign._id}`)
+
+    // Bulk update all PENDING messages to QUEUED with not_before and queuedAt
+    const result = await this.campaignMessageModel.updateMany(
+      {
+        campaign: campaign._id,
+        status: MessageStatus.PENDING
+      },
+      {
+        $set: {
+          status: MessageStatus.QUEUED,
+          campaignStatus: campaign.status, // Denormalize for efficient worker filtering
+          not_before: notBefore,
+          queuedAt: now
+        }
+      }
+    )
+
+    this.logger.log(`Queued ${result.modifiedCount} messages for campaign ${campaign._id} with not_before: ${notBefore.toISOString()}`)
+
+    // Update campaign stats
+    await this.updateCampaignStats(campaign)
+  }
+
+  /**
+   * Calculate the initial not_before timestamp based on campaign's sending windows
+   * Returns the earliest valid time messages can be sent
+   */
+  private calculateInitialNotBefore(campaign: CampaignDocument, now: Date): Date {
+    if (!campaign.sendingWindows?.length) {
+      this.logger.warn(`Campaign ${campaign._id} has no sending windows, using now`)
+      return now
+    }
+
+    // Check if now is within any window
+    for (const window of campaign.sendingWindows) {
+      const start = new Date(`${window.startDate}T${window.startTime}:00Z`)
+      const end = new Date(`${window.endDate}T${window.endTime}:59Z`)
+      if (now >= start && now <= end) {
+        this.logger.debug(`Current time is within window ${window.startDate} ${window.startTime} - ${window.endDate} ${window.endTime}`)
+        return now
+      }
+    }
+
+    // Find next window start
+    const futureWindows = campaign.sendingWindows
+      .map(w => ({
+        start: new Date(`${w.startDate}T${w.startTime}:00Z`),
+        window: w
+      }))
+      .filter(({ start }) => start > now)
+      .sort((a, b) => a.start.getTime() - b.start.getTime())
+
+    if (futureWindows.length > 0) {
+      const nextWindow = futureWindows[0]
+      this.logger.debug(`Next window starts at ${nextWindow.start.toISOString()}`)
+      return nextWindow.start
+    }
+
+    // No future windows available
+    this.logger.warn(`No future sending windows found for campaign ${campaign._id}, using now`)
+    return now
+  }
+
+  // OLD METHOD - TO BE REMOVED
+  private async scheduleMessages_OLD(campaign: CampaignDocument, devices: DeviceDocument[]) {
     const now = new Date()
     this.logger.debug(`scheduleMessages called for campaign ${campaign._id}`)
 
@@ -259,11 +297,11 @@ export class CampaignQueueProcessor {
       if (deviceNextAvailableTime.has(deviceId)) {
         // Device already has messages scheduled, add randomized tier delay to the last scheduled time
         const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
-        const avgWaitSeconds = currentTier ? currentTier.avg_wait_seconds : 300 // Default 5 min
-        const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(avgWaitSeconds)
+        const minWaitSeconds = currentTier ? currentTier.min_wait_seconds : 300 // Default 5 min
+        const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(minWaitSeconds)
         const delayMs = randomizedWaitSeconds * 1000
         scheduledTime = new Date(deviceNextAvailableTime.get(deviceId).getTime() + delayMs)
-        this.logger.debug(`Scheduling next message for device ${device._id} with randomized delay: ${randomizedWaitSeconds}s (avg: ${avgWaitSeconds}s)`)
+        this.logger.debug(`Scheduling next message for device ${device._id} with randomized delay: ${randomizedWaitSeconds}s (min: ${minWaitSeconds}s)`)
       } else {
         // First message for this device - check if it's the very first message of the campaign
         const isFirstMessageOfCampaign = await this.isFirstMessageOfCampaign(campaign, device)
@@ -323,54 +361,19 @@ export class CampaignQueueProcessor {
   }
 
   private isInSendingWindow(campaign: CampaignDocument, now: Date): boolean {
-    const campaignDate = now.toISOString().split('T')[0]
-
-    // Check if we're within campaign date range
-    if (campaignDate < campaign.campaignStartDate || campaignDate > campaign.campaignEndDate) {
+    // Check if campaign has any sending windows defined
+    if (!campaign.sendingWindows || campaign.sendingWindows.length === 0) {
+      this.logger.warn(`Campaign ${campaign._id} has no sending windows defined`)
       return false
     }
 
-    // For 'now' and 'later' schedule types, we can send anytime within date range
-    if (campaign.scheduleType === ScheduleType.NOW || campaign.scheduleType === ScheduleType.LATER) {
-      return true
-    }
-
-    // For 'windows' schedule type
-    if (campaign.scheduleType === ScheduleType.WINDOWS && campaign.sendingWindows) {
-      return campaign.sendingWindows.some(window => {
-        const windowStart = new Date(`${window.startDate}T${window.startTime}`)
-        const windowEnd = new Date(`${window.endDate}T${window.endTime}`)
-        return now >= windowStart && now <= windowEnd
-      })
-    }
-
-    // For 'weekday' schedule type
-    if (campaign.scheduleType === ScheduleType.WEEKDAY && campaign.weekdayWindows && campaign.weekdayEnabled) {
-      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-      const currentDay = dayNames[now.getDay()]
-
-      if (!campaign.weekdayEnabled[currentDay]) {
-        return false
-      }
-
-      const todayWindows = campaign.weekdayWindows[currentDay]
-      if (!todayWindows || todayWindows.length === 0) {
-        return false
-      }
-
-      const currentTime = now.getHours() * 60 + now.getMinutes()
-
-      return todayWindows.some(window => {
-        const [startHour, startMin] = window.startTime.split(':').map(Number)
-        const [endHour, endMin] = window.endTime.split(':').map(Number)
-        const startTime = startHour * 60 + startMin
-        const endTime = endHour * 60 + endMin
-
-        return currentTime >= startTime && currentTime <= endTime
-      })
-    }
-
-    return false
+    // Check if current time falls within any of the defined windows
+    // All times in sendingWindows are stored in UTC for consistency
+    return campaign.sendingWindows.some(window => {
+      const windowStart = new Date(`${window.startDate}T${window.startTime}:00Z`)
+      const windowEnd = new Date(`${window.endDate}T${window.endTime}:59Z`)
+      return now >= windowStart && now <= windowEnd
+    })
   }
 
   private async canDeviceSendNow(device: DeviceDocument): Promise<boolean> {
@@ -420,7 +423,7 @@ export class CampaignQueueProcessor {
     }
 
     // Add randomized delay based on tier settings
-    const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(currentTier.avg_wait_seconds)
+    const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(currentTier.min_wait_seconds)
     const delayMs = randomizedWaitSeconds * 1000
     return new Date(now.getTime() + delayMs)
   }
@@ -507,10 +510,23 @@ export class CampaignQueueProcessor {
   private getNextSendingWindow(campaign: CampaignDocument): Date | null {
     const now = new Date()
 
-    // Implementation depends on schedule type
-    // This would calculate the next available sending window
-    // For now, return 1 hour from now as a simple fallback
-    return new Date(now.getTime() + 60 * 60 * 1000)
+    if (!campaign.sendingWindows || campaign.sendingWindows.length === 0) {
+      this.logger.warn(`Campaign ${campaign._id} has no sending windows defined`)
+      return null
+    }
+
+    // Parse all windows and convert to Date objects
+    // All times in sendingWindows are stored in UTC
+    const futureWindows = campaign.sendingWindows
+      .map(window => ({
+        start: new Date(`${window.startDate}T${window.startTime}:00Z`),
+        end: new Date(`${window.endDate}T${window.endTime}:59Z`)
+      }))
+      .filter(window => window.start > now) // Only future windows
+      .sort((a, b) => a.start.getTime() - b.start.getTime()) // Sort chronologically
+
+    // Return the start time of the next window, or null if no future windows exist
+    return futureWindows.length > 0 ? futureWindows[0].start : null
   }
 
   private async scheduleNextBatch(campaign: CampaignDocument, customDelay?: number) {
