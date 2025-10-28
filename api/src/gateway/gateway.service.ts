@@ -920,19 +920,77 @@ export class GatewayService {
     };
   }
 
-  async getStatsForUser(user: User) {
-    const devices = await this.deviceModel.find({ user: user._id })
+  async getStatsForUser(
+    user: User,
+    startDate?: Date,
+    endDate?: Date,
+    deviceIds?: string[],
+  ) {
+    // Get all user devices
+    const allDevices = await this.deviceModel.find({ user: user._id })
     const apiKeys = await this.authService.getUserApiKeys(user)
 
-    const totalSentSMSCount = devices.reduce((acc, device) => {
-      return acc + (device.sentSMSCount || 0)
-    }, 0)
+    // Determine which devices to filter by
+    let targetDeviceIds: Types.ObjectId[]
+    if (deviceIds && deviceIds.length > 0) {
+      // Use specified device IDs
+      targetDeviceIds = deviceIds.map((id) => new Types.ObjectId(id))
+    } else {
+      // Use all user's devices
+      targetDeviceIds = allDevices.map((device) => device._id)
+    }
 
-    const totalReceivedSMSCount = devices.reduce((acc, device) => {
-      return acc + (device.receivedSMSCount || 0)
-    }, 0)
+    // Build base query for SMS filtering
+    const baseQuery: any = {
+      device: { $in: targetDeviceIds },
+    }
 
-    const totalDeviceCount = devices.length
+    // Add date range filtering if provided
+    let sentDateQuery = {}
+    let receivedDateQuery = {}
+    if (startDate || endDate) {
+      if (startDate && endDate) {
+        sentDateQuery = { sentAt: { $gte: startDate, $lte: endDate } }
+        receivedDateQuery = { receivedAt: { $gte: startDate, $lte: endDate } }
+      } else if (startDate) {
+        sentDateQuery = { sentAt: { $gte: startDate } }
+        receivedDateQuery = { receivedAt: { $gte: startDate } }
+      } else if (endDate) {
+        sentDateQuery = { sentAt: { $lte: endDate } }
+        receivedDateQuery = { receivedAt: { $lte: endDate } }
+      }
+    }
+
+    // Count sent SMS
+    const totalSentSMSCount = await this.smsModel.countDocuments({
+      ...baseQuery,
+      type: SMSType.SENT,
+      ...sentDateQuery,
+    })
+
+    // Count received SMS
+    const totalReceivedSMSCount = await this.smsModel.countDocuments({
+      ...baseQuery,
+      type: SMSType.RECEIVED,
+      ...receivedDateQuery,
+    })
+
+    // Count delivered SMS for delivery rate
+    const deliveredSMSCount = await this.smsModel.countDocuments({
+      ...baseQuery,
+      type: SMSType.SENT,
+      status: 'delivered',
+      ...sentDateQuery,
+    })
+
+    // Calculate delivery rate
+    const smsDeliveryRate =
+      totalSentSMSCount > 0
+        ? (deliveredSMSCount / totalSentSMSCount) * 100
+        : 0
+
+    // Total device count and API key count remain unfiltered
+    const totalDeviceCount = allDevices.length
     const totalApiKeyCount = apiKeys.length
 
     return {
@@ -940,6 +998,7 @@ export class GatewayService {
       totalReceivedSMSCount,
       totalDeviceCount,
       totalApiKeyCount,
+      smsDeliveryRate: Number(smsDeliveryRate.toFixed(1)),
     }
   }
 

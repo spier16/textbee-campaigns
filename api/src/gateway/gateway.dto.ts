@@ -321,3 +321,29 @@ export class UpdateSMSStatusDTO {
   })
   senderPhoneNumber?: string
 }
+
+export class GetStatsQueryDTO {
+  @ApiProperty({
+    type: String,
+    required: false,
+    description: 'Start date for filtering stats (ISO date string)',
+    example: '2025-01-01T00:00:00Z',
+  })
+  startDate?: string
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    description: 'End date for filtering stats (ISO date string)',
+    example: '2025-01-31T23:59:59Z',
+  })
+  endDate?: string
+
+  @ApiProperty({
+    type: [String],
+    required: false,
+    description: 'Array of device IDs to filter stats by',
+    example: ['device1', 'device2'],
+  })
+  deviceIds?: string[]
+}

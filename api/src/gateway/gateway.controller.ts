@@ -10,6 +10,7 @@ import {
   Delete,
   HttpCode,
   HttpStatus,
+  Query,
 } from '@nestjs/common'
 import {
   ApiBearerAuth,
@@ -26,6 +27,7 @@ import {
   SendBulkSMSInputDTO,
   SendSMSInputDTO,
   UpdateSMSStatusDTO,
+  GetStatsQueryDTO,
 } from './gateway.dto'
 import {
   CreateUsagePlanDTO,
@@ -51,8 +53,14 @@ export class GatewayController {
 
   @UseGuards(AuthGuard)
   @Get('/stats')
-  async getStats(@Request() req) {
-    const data = await this.gatewayService.getStatsForUser(req.user)
+  async getStats(@Request() req, @Query() query: GetStatsQueryDTO) {
+    const { startDate, endDate, deviceIds } = query
+    const data = await this.gatewayService.getStatsForUser(
+      req.user,
+      startDate ? new Date(startDate) : undefined,
+      endDate ? new Date(endDate) : undefined,
+      deviceIds,
+    )
     return { data }
   }
 
