@@ -2305,7 +2305,6 @@ export default function ContactsPage() {
                       </td>
                       <td className='p-4'>
                         <div className='flex items-center gap-2'>
-                          <FileSpreadsheet className='h-4 w-4 text-muted-foreground' />
                           <div>
                             <div className='font-medium'>{file.originalFileName}</div>
                           </div>
