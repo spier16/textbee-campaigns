@@ -167,7 +167,7 @@ export default function Overview() {
                   type="date"
                   value={dateRange?.from?.toISOString().split('T')[0] || ''}
                   onChange={(e) => {
-                    const date = e.target.value ? new Date(e.target.value) : undefined
+                    const date = e.target.value ? new Date(e.target.value + 'T00:00:00') : undefined
                     setDateRange({ ...dateRange, from: date })
                   }}
                 />
@@ -178,7 +178,7 @@ export default function Overview() {
                   type="date"
                   value={dateRange?.to?.toISOString().split('T')[0] || ''}
                   onChange={(e) => {
-                    const date = e.target.value ? new Date(e.target.value) : undefined
+                    const date = e.target.value ? new Date(e.target.value + 'T00:00:00') : undefined
                     setDateRange({ ...dateRange, to: date })
                   }}
                 />

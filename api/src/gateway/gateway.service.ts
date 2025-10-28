@@ -950,14 +950,22 @@ export class GatewayService {
     let receivedDateQuery = {}
     if (startDate || endDate) {
       if (startDate && endDate) {
-        sentDateQuery = { sentAt: { $gte: startDate, $lte: endDate } }
-        receivedDateQuery = { receivedAt: { $gte: startDate, $lte: endDate } }
+        // Add 1 day to endDate to include entire end date
+        const endDateInclusive = new Date(endDate)
+        endDateInclusive.setDate(endDateInclusive.getDate() + 1)
+
+        sentDateQuery = { sentAt: { $gte: startDate, $lt: endDateInclusive } }
+        receivedDateQuery = { receivedAt: { $gte: startDate, $lt: endDateInclusive } }
       } else if (startDate) {
         sentDateQuery = { sentAt: { $gte: startDate } }
         receivedDateQuery = { receivedAt: { $gte: startDate } }
       } else if (endDate) {
-        sentDateQuery = { sentAt: { $lte: endDate } }
-        receivedDateQuery = { receivedAt: { $lte: endDate } }
+        // Add 1 day to endDate for consistency
+        const endDateInclusive = new Date(endDate)
+        endDateInclusive.setDate(endDateInclusive.getDate() + 1)
+
+        sentDateQuery = { sentAt: { $lt: endDateInclusive } }
+        receivedDateQuery = { receivedAt: { $lt: endDateInclusive } }
       }
     }
 

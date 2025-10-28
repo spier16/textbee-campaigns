@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -63,7 +64,7 @@ export default function CampaignsPage() {
   const [displayCount, setDisplayCount] = useState(25)
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a'>('newest')
   const [campaignSortBy, setCampaignSortBy] = useState<'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent'>('dateCreated')
-  const [campaignSortOrder, setCampaignSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [campaignSortOrder, setCampaignSortOrder] = useState<'asc' | 'desc'>('desc')
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [createCampaignOpen, setCreateCampaignOpen] = useState(false)
@@ -116,6 +117,19 @@ export default function CampaignsPage() {
   const [templateSelectionOpen, setTemplateSelectionOpen] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [uniqueContactCount, setUniqueContactCount] = useState<number>(0)
+
+  // State and ref for overflow detection
+  const [overflowCampaigns, setOverflowCampaigns] = useState<Set<string>>(new Set())
+  const campaignNameRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  // Stable ref callback to prevent infinite re-renders
+  const setRef = useCallback((campaignId: string) => (el: HTMLDivElement | null) => {
+    if (el) {
+      campaignNameRefs.current.set(campaignId, el)
+    } else {
+      campaignNameRefs.current.delete(campaignId)
+    }
+  }, [])
 
   // Date validation function
   const validateDates = (startDate: string, endDate: string) => {
@@ -586,6 +600,36 @@ export default function CampaignsPage() {
 
     return [total, running, draft, paused, completed, deleted]
   }, [campaigns, deletedCampaigns])
+
+  // Detect text overflow for conditional tooltip display
+  useLayoutEffect(() => {
+    // Use requestAnimationFrame to ensure refs are set before measuring
+    const rafId = requestAnimationFrame(() => {
+      const overflowSet = new Set<string>()
+      campaignNameRefs.current.forEach((element, campaignId) => {
+        if (element && element.scrollWidth > element.clientWidth) {
+          overflowSet.add(campaignId)
+        }
+      })
+      setOverflowCampaigns(overflowSet)
+    })
+
+    const handleResize = () => {
+      const overflowSet = new Set<string>()
+      campaignNameRefs.current.forEach((element, campaignId) => {
+        if (element && element.scrollWidth > element.clientWidth) {
+          overflowSet.add(campaignId)
+        }
+      })
+      setOverflowCampaigns(overflowSet)
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => {
+      cancelAnimationFrame(rafId)
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [filteredAndSortedCampaigns, displayCount, currentPage])
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -1092,7 +1136,8 @@ export default function CampaignsPage() {
               </Button>
             </div>
           ) : (
-            <table className='w-full'>
+            <TooltipProvider>
+              <table className='w-full'>
               <thead className='sticky top-0 z-10 border-b bg-muted'>
                 <tr>
                   <th className='w-8 md:w-12 p-2 md:p-4'>
@@ -1179,17 +1224,44 @@ export default function CampaignsPage() {
                       />
                     </td>
                     <td className='p-2 md:p-4'>
-                      <div className='flex items-center gap-1 md:gap-2'>
-                        <Megaphone className='h-3 w-3 md:h-4 md:w-4 text-muted-foreground' />
-                        <div>
-                          <div className='font-medium text-xs md:text-sm lg:text-base'>{campaign.name}</div>
+                      {overflowCampaigns.has(campaign._id) ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className='cursor-default'
+                              ref={setRef(campaign._id)}
+                            >
+                              <div className='font-medium text-xs md:text-sm lg:text-base truncate'>{campaign.name}</div>
+                              {campaign.description && (
+                                <div className='text-xs md:text-xs lg:text-sm text-muted-foreground truncate'>
+                                  {campaign.description}
+                                </div>
+                              )}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side='top' align='start' className='max-w-md'>
+                            <div className='space-y-1'>
+                              <div className='font-medium'>{campaign.name}</div>
+                              {campaign.description && (
+                                <div className='text-xs text-muted-foreground/80'>
+                                  {campaign.description}
+                                </div>
+                              )}
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <div
+                          ref={setRef(campaign._id)}
+                        >
+                          <div className='font-medium text-xs md:text-sm lg:text-base truncate'>{campaign.name}</div>
                           {campaign.description && (
-                            <div className='text-xs md:text-xs lg:text-sm text-muted-foreground'>
+                            <div className='text-xs md:text-xs lg:text-sm text-muted-foreground truncate'>
                               {campaign.description}
                             </div>
                           )}
                         </div>
-                      </div>
+                      )}
                     </td>
                     <td className='p-2 md:p-4'>
                       {getStatusDisplay(campaign.status, campaign._id, selectedMode === 'deleted')}
@@ -1232,7 +1304,8 @@ export default function CampaignsPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </TooltipProvider>
           )}
         </div>
 
