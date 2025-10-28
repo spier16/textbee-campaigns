@@ -998,7 +998,7 @@ export default function CampaignsPage() {
                 placeholder='Search campaigns...'
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className='pl-8 md:pl-10 text-sm md:text-base'
+                className='pl-8 md:pl-10 text-sm'
               />
             </div>
           </div>
