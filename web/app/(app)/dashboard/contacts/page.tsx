@@ -1859,7 +1859,7 @@ export default function ContactsPage() {
               <RefreshCw className='h-3 w-3' />
             </Button>
           )}
-          {status === 'processed' && (file.skippedCount || file.processingErrors?.length) && (
+          {status === 'processed' && (
             <Button
               size='sm'
               variant='ghost'
