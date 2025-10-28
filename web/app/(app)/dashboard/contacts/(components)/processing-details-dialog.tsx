@@ -71,21 +71,21 @@ export default function ProcessingDetailsDialog({
           </div>
 
           {/* Duplicate Contacts Section */}
-          <div className="space-y-3">
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-orange-600" />
-              Skipped Duplicate Contacts ({duplicateContacts.length})
-            </h3>
-            <ScrollArea className="h-48 border rounded-lg">
-              <div className="p-4 space-y-2">
-                {duplicateContacts.length > 0 ? (
-                  duplicateContacts.map((duplicate, index) => (
+          {duplicateContacts.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-orange-600" />
+                Skipped Duplicate Contacts ({duplicateContacts.length})
+              </h3>
+              <ScrollArea className="h-48 border rounded-lg">
+                <div className="p-4 space-y-2">
+                  {duplicateContacts.map((duplicate, index) => (
                     <div
                       key={index}
                       className="flex items-center justify-between p-3 bg-orange-50 rounded-md border border-orange-200"
                     >
                       <div className="flex-1">
-                        <div className="font-medium">
+                        <div className="font-medium text-black">
                           {duplicate.firstName && duplicate.lastName
                             ? `${duplicate.firstName} ${duplicate.lastName}`
                             : 'Unknown Name'
@@ -102,15 +102,11 @@ export default function ProcessingDetailsDialog({
                         </div>
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    No duplicate contacts were skipped
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+          )}
 
           {/* Processing Errors Section */}
           {processingErrors.length > 0 && (
