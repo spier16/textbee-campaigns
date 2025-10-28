@@ -2088,7 +2088,6 @@ export default function ContactsPage() {
                     className='hidden'
                   />
                   <div className='flex flex-col gap-1'>
-                    <label className='text-xs text-muted-foreground'>Sort by:</label>
                     <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
                       <SelectTrigger className='w-32'>
                         <SelectValue />
