@@ -126,6 +126,7 @@ export function CreateCampaignDialog({
   const [previewLoading, setPreviewLoading] = useState(false)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
+  const [showValidationWarningDialog, setShowValidationWarningDialog] = useState(false)
 
   const { toast } = useToast()
 
@@ -278,7 +279,16 @@ export function CreateCampaignDialog({
       // Call backend API to process template variables
       const response = await campaignsApi.processTemplatePreview(processPreviewData)
 
-      setMessagePreview(response.previews)
+      // Sort previews to show messages with validation errors first
+      const sortedPreviews = [...response.previews].sort((a, b) => {
+        const aHasErrors = (a.highlightedContent?.validationErrors?.length ?? 0) > 0
+        const bHasErrors = (b.highlightedContent?.validationErrors?.length ?? 0) > 0
+        if (aHasErrors && !bHasErrors) return -1
+        if (!aHasErrors && bHasErrors) return 1
+        return 0
+      })
+
+      setMessagePreview(sortedPreviews)
       setCurrentPreviewIndex(0)
     } catch (error) {
       console.error('Error generating message preview:', error)
@@ -289,6 +299,23 @@ export function CreateCampaignDialog({
       })
     } finally {
       setPreviewLoading(false)
+    }
+  }
+
+  // Helper function to count messages with validation errors
+  const getValidationErrorCount = () => {
+    return messagePreview.filter(msg =>
+      (msg.highlightedContent?.validationErrors?.length ?? 0) > 0
+    ).length
+  }
+
+  // Helper function to handle campaign save with validation check
+  const handleSaveWithValidation = () => {
+    const errorCount = getValidationErrorCount()
+    if (errorCount > 0) {
+      setShowValidationWarningDialog(true)
+    } else {
+      onCreateCampaign()
     }
   }
 
@@ -483,6 +510,7 @@ export function CreateCampaignDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='w-[90vw] max-w-6xl h-[90vh] overflow-hidden flex flex-col p-4'>
         <DialogHeader className='flex-shrink-0 border-b p-2 pb-1'>
@@ -1183,7 +1211,7 @@ export function CreateCampaignDialog({
                     <div className='flex-1 flex flex-col items-center px-2 sm:px-0 min-h-0'>
                       {/* Message Card - Responsive sizing with overlap prevention */}
                       <div className={`w-full max-w-lg flex-1 flex flex-col min-h-0 ${spacing.isTiny ? 'mb-2' : 'mb-3'}`}>
-                        <div className={`bg-white border border-border rounded-lg ${spacing.isTiny ? 'p-1' : 'p-2 sm:p-3'} shadow-sm flex-1 flex flex-col`} style={{
+                        <div className={`bg-card border border-border rounded-lg ${spacing.isTiny ? 'p-1' : 'p-2 sm:p-3'} shadow-sm flex-1 flex flex-col`} style={{
                           minHeight: spacing.isTiny ? '120px' : spacing.isCompact ? '160px' : '200px',
                           maxHeight: `calc(100vh - ${spacing.isTiny ? '320px' : spacing.isCompact ? '360px' : '400px'})`
                         }}>
@@ -1326,19 +1354,25 @@ export function CreateCampaignDialog({
               <div className='flex gap-2'>
                 <Button
                   variant='outline'
-                  onClick={onCreateCampaign}
+                  onClick={handleSaveWithValidation}
                   disabled={!campaignData.name.trim() || campaignData.selectedContacts.length === 0}
                 >
                   Save Campaign as Draft
                 </Button>
                 <Button
                   onClick={() => {
-                    // TODO: Launch campaign functionality will be added later
-                    toast({
-                      title: 'Launch Campaign',
-                      description: 'Campaign launch functionality will be available soon.',
-                      variant: 'default'
-                    })
+                    // Check for validation errors before launching
+                    const errorCount = getValidationErrorCount()
+                    if (errorCount > 0) {
+                      setShowValidationWarningDialog(true)
+                    } else {
+                      // TODO: Launch campaign functionality will be added later
+                      toast({
+                        title: 'Launch Campaign',
+                        description: 'Campaign launch functionality will be available soon.',
+                        variant: 'default'
+                      })
+                    }
                   }}
                   disabled={true} // Disabled as requested
                   className='opacity-50 cursor-not-allowed'
@@ -1351,5 +1385,37 @@ export function CreateCampaignDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Validation Warning Dialog */}
+    <Dialog open={showValidationWarningDialog} onOpenChange={setShowValidationWarningDialog}>
+      <DialogContent className='sm:max-w-md'>
+        <DialogHeader>
+          <DialogTitle>Template Validation Errors Detected</DialogTitle>
+          <DialogDescription>
+            {getValidationErrorCount()} out of {messagePreview.length} message{messagePreview.length !== 1 ? 's' : ''} {getValidationErrorCount() !== 1 ? 'have' : 'has'} template validation errors.
+            These messages will be sent with blank fields where variables cannot be substituted.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className='flex-col sm:flex-row gap-2'>
+          <Button
+            variant='outline'
+            onClick={() => setShowValidationWarningDialog(false)}
+            className='w-full sm:w-auto'
+          >
+            Go Back
+          </Button>
+          <Button
+            onClick={() => {
+              setShowValidationWarningDialog(false)
+              onCreateCampaign()
+            }}
+            className='w-full sm:w-auto'
+          >
+            Continue Anyway
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }
