@@ -63,7 +63,7 @@ export default function CampaignsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [displayCount, setDisplayCount] = useState(25)
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a'>('newest')
-  const [campaignSortBy, setCampaignSortBy] = useState<'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent'>('dateCreated')
+  const [campaignSortBy, setCampaignSortBy] = useState<'name' | 'status' | 'contacts' | 'sent' | 'deliveryRate' | 'responseRate' | 'groups' | 'dateCreated' | 'lastSent'>('dateCreated')
   const [campaignSortOrder, setCampaignSortOrder] = useState<'asc' | 'desc'>('desc')
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
@@ -562,6 +562,14 @@ export default function CampaignsPage() {
           aValue = a.sentMessages
           bValue = b.sentMessages
           break
+        case 'deliveryRate':
+          aValue = a.deliveryRate ?? 0
+          bValue = b.deliveryRate ?? 0
+          break
+        case 'responseRate':
+          aValue = a.responseRate ?? 0
+          bValue = b.responseRate ?? 0
+          break
         case 'groups':
           aValue = a.selectedContacts.length
           bValue = b.selectedContacts.length
@@ -795,7 +803,7 @@ export default function CampaignsPage() {
   }
 
 
-  const handleCampaignSort = (column: 'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent') => {
+  const handleCampaignSort = (column: 'name' | 'status' | 'contacts' | 'sent' | 'deliveryRate' | 'responseRate' | 'groups' | 'dateCreated' | 'lastSent') => {
     if (campaignSortBy === column) {
       setCampaignSortOrder(campaignSortOrder === 'asc' ? 'desc' : 'asc')
     } else {
@@ -805,7 +813,7 @@ export default function CampaignsPage() {
     setCurrentPage(1)
   }
 
-  const renderSortIcon = (column: 'name' | 'status' | 'contacts' | 'sent' | 'groups' | 'dateCreated' | 'lastSent') => {
+  const renderSortIcon = (column: 'name' | 'status' | 'contacts' | 'sent' | 'deliveryRate' | 'responseRate' | 'groups' | 'dateCreated' | 'lastSent') => {
     if (campaignSortBy !== column) return null
     return campaignSortOrder === 'asc' ?
       <ChevronUp className="h-4 w-4 ml-1" /> :
@@ -1184,6 +1192,24 @@ export default function CampaignsPage() {
                   </th>
                   <th
                     className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
+                    onClick={() => handleCampaignSort('deliveryRate')}
+                  >
+                    <div className='flex items-center'>
+                      Delivery rate
+                      {renderSortIcon('deliveryRate')}
+                    </div>
+                  </th>
+                  <th
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
+                    onClick={() => handleCampaignSort('responseRate')}
+                  >
+                    <div className='flex items-center'>
+                      Response rate
+                      {renderSortIcon('responseRate')}
+                    </div>
+                  </th>
+                  <th
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('groups')}
                   >
                     <div className='flex items-center'>
@@ -1271,6 +1297,16 @@ export default function CampaignsPage() {
                     </td>
                     <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
                       {campaign.sentMessages.toLocaleString()}
+                    </td>
+                    <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
+                      {campaign.deliveryRate !== undefined
+                        ? `${campaign.deliveryRate.toFixed(1)}%`
+                        : '-'}
+                    </td>
+                    <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
+                      {campaign.responseRate !== undefined
+                        ? `${campaign.responseRate.toFixed(1)}%`
+                        : '-'}
                     </td>
                     <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
                       {campaign.selectedContacts.length}

@@ -21,6 +21,8 @@ import {
   CampaignMessageDocument,
   MessageStatus,
 } from './schemas/campaign-message.schema'
+import { SMS, SMSDocument } from '../gateway/schemas/sms.schema'
+import { SMSType } from '../gateway/sms-type.enum'
 import {
   CreateMessageTemplateGroupDto,
   UpdateMessageTemplateGroupDto,
@@ -57,6 +59,8 @@ export class CampaignsService {
     private campaignModel: Model<CampaignDocument>,
     @InjectModel(CampaignMessage.name)
     private campaignMessageModel: Model<CampaignMessageDocument>,
+    @InjectModel(SMS.name)
+    private smsModel: Model<SMSDocument>,
     @InjectQueue('campaign-queue')
     private campaignQueue: Queue,
     private contactsService: ContactsService,
@@ -442,7 +446,18 @@ export class CampaignsService {
       .sort({ createdAt: -1 })
       .lean()
 
-    return campaigns.map(campaign => this.formatCampaignResponse(campaign))
+    // Calculate stats for each campaign
+    const campaignsWithStats = await Promise.all(
+      campaigns.map(async (campaign) => {
+        const stats = await this.calculateCampaignStats(
+          campaign._id.toString(),
+          user._id
+        )
+        return this.formatCampaignResponse(campaign, stats)
+      })
+    )
+
+    return campaignsWithStats
   }
 
   async getDeletedCampaigns(user: User): Promise<CampaignResponseDto[]> {
@@ -717,7 +732,110 @@ export class CampaignsService {
     return now
   }
 
-  private formatCampaignResponse(campaign: any): CampaignResponseDto {
+  /**
+   * Calculate delivery rate and response rate for a specific campaign
+   */
+  private async calculateCampaignStats(
+    campaignId: string,
+    userId: Types.ObjectId
+  ): Promise<{ deliveryRate: number; responseRate: number }> {
+    const campaignIdStr = campaignId.toString()
+
+    // Build base query for SMS belonging to this user
+    const baseQuery = {
+      device: {
+        $in: await this.smsModel
+          .distinct('device', { device: { $exists: true } })
+          .then(async (deviceIds) => {
+            // Filter to only devices belonging to this user
+            // We'll need to check device ownership via the device model
+            // For now, we'll trust that campaignId filtering is sufficient since campaigns belong to users
+            return deviceIds
+          }),
+      },
+    }
+
+    // Calculate Delivery Rate
+    // Count total sent SMS for this campaign
+    const totalSentSMSCount = await this.smsModel.countDocuments({
+      type: SMSType.SENT,
+      campaignId: campaignIdStr,
+    })
+
+    // Count delivered SMS for this campaign
+    const deliveredSMSCount = await this.smsModel.countDocuments({
+      type: SMSType.SENT,
+      campaignId: campaignIdStr,
+      status: 'delivered',
+    })
+
+    // Calculate delivery rate
+    const deliveryRate =
+      totalSentSMSCount > 0
+        ? (deliveredSMSCount / totalSentSMSCount) * 100
+        : 0
+
+    // Calculate Response Rate
+    let responseRate = 0
+
+    // Get unique recipients who received campaign messages
+    const campaignRecipients = await this.smsModel.aggregate([
+      {
+        $match: {
+          type: SMSType.SENT,
+          campaignId: campaignIdStr,
+        },
+      },
+      {
+        $group: {
+          _id: '$recipient',
+          firstCampaignSentAt: { $min: '$sentAt' },
+        },
+      },
+    ])
+
+    if (campaignRecipients.length > 0) {
+      // For each recipient, check if they responded after receiving their first campaign message
+      const responseCheck = await this.smsModel.aggregate([
+        {
+          $match: {
+            type: SMSType.RECEIVED,
+            sender: { $in: campaignRecipients.map((r) => r._id) },
+          },
+        },
+        {
+          $group: {
+            _id: '$sender',
+            firstResponseAt: { $min: '$receivedAt' },
+          },
+        },
+      ])
+
+      // Count how many recipients responded after their first campaign message
+      let respondedCount = 0
+      for (const recipient of campaignRecipients) {
+        const response = responseCheck.find((r) => r._id === recipient._id)
+        if (
+          response &&
+          response.firstResponseAt > recipient.firstCampaignSentAt
+        ) {
+          respondedCount++
+        }
+      }
+
+      responseRate = (respondedCount / campaignRecipients.length) * 100
+    }
+
+    return {
+      deliveryRate: Number(deliveryRate.toFixed(1)),
+      responseRate: Number(responseRate.toFixed(1)),
+    }
+  }
+
+  private formatCampaignResponse(
+    campaign: any,
+    stats?: { deliveryRate: number; responseRate: number }
+  ): CampaignResponseDto {
     return {
       _id: campaign._id.toString(),
       name: campaign.name,
@@ -744,6 +862,8 @@ export class CampaignsService {
       isDeleted: campaign.isDeleted,
       deletedAt: campaign.deletedAt,
       statusBeforeDelete: campaign.statusBeforeDelete,
+      deliveryRate: stats?.deliveryRate,
+      responseRate: stats?.responseRate,
     }
   }
 

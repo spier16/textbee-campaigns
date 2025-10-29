@@ -86,17 +86,18 @@ export class PlanSwitchingService {
     // Initialize/update historical limits based on the tier being placed at
     const hadHistoricalData = !!(device.best_min_wait_seconds && device.max_messages_per_cycle)
 
-    // Always update best_min_wait_seconds (wait time is cycle-independent)
-    if (!device.best_min_wait_seconds || tierConfig.min_wait_seconds < device.best_min_wait_seconds) {
-      device.best_min_wait_seconds = tierConfig.min_wait_seconds
-      this.logger.log(
-        `Device ${deviceId} historical best_min_wait_seconds set to ${tierConfig.min_wait_seconds}s (tier ${eligibleTier})`
-      )
-    }
-
-    // Only update max_messages_per_cycle if using standard 24-hour window (1440 minutes)
+    // Only update historical limits if using standard 24-hour window (1440 minutes)
     const usageWindowMinutes = (newPlan as any).usageWindowMinutes || 1440
     if (usageWindowMinutes === 1440) {
+      // Update best_min_wait_seconds
+      if (!device.best_min_wait_seconds || tierConfig.min_wait_seconds < device.best_min_wait_seconds) {
+        device.best_min_wait_seconds = tierConfig.min_wait_seconds
+        this.logger.log(
+          `Device ${deviceId} historical best_min_wait_seconds set to ${tierConfig.min_wait_seconds}s (tier ${eligibleTier})`
+        )
+      }
+
+      // Update max_messages_per_cycle
       if (!device.max_messages_per_cycle || tierConfig.messages_per_cycle > device.max_messages_per_cycle) {
         device.max_messages_per_cycle = tierConfig.messages_per_cycle
         this.logger.log(

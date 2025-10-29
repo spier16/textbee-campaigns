@@ -256,12 +256,32 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
         nowIndicator={true}
         now={currentTimeInTimezone}
         timeZone={timezone}
+        locale="en-US"
+        firstDay={0}
         slotMinTime="00:00:00"
         slotMaxTime="24:00:00"
         allDaySlot={false}
         slotDuration="01:00:00"
         slotLabelInterval="02:00:00"
         eventDisplay="background"
+        dayHeaderContent={(args) => {
+          // args.date is a Date object - we need to format it without timezone conversion
+          // Get the UTC date components to avoid timezone shifting
+          const year = args.date.getUTCFullYear()
+          const month = args.date.getUTCMonth()
+          const day = args.date.getUTCDate()
+
+          // Create a local date with these components (no timezone conversion)
+          const localDate = new Date(year, month, day)
+          const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(localDate)
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div>{weekday}</div>
+              <div>{month + 1}/{day}</div>
+            </div>
+          )
+        }}
       />
       <style jsx>{`
         :global(.fc-now-indicator-line) {
@@ -284,6 +304,9 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
         }
         :global(.fc-col-header-cell) {
           font-size: 0.7rem !important;
+        }
+        :global(.fc-col-header-cell-cushion) {
+          white-space: pre-line !important;
         }
         :global(.fc-timegrid-slot-label) {
           font-size: 0.7rem !important;

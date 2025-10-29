@@ -279,6 +279,12 @@ export class CampaignResponseDto {
 
   @ApiProperty({ required: false })
   includePreviouslyMessaged?: boolean
+
+  @ApiProperty({ required: false, description: 'Percentage of sent messages that were delivered' })
+  deliveryRate?: number
+
+  @ApiProperty({ required: false, description: 'Percentage of recipients who replied after receiving campaign message' })
+  responseRate?: number
 }
 
 // Template Preview Processing DTOs

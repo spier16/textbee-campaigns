@@ -19,6 +19,7 @@ import {
   CampaignMessage,
   CampaignMessageSchema,
 } from './schemas/campaign-message.schema'
+import { SMS, SMSSchema } from '../gateway/schemas/sms.schema'
 import { ContactsModule } from '../contacts/contacts.module'
 import { GatewayModule } from '../gateway/gateway.module'
 import { CampaignQueueProcessor } from './queue/campaign-queue.processor'
@@ -31,6 +32,7 @@ import { CampaignQueueService } from './queue/campaign-queue.service'
       { name: MessageTemplate.name, schema: MessageTemplateSchema },
       { name: Campaign.name, schema: CampaignSchema },
       { name: CampaignMessage.name, schema: CampaignMessageSchema },
+      { name: SMS.name, schema: SMSSchema },
     ]),
     BullModule.registerQueue({
       name: 'campaign-queue',

@@ -40,6 +40,7 @@ import {
 interface UsagePlan {
   _id: string
   name: string
+  usageWindowMinutes?: number
   tiers: {
     tier: number
     min_wait_seconds: number
@@ -144,6 +145,12 @@ export default function DeviceList() {
     return device.is_on_cooldown || false
   }
 
+  const isDeviceOn24HourPlan = (device: Device) => {
+    // Check if device's current usage window is 24 hours (1440 minutes)
+    const usageWindowMinutes = device.usage_window_minutes || 1440
+    return usageWindowMinutes === 1440
+  }
+
   const isDeviceEligibleForAdvancement = (device: Device) => {
     if (!device.usagePlan || !usagePlans?.data) return false
 
@@ -198,6 +205,14 @@ export default function DeviceList() {
     const remainingSeconds = seconds % 60
     if (remainingSeconds === 0) return `${minutes}m`
     return `${minutes}m ${remainingSeconds}s`
+  }
+
+  const formatUsageWindow = (minutes: number) => {
+    if (minutes < 60) return `${minutes}m`
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+    if (remainingMinutes === 0) return `${hours}h`
+    return `${hours}h ${remainingMinutes}m`
   }
 
   const formatTimeRemaining = (endTime: Date | string) => {
@@ -433,24 +448,26 @@ export default function DeviceList() {
                                     </Tooltip>
                                   )}
                                 </div>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant='ghost'
-                                      size='icon'
-                                      className='h-5 w-5'
-                                      onClick={() => {
-                                        setSelectedDeviceId(device._id)
-                                        setResetHistoryDialogOpen(true)
-                                      }}
-                                    >
-                                      <RotateCcw className='h-3 w-3' />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p>Reset historical limits</p>
-                                  </TooltipContent>
-                                </Tooltip>
+                                {isDeviceOn24HourPlan(device) && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant='ghost'
+                                        size='icon'
+                                        className='h-5 w-5'
+                                        onClick={() => {
+                                          setSelectedDeviceId(device._id)
+                                          setResetHistoryDialogOpen(true)
+                                        }}
+                                      >
+                                        <RotateCcw className='h-3 w-3' />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Reset historical limits</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
                                 {isDeviceEligibleForAdvancement(device) && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -522,7 +539,7 @@ export default function DeviceList() {
                           <div className='space-y-1'>
                             <div className='flex items-center justify-between text-xs'>
                               <span className='text-muted-foreground'>
-                                Usage (Last {device.usage_window_minutes ? Math.round(device.usage_window_minutes / 60) : 24}h) ({device.messages_sent_today}/{currentTier.messages_per_cycle})
+                                Usage (Last {device.usage_window_minutes ? formatUsageWindow(device.usage_window_minutes) : '24h'}) ({device.messages_sent_today}/{currentTier.messages_per_cycle})
                               </span>
                               <span className='text-muted-foreground'>
                                 {Math.round(usagePercentage)}%

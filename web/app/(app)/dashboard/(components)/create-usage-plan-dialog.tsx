@@ -23,7 +23,6 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Plus, Trash2, ArrowUp, ArrowDown, Copy } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
@@ -89,20 +88,36 @@ const PLAN_TEMPLATES = [
 
 const tierSchema = z.object({
   tier: z.number().min(1),
-  min_wait_seconds: z.union([z.number().min(30, 'Time delay must be at least 30 seconds'), z.string()]).transform((val) => {
-    if (typeof val === 'string') {
-      const num = parseInt(val)
-      return isNaN(num) ? 30 : num
-    }
-    return val
-  }).refine((val) => val >= 30, { message: 'Time delay must be at least 30 seconds' }),
-  messages_per_cycle: z.union([z.number().min(1), z.string()]).transform((val) => {
-    if (typeof val === 'string') {
-      const num = parseInt(val)
-      return isNaN(num) || num < 1 ? 1 : num
-    }
-    return val < 1 ? 1 : val
-  }),
+  min_wait_seconds: z.union([z.number(), z.string()])
+    .refine((val) => {
+      if (typeof val === 'string' && val.trim() === '') {
+        return false
+      }
+      return true
+    }, { message: 'Time delay is required' })
+    .transform((val) => {
+      if (typeof val === 'string') {
+        const num = parseInt(val)
+        return isNaN(num) ? 30 : num
+      }
+      return val
+    })
+    .refine((val) => val >= 30, { message: 'Time delay must be at least 30 seconds' }),
+  messages_per_cycle: z.union([z.number(), z.string()])
+    .refine((val) => {
+      if (typeof val === 'string' && val.trim() === '') {
+        return false
+      }
+      return true
+    }, { message: 'Daily limit is required' })
+    .transform((val) => {
+      if (typeof val === 'string') {
+        const num = parseInt(val)
+        return isNaN(num) || num < 1 ? 1 : num
+      }
+      return val < 1 ? 1 : val
+    })
+    .refine((val) => val >= 1, { message: 'Daily limit must be at least 1' }),
 })
 
 const createUsagePlanSchema = (existingNames: string[] = [], currentPlanName?: string) => z.object({
@@ -122,13 +137,21 @@ const createUsagePlanSchema = (existingNames: string[] = [], currentPlanName?: s
       return !normalizedExisting.includes(normalizedName)
     }, 'A plan with this name already exists'),
   description: z.string().optional(),
-  tierPromotionCooldownHours: z.union([z.number().min(1, 'Cooldown must be at least 1 hour'), z.string()]).transform((val) => {
-    if (typeof val === 'string') {
-      const num = parseInt(val)
-      return isNaN(num) || num < 1 ? 24 : num
-    }
-    return val < 1 ? 24 : val
-  }),
+  tierPromotionCooldownHours: z.union([z.number(), z.string()])
+    .refine((val) => {
+      if (typeof val === 'string' && val.trim() === '') {
+        return false
+      }
+      return true
+    }, { message: 'Cooldown is required' })
+    .transform((val) => {
+      if (typeof val === 'string') {
+        const num = parseInt(val)
+        return isNaN(num) || num < 1 ? 24 : num
+      }
+      return val < 1 ? 24 : val
+    })
+    .refine((val) => val >= 1, { message: 'Cooldown must be at least 1 hour' }),
   tiers: z.array(tierSchema).min(1, 'At least one tier is required'),
   isDefault: z.boolean().default(false),
 })
@@ -415,7 +438,7 @@ export function CreateUsagePlanDialog({
                         value={field.value === undefined ? '' : String(field.value)}
                         onChange={(e) => {
                           const v = e.target.value
-                          field.onChange(v === '' ? undefined : Number(v))
+                          field.onChange(v === '' ? '' : Number(v))
                         }}
                         onWheel={(e) => e.currentTarget.blur()}
                       />
@@ -424,27 +447,6 @@ export function CreateUsagePlanDialog({
                       How long devices wait after tier promotion before sending more campaign messages (default: 24 hours)
                     </div>
                     <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="isDefault"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">Default Plan</FormLabel>
-                      <div className="text-sm text-muted-foreground">
-                        Set as the default plan for new devices
-                      </div>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
                   </FormItem>
                 )}
               />
@@ -518,7 +520,7 @@ export function CreateUsagePlanDialog({
                                 value={field.value === undefined ? '' : String(field.value)}
                                 onChange={(e) => {
                                   const v = e.target.value
-                                  field.onChange(v === '' ? undefined : Number(v))
+                                  field.onChange(v === '' ? '' : Number(v))
                                 }}
                                 onWheel={(e) => e.currentTarget.blur()}
                               />
@@ -547,13 +549,11 @@ export function CreateUsagePlanDialog({
                               <Input
                                 {...field}
                                 type="number"
-                                min={1}                                  // number literal (optional but cleaner)
+                                min={1}
                                 value={field.value === undefined ? '' : String(field.value)}
                                 onChange={(e) => {
                                   const v = e.target.value
-                                  // empty -> undefined; otherwise clamp to >= 1 and ensure integer
-                                  const n = v === '' ? undefined : Math.max(1, Number.parseInt(v, 10) || 1)
-                                  field.onChange(n)
+                                  field.onChange(v === '' ? '' : Number(v))
                                 }}
                                 onWheel={(e) => e.currentTarget.blur()}
                                 inputMode="numeric"

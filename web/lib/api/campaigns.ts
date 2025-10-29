@@ -133,6 +133,8 @@ export interface Campaign {
   isDeleted?: boolean
   deletedAt?: string
   statusBeforeDelete?: CampaignStatus
+  deliveryRate?: number
+  responseRate?: number
 }
 
 // Template Preview Processing interfaces

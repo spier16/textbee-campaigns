@@ -145,15 +145,16 @@ export class SmsQueueProcessor {
           device.current_tier = nextTier.tier
           device.last_tier_upgrade = new Date()
 
-          // Update historical limits to track best performance achieved
-          if (!device.best_min_wait_seconds || nextTier.min_wait_seconds < device.best_min_wait_seconds) {
-            device.best_min_wait_seconds = nextTier.min_wait_seconds
-            this.logger.log(`Device ${device._id} historical best_min_wait_seconds updated to ${nextTier.min_wait_seconds}s`)
-          }
-
-          // Only update max_messages_per_cycle if using standard 24-hour window (1440 minutes)
+          // Only update historical limits if using standard 24-hour window (1440 minutes)
           const usageWindowMinutes = (usagePlan as any).usageWindowMinutes || 1440
           if (usageWindowMinutes === 1440) {
+            // Update best_min_wait_seconds
+            if (!device.best_min_wait_seconds || nextTier.min_wait_seconds < device.best_min_wait_seconds) {
+              device.best_min_wait_seconds = nextTier.min_wait_seconds
+              this.logger.log(`Device ${device._id} historical best_min_wait_seconds updated to ${nextTier.min_wait_seconds}s`)
+            }
+
+            // Update max_messages_per_cycle
             if (!device.max_messages_per_cycle || nextTier.messages_per_cycle > device.max_messages_per_cycle) {
               device.max_messages_per_cycle = nextTier.messages_per_cycle
               this.logger.log(`Device ${device._id} historical max_messages_per_cycle updated to ${nextTier.messages_per_cycle}`)
