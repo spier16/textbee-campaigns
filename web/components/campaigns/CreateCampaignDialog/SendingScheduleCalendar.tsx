@@ -275,10 +275,13 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
           const localDate = new Date(year, month, day)
           const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(localDate)
 
+          // Only show dates in week view, not in month view
+          const isWeekView = args.view.type === 'timeGridWeek'
+
           return (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div>{weekday}</div>
-              <div>{month + 1}/{day}</div>
+              {isWeekView && <div>{month + 1}/{day}</div>}
             </div>
           )
         }}
@@ -294,6 +297,7 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
         }
         :global(.fc) {
           font-size: 0.7rem !important;
+          color: #1e293b !important;
         }
         :global(.fc-toolbar) {
           font-size: 0.7rem !important;
@@ -304,15 +308,44 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
         }
         :global(.fc-col-header-cell) {
           font-size: 0.7rem !important;
+          color: #1e293b !important;
         }
         :global(.fc-col-header-cell-cushion) {
           white-space: pre-line !important;
+          color: #1e293b !important;
         }
         :global(.fc-timegrid-slot-label) {
           font-size: 0.7rem !important;
+          color: #1e293b !important;
         }
         :global(.fc-toolbar-title) {
           font-size: 0.7rem !important;
+          color: #1e293b !important;
+        }
+        :global(.fc-timegrid-slot-label-cushion) {
+          color: #1e293b !important;
+        }
+        :global(.fc-timegrid-axis-cushion) {
+          color: #1e293b !important;
+        }
+        :global(.fc-daygrid-day-number) {
+          color: #1e293b !important;
+        }
+        :global(.fc-daygrid-day-top) {
+          color: #1e293b !important;
+        }
+        :global(.fc-theme-standard td),
+        :global(.fc-theme-standard th) {
+          color: #1e293b !important;
+          border-color: #e2e8f0 !important;
+        }
+        :global(.fc-scrollgrid) {
+          border-color: #e2e8f0 !important;
+        }
+        :global(.fc-button-primary:not(:disabled)) {
+          color: #ffffff !important;
+          background-color: #3b82f6 !important;
+          border-color: #3b82f6 !important;
         }
       `}</style>
     </div>
