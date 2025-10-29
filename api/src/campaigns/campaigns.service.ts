@@ -738,7 +738,7 @@ export class CampaignsService {
   private async calculateCampaignStats(
     campaignId: string,
     userId: Types.ObjectId
-  ): Promise<{ deliveryRate: number; responseRate: number }> {
+  ): Promise<{ deliveryRate?: number; responseRate?: number }> {
     const campaignIdStr = campaignId.toString()
 
     // Build base query for SMS belonging to this user
@@ -761,6 +761,14 @@ export class CampaignsService {
       type: SMSType.SENT,
       campaignId: campaignIdStr,
     })
+
+    // Return undefined rates for campaigns with no sent messages
+    if (totalSentSMSCount === 0) {
+      return {
+        deliveryRate: undefined,
+        responseRate: undefined,
+      }
+    }
 
     // Count delivered SMS for this campaign
     const deliveredSMSCount = await this.smsModel.countDocuments({
@@ -834,7 +842,7 @@ export class CampaignsService {
 
   private formatCampaignResponse(
     campaign: any,
-    stats?: { deliveryRate: number; responseRate: number }
+    stats?: { deliveryRate?: number; responseRate?: number }
   ): CampaignResponseDto {
     return {
       _id: campaign._id.toString(),
