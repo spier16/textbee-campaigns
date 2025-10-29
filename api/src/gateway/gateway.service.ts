@@ -999,7 +999,63 @@ export class GatewayService {
 
     // Total device count and API key count remain unfiltered
     const totalDeviceCount = allDevices.length
-    const totalApiKeyCount = apiKeys.length
+    const totalApiKeyCount = apiKeys.filter((key) => !key.revokedAt).length
+
+    // Calculate campaign response rate
+    let campaignResponseRate = 0
+
+    // Get unique recipients who received campaign messages
+    const campaignRecipients = await this.smsModel.aggregate([
+      {
+        $match: {
+          ...baseQuery,
+          type: SMSType.SENT,
+          campaignId: { $exists: true, $ne: null },
+          ...sentDateQuery,
+        },
+      },
+      {
+        $group: {
+          _id: '$recipient',
+          firstCampaignSentAt: { $min: '$sentAt' },
+        },
+      },
+    ])
+
+    if (campaignRecipients.length > 0) {
+      // For each recipient, check if they responded after receiving their first campaign message
+      const responseCheck = await this.smsModel.aggregate([
+        {
+          $match: {
+            ...baseQuery,
+            type: SMSType.RECEIVED,
+            ...receivedDateQuery,
+            sender: { $in: campaignRecipients.map((r) => r._id) },
+          },
+        },
+        {
+          $group: {
+            _id: '$sender',
+            firstResponseAt: { $min: '$receivedAt' },
+          },
+        },
+      ])
+
+      // Count how many recipients responded after their first campaign message
+      let respondedCount = 0
+      for (const recipient of campaignRecipients) {
+        const response = responseCheck.find((r) => r._id === recipient._id)
+        if (
+          response &&
+          response.firstResponseAt > recipient.firstCampaignSentAt
+        ) {
+          respondedCount++
+        }
+      }
+
+      campaignResponseRate =
+        (respondedCount / campaignRecipients.length) * 100
+    }
 
     return {
       totalSentSMSCount,
@@ -1007,6 +1063,7 @@ export class GatewayService {
       totalDeviceCount,
       totalApiKeyCount,
       smsDeliveryRate: Number(smsDeliveryRate.toFixed(1)),
+      campaignResponseRate: Number(campaignResponseRate.toFixed(1)),
     }
   }
 

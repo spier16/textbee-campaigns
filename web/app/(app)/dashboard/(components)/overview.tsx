@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { BarChart3, Smartphone, Key, MessageSquare, TrendingUp, Calendar, Filter, ChevronDown } from 'lucide-react'
+import { BarChart3, Smartphone, Key, MessageSquare, TrendingUp, Calendar, Filter, ChevronDown, Megaphone } from 'lucide-react'
 import GetStartedCard from './get-started'
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
@@ -42,9 +42,8 @@ export const StatCard = ({ title, value, icon: Icon, description }) => {
         <div className='text-2xl font-bold'>
           {value !== undefined ? value : <Skeleton className='h-6 w-16' />}
         </div>
-        <p className='text-xs text-muted-foreground mt-1 flex items-center'>
+        <p className='text-xs text-muted-foreground mt-1'>
           {description}
-          {value !== undefined && <TrendingUp className="ml-1 h-3 w-3 text-green-500" />}
         </p>
       </CardContent>
     </Card>
@@ -260,7 +259,7 @@ export default function Overview() {
       </div>
 
       {/* Stats Grid */}
-      <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-5'>
+      <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-6'>
         <StatCard
           title='SMS Sent'
           value={stats?.totalSentSMSCount?.toLocaleString()}
@@ -278,6 +277,12 @@ export default function Overview() {
           value={stats?.smsDeliveryRate !== undefined ? `${stats.smsDeliveryRate}%` : undefined}
           icon={TrendingUp}
           description='Of sent messages'
+        />
+        <StatCard
+          title='Campaign Response Rate'
+          value={stats?.campaignResponseRate !== undefined ? `${stats.campaignResponseRate}%` : undefined}
+          icon={Megaphone}
+          description='Contacts who replied'
         />
         <StatCard
           title='Active Devices'

@@ -1379,7 +1379,7 @@ export default function InboxPage() {
   const [newConversation, setNewConversation] = useState<Conversation | null>(null)
   const [autoRefreshInterval] = useState(15) // Default to 15 seconds
   const [lastSeenTimestamps, setLastSeenTimestamps] = useState<Record<string, Date>>({})
-  const [selectedInboxFilter, setSelectedInboxFilter] = useState<'all' | 'unread' | 'unreplied' | 'awaiting-reply' | 'starred'>('all')
+  const [selectedInboxFilter, setSelectedInboxFilter] = useState<'all' | 'unread' | 'unreplied' | 'awaiting-reply' | 'starred' | 'engaged'>('engaged')
   const [selectedCampaignFilters, setSelectedCampaignFilters] = useState<string[]>([])
   const [debouncedCampaignFilters, setDebouncedCampaignFilters] = useState<string[]>([])
   const [selectedOtherFilter, setSelectedOtherFilter] = useState<'archived' | 'spam' | null>(null)
@@ -1924,18 +1924,18 @@ export default function InboxPage() {
               Inbox
             </div>
             <Button
-              variant={selectedInboxFilter === 'all' && !selectedOtherFilter ? 'default' : 'ghost'}
+              variant={selectedInboxFilter === 'engaged' && !selectedOtherFilter ? 'default' : 'ghost'}
               className='w-full justify-between text-sm'
               onClick={() => {
-                setSelectedInboxFilter('all')
+                setSelectedInboxFilter('engaged')
                 setSelectedOtherFilter(null)
               }}
             >
               <div className="flex items-center">
-                <Mail className='mr-2 h-4 w-4' />
-                All
+                <Users className='mr-2 h-4 w-4' />
+                Engaged Leads
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.all})</span>
+              <span className="text-xs text-muted-foreground">({conversationCounts.engaged})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'unread' && !selectedOtherFilter ? 'default' : 'ghost'}
@@ -1992,6 +1992,20 @@ export default function InboxPage() {
                 Starred
               </div>
               <span className="text-xs text-muted-foreground">({conversationCounts.starred})</span>
+            </Button>
+            <Button
+              variant={selectedInboxFilter === 'all' && !selectedOtherFilter ? 'default' : 'ghost'}
+              className='w-full justify-between text-sm'
+              onClick={() => {
+                setSelectedInboxFilter('all')
+                setSelectedOtherFilter(null)
+              }}
+            >
+              <div className="flex items-center">
+                <Mail className='mr-2 h-4 w-4' />
+                All
+              </div>
+              <span className="text-xs text-muted-foreground">({conversationCounts.all})</span>
             </Button>
           </div>
 

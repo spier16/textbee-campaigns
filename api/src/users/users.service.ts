@@ -595,10 +595,14 @@ export class UsersService {
           ]
         })
 
+        // Check if conversation has received messages (for engaged filter)
+        const hasReceivedMessage = conv.messages?.some(msg => msg.sender) || false
+
         return {
           phoneNumber: conv.phoneNumber,
           normalizedPhoneNumber: normalizedPhone,
           deviceId: conv.deviceId.toString(),
+          hasReceivedMessage,
           contact: contact ? {
             id: contact._id.toString(),
             firstName: contact.firstName,
@@ -658,6 +662,11 @@ export class UsersService {
       case 'starred':
         filteredConversations = processedConversations.filter(conv =>
           conv.isStarred === true && !conv.isArchived && !conv.isBlocked
+        )
+        break
+      case 'engaged':
+        filteredConversations = processedConversations.filter(conv =>
+          conv.hasReceivedMessage && !conv.isArchived && !conv.isBlocked
         )
         break
       case 'archived':
@@ -747,6 +756,7 @@ export class UsersService {
         unreplied: 0,
         awaitingReply: 0,
         starred: 0,
+        engaged: 0,
         archived: 0,
         spam: 0
       }
@@ -804,13 +814,20 @@ export class UsersService {
           ]
         })
 
+        // Check if conversation has received messages (engaged)
+        const hasReceivedMessage = await this.smsModel.countDocuments({
+          device: { $in: deviceIds },
+          sender: conv.phoneNumber
+        }) > 0
+
         return {
           normalizedPhoneNumber: normalizedPhone,
           lastMessageIsIncoming: conv.lastMessageIsIncoming,
           unseenCount,
           isArchived: metadata.isArchived,
           isBlocked: metadata.isBlocked,
-          isStarred: metadata.isStarred
+          isStarred: metadata.isStarred,
+          hasReceivedMessage
         }
       })
     )
@@ -824,6 +841,7 @@ export class UsersService {
       unreplied: inboxConversations.filter(conv => conv.lastMessageIsIncoming).length,
       awaitingReply: inboxConversations.filter(conv => !conv.lastMessageIsIncoming).length,
       starred: inboxConversations.filter(conv => conv.isStarred === true).length,
+      engaged: inboxConversations.filter(conv => conv.hasReceivedMessage).length,
       archived: processedConversations.filter(conv => conv.isArchived === true).length,
       spam: processedConversations.filter(conv => conv.isBlocked === true).length
     }
