@@ -175,14 +175,46 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
     } else if (campaignData.scheduleType === 'weekday') {
       // Show weekday-based windows for all weeks from campaign start to end date
       if (campaignData.campaignStartDate && campaignData.campaignEndDate) {
-        // Parse dates in the selected timezone
-        const startDate = new Date(campaignData.campaignStartDate + 'T00:00:00')
-        const endDate = new Date(campaignData.campaignEndDate + 'T23:59:59')
+        // Get current time in the campaign timezone for comparison
+        const nowUTC = new Date()
+        const formatter = new Intl.DateTimeFormat('en-CA', {
+          timeZone: timezone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        })
+
+        const parts = formatter.formatToParts(nowUTC)
+        const nowYear = parts.find(p => p.type === 'year')?.value
+        const nowMonth = parts.find(p => p.type === 'month')?.value
+        const nowDay = parts.find(p => p.type === 'day')?.value
+        const nowHour = parts.find(p => p.type === 'hour')?.value
+        const nowMinute = parts.find(p => p.type === 'minute')?.value
+        const nowSecond = parts.find(p => p.type === 'second')?.value
+        const currentTimeString = `${nowYear}-${nowMonth}-${nowDay}T${nowHour}:${nowMinute}:${nowSecond}`
+
+        // Parse start and end dates (using Date object for iteration only)
+        // We'll use UTC to avoid timezone shifts during iteration
+        const [startYear, startMonth, startDay] = campaignData.campaignStartDate.split('-').map(Number)
+        const [endYear, endMonth, endDay] = campaignData.campaignEndDate.split('-').map(Number)
+        const startDate = new Date(Date.UTC(startYear, startMonth - 1, startDay))
+        const endDate = new Date(Date.UTC(endYear, endMonth - 1, endDay))
 
         // Generate events for each day between start and end dates
         const currentDate = new Date(startDate)
         while (currentDate <= endDate) {
-          const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][currentDate.getDay()]
+          // Get date components in UTC (since we're using UTC dates for iteration)
+          const year = currentDate.getUTCFullYear()
+          const month = String(currentDate.getUTCMonth() + 1).padStart(2, '0')
+          const day = String(currentDate.getUTCDate()).padStart(2, '0')
+          const dateStr = `${year}-${month}-${day}`
+
+          // Determine day of week
+          const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][currentDate.getUTCDay()]
           const dayWindows = campaignData.weekdayWindows[dayName as keyof typeof campaignData.weekdayWindows]
 
           if (campaignData.weekdayEnabled[dayName as keyof typeof campaignData.weekdayEnabled] && Array.isArray(dayWindows)) {
@@ -197,25 +229,24 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
                   return
                 }
 
-                // Use local date string to avoid timezone issues
-                const year = currentDate.getFullYear()
-                const month = String(currentDate.getMonth() + 1).padStart(2, '0')
-                const day = String(currentDate.getDate()).padStart(2, '0')
-                const dateStr = `${year}-${month}-${day}`
+                // Construct datetime strings in the campaign timezone
+                // These times are already in the campaign timezone since user entered them there
+                const windowStartStr = `${dateStr}T${window.startTime}:00`
+                const windowEndStr = `${dateStr}T${window.endTime}:00`
 
-                const windowStart = new Date(`${dateStr}T${window.startTime}`)
-                const windowEnd = new Date(`${dateStr}T${window.endTime}`)
-
-                // Use the later of window start time or current time
-                const effectiveStart = windowStart > now ? windowStart : now
+                // Compare with current time to determine effective start
+                let effectiveStart = windowStartStr
+                if (windowStartStr < currentTimeString) {
+                  effectiveStart = currentTimeString
+                }
 
                 // Only create event if there's still time remaining after current time
-                if (effectiveStart < windowEnd) {
+                if (effectiveStart < windowEndStr) {
                   events.push({
                     id: `${dayName}-${dateStr}-${index}`,
                     title: '',
-                    start: effectiveStart.toISOString(),
-                    end: windowEnd.toISOString(),
+                    start: effectiveStart,
+                    end: windowEndStr,
                     display: 'background' as const,
                     backgroundColor: '#3b82f6', // blue
                     className: 'weekday-window-available'
@@ -225,8 +256,8 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
             })
           }
 
-          // Move to next day
-          currentDate.setDate(currentDate.getDate() + 1)
+          // Move to next day (using UTC date methods to avoid timezone issues)
+          currentDate.setUTCDate(currentDate.getUTCDate() + 1)
         }
       }
     }
