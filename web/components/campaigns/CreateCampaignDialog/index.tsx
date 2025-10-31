@@ -792,7 +792,11 @@ export function CreateCampaignDialog({
                   <Label className='text-sm font-medium'>Schedule Send</Label>
                   <Select
                     value={campaignData.scheduleType}
-                    onValueChange={(value) => onCampaignDataChange({ ...campaignData, scheduleType: value as any })}
+                    onValueChange={(value) => {
+                      console.log(`DEBUG: Changing schedule type from ${campaignData.scheduleType} to ${value}`)
+                      console.log(`DEBUG: Current weekdayWindows:`, campaignData.weekdayWindows)
+                      onCampaignDataChange({ ...campaignData, scheduleType: value as any })
+                    }}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select scheduling option" />
@@ -1066,11 +1070,15 @@ export function CreateCampaignDialog({
                                       variant='outline'
                                       className='gap-1 text-xs h-7'
                                       onClick={() => {
+                                        console.log(`DEBUG: Adding new window for ${day}`)
+                                        console.log(`DEBUG: Current windows for ${day}:`, campaignData.weekdayWindows[day as keyof typeof campaignData.weekdayWindows])
+                                        const newWindowsForDay = [...campaignData.weekdayWindows[day as keyof typeof campaignData.weekdayWindows], { startTime: '', endTime: '' }]
+                                        console.log(`DEBUG: New windows for ${day}:`, newWindowsForDay)
                                         onCampaignDataChange({
                                           ...campaignData,
                                           weekdayWindows: {
                                             ...campaignData.weekdayWindows,
-                                            [day]: [...campaignData.weekdayWindows[day as keyof typeof campaignData.weekdayWindows], { startTime: '', endTime: '' }]
+                                            [day]: newWindowsForDay
                                           }
                                         })
                                       }}
@@ -1099,8 +1107,10 @@ export function CreateCampaignDialog({
                                           type='time'
                                           value={window.startTime}
                                           onChange={(e) => {
+                                            console.log(`DEBUG: Changing ${day} window ${index} start time to:`, e.target.value)
                                             const newWindows = { ...campaignData.weekdayWindows }
                                             newWindows[day as keyof typeof newWindows][index].startTime = e.target.value
+                                            console.log(`DEBUG: New weekdayWindows for ${day}:`, newWindows[day as keyof typeof newWindows])
                                             onCampaignDataChange({ ...campaignData, weekdayWindows: newWindows })
                                           }}
                                           className='w-24 text-xs h-8'
@@ -1112,8 +1122,10 @@ export function CreateCampaignDialog({
                                           type='time'
                                           value={window.endTime}
                                           onChange={(e) => {
+                                            console.log(`DEBUG: Changing ${day} window ${index} end time to:`, e.target.value)
                                             const newWindows = { ...campaignData.weekdayWindows }
                                             newWindows[day as keyof typeof newWindows][index].endTime = e.target.value
+                                            console.log(`DEBUG: New weekdayWindows for ${day}:`, newWindows[day as keyof typeof newWindows])
                                             onCampaignDataChange({ ...campaignData, weekdayWindows: newWindows })
                                           }}
                                           className='w-24 text-xs h-8'
