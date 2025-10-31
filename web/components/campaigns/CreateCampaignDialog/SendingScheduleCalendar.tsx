@@ -197,13 +197,6 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
         const nowSecond = parts.find(p => p.type === 'second')?.value
         const currentTimeString = `${nowYear}-${nowMonth}-${nowDay}T${nowHour}:${nowMinute}:${nowSecond}`
 
-        // DEBUG: Log current time calculation
-        console.log('=== WEEKDAY WINDOW DEBUG ===')
-        console.log('Timezone:', timezone)
-        console.log('Current time in timezone:', currentTimeString)
-        console.log('Campaign Start Date:', campaignData.campaignStartDate)
-        console.log('Campaign End Date:', campaignData.campaignEndDate)
-
         // Parse start and end dates (using Date object for iteration only)
         // We'll use UTC to avoid timezone shifts during iteration
         const [startYear, startMonth, startDay] = campaignData.campaignStartDate.split('-').map(Number)
@@ -224,11 +217,6 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
           const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][currentDate.getUTCDay()]
           const dayWindows = campaignData.weekdayWindows[dayName as keyof typeof campaignData.weekdayWindows]
 
-          // DEBUG: Log date being processed
-          console.log(`\n--- Processing Date: ${dateStr} (${dayName}) ---`)
-          console.log('Day enabled:', campaignData.weekdayEnabled[dayName as keyof typeof campaignData.weekdayEnabled])
-          console.log('Day windows:', dayWindows)
-
           if (campaignData.weekdayEnabled[dayName as keyof typeof campaignData.weekdayEnabled] && Array.isArray(dayWindows)) {
             dayWindows.forEach((window, index) => {
               if (window.startTime && window.endTime) {
@@ -247,15 +235,6 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
                 const windowStartStr = `${dateStr}T${window.startTime}:00`
                 const windowEndStr = `${dateStr}T${window.endTime}:00`
 
-                // DEBUG: Log window datetime construction
-                console.log(`\nWindow ${index}:`)
-                console.log('  Window start time (user input):', window.startTime)
-                console.log('  Window end time (user input):', window.endTime)
-                console.log('  windowStartStr:', windowStartStr)
-                console.log('  windowEndStr:', windowEndStr)
-                console.log('  currentTimeString:', currentTimeString)
-                console.log('  Comparison: windowStartStr < currentTimeString?', windowStartStr < currentTimeString)
-
                 // Compare with current time to determine effective start
                 let effectiveStart = windowStartStr
                 if (windowStartStr < currentTimeString) {
@@ -264,13 +243,9 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
                   effectiveStart = currentTimeString.substring(0, 16) + ':00'
                 }
 
-                // DEBUG: Log effective start calculation
-                console.log('  effectiveStart (final):', effectiveStart)
-                console.log('  Comparison: effectiveStart < windowEndStr?', effectiveStart < windowEndStr)
-
                 // Only create event if there's still time remaining after current time
                 if (effectiveStart < windowEndStr) {
-                  const eventToPush = {
+                  events.push({
                     id: `${dayName}-${dateStr}-${index}`,
                     title: '',
                     start: effectiveStart,
@@ -278,12 +253,7 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
                     display: 'background' as const,
                     backgroundColor: '#3b82f6', // blue
                     className: 'weekday-window-available'
-                  }
-
-                  // DEBUG: Log event being created
-                  console.log('  ✓ Pushing event:', JSON.stringify(eventToPush, null, 2))
-
-                  events.push(eventToPush)
+                  })
                 }
               }
             })
@@ -292,12 +262,6 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
           // Move to next day (using UTC date methods to avoid timezone issues)
           currentDate.setUTCDate(currentDate.getUTCDate() + 1)
         }
-
-        // DEBUG: Log final events array
-        console.log('\n=== FINAL EVENTS ARRAY (WEEKDAY) ===')
-        console.log('Total events:', events.filter(e => e.className === 'weekday-window-available').length)
-        console.log('All weekday events:', JSON.stringify(events.filter(e => e.className === 'weekday-window-available'), null, 2))
-        console.log('=== END DEBUG ===\n')
       }
     }
 
@@ -356,38 +320,6 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
               {isWeekView && <div>{month + 1}/{day}</div>}
             </div>
           )
-        }}
-        eventDidMount={(info) => {
-          // DEBUG: Log when FullCalendar mounts an event (all events)
-          const computedStyle = window.getComputedStyle(info.el)
-          console.log('FullCalendar eventDidMount:', {
-            eventId: info.event.id,
-            title: info.event.title,
-            start: info.event.start,
-            startStr: info.event.startStr,
-            end: info.event.end,
-            endStr: info.event.endStr,
-            display: info.event.display,
-            backgroundColor: info.event.backgroundColor,
-            classNames: info.event.classNames,
-            extendedProps: info.event.extendedProps,
-            computedHeight: computedStyle.height,
-            computedMinHeight: computedStyle.minHeight,
-            computedFlexBasis: computedStyle.flexBasis,
-            computedFlexGrow: computedStyle.flexGrow,
-            computedFlexShrink: computedStyle.flexShrink
-          })
-        }}
-        eventContent={(info) => {
-          // DEBUG: Log when FullCalendar renders event content (all events)
-          console.log('FullCalendar eventContent rendering:', {
-            eventId: info.event.id,
-            timeText: info.timeText,
-            start: info.event.start,
-            end: info.event.end,
-            classNames: info.event.classNames
-          })
-          return null
         }}
       />
       <style jsx>{`
