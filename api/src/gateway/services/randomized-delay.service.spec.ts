@@ -57,8 +57,10 @@ describe('RandomizedDelayService', () => {
         largeResults.push(service.calculateRandomizedWait(largeWait))
       }
 
-      const smallAvg = smallResults.reduce((a, b) => a + b) / smallResults.length
-      const largeAvg = largeResults.reduce((a, b) => a + b) / largeResults.length
+      const smallAvg =
+        smallResults.reduce((a, b) => a + b) / smallResults.length
+      const largeAvg =
+        largeResults.reduce((a, b) => a + b) / largeResults.length
 
       // For Gamma(5.1039, 0.154n), mean = n + k*theta = n + 5.1039 * 0.154n ≈ n + 0.786n = 1.786n
       // Small: min=10, expected mean ≈ 17.86
@@ -87,7 +89,7 @@ describe('RandomizedDelayService', () => {
       expect(mean).toBeGreaterThan(median)
 
       // Most values should cluster near minimum
-      const nearMin = samples.filter(s => s < minWait + 20).length
+      const nearMin = samples.filter((s) => s < minWait + 20).length
       const percentNearMin = (nearMin / samples.length) * 100
 
       // At least 20% of values should be within 20 seconds of minimum
@@ -221,12 +223,14 @@ describe('RandomizedDelayService', () => {
 
       // Each gap should be at least minWait
       for (let i = 1; i < delays.length; i++) {
-        const gapSeconds = (delays[i].getTime() - delays[i - 1].getTime()) / 1000
+        const gapSeconds =
+          (delays[i].getTime() - delays[i - 1].getTime()) / 1000
         expect(gapSeconds).toBeGreaterThanOrEqual(minWait)
       }
 
       // Last delay should be at least 5 * minWait after start (5 * 60s = 300s)
-      const totalTime = delays[delays.length - 1].getTime() - startTime.getTime()
+      const totalTime =
+        delays[delays.length - 1].getTime() - startTime.getTime()
       const totalSeconds = totalTime / 1000
 
       expect(totalSeconds).toBeGreaterThanOrEqual(count * minWait)
@@ -344,9 +348,13 @@ describe('RandomizedDelayService', () => {
       }
 
       // Count values in different ranges
-      const nearMin = samples.filter(s => s >= minWait && s < minWait + 20).length
-      const midRange = samples.filter(s => s >= minWait + 20 && s < minWait + 60).length
-      const farRange = samples.filter(s => s >= minWait + 60).length
+      const nearMin = samples.filter(
+        (s) => s >= minWait && s < minWait + 20,
+      ).length
+      const midRange = samples.filter(
+        (s) => s >= minWait + 20 && s < minWait + 60,
+      ).length
+      const farRange = samples.filter((s) => s >= minWait + 60).length
 
       const percentNearMin = (nearMin / samples.length) * 100
       const percentMidRange = (midRange / samples.length) * 100
@@ -369,11 +377,17 @@ describe('RandomizedDelayService', () => {
       }
 
       const mean = samples.reduce((a, b) => a + b) / samples.length
-      const variance = samples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / samples.length
+      const variance =
+        samples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) /
+        samples.length
       const stdDev = Math.sqrt(variance)
 
       // Calculate skewness
-      const skewness = samples.reduce((sum, val) => sum + Math.pow((val - mean) / stdDev, 3), 0) / samples.length
+      const skewness =
+        samples.reduce(
+          (sum, val) => sum + Math.pow((val - mean) / stdDev, 3),
+          0,
+        ) / samples.length
 
       // Right-skewed distribution should have positive skewness
       expect(skewness).toBeGreaterThan(0)

@@ -30,9 +30,12 @@ export class DeviceUsageCalculatorService {
   constructor(
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     @InjectModel(SMS.name) private smsModel: Model<SMSDocument>,
-    @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
-    @Inject(forwardRef(() => UsagePlanService)) private usagePlanService: UsagePlanService,
-    @Inject(forwardRef(() => SmsQueueService)) private smsQueueService: SmsQueueService,
+    @InjectModel(UsagePlan.name)
+    private usagePlanModel: Model<UsagePlanDocument>,
+    @Inject(forwardRef(() => UsagePlanService))
+    private usagePlanService: UsagePlanService,
+    @Inject(forwardRef(() => SmsQueueService))
+    private smsQueueService: SmsQueueService,
   ) {}
 
   /**
@@ -54,8 +57,11 @@ export class DeviceUsageCalculatorService {
         // Pending messages - use requestedAt since sentAt isn't set yet
         { status: 'pending', requestedAt: { $gte: cutoffTime } },
         // Sent/delivered messages - use sentAt for accuracy
-        { status: { $in: ['sent', 'delivered'] }, sentAt: { $gte: cutoffTime } }
-      ]
+        {
+          status: { $in: ['sent', 'delivered'] },
+          sentAt: { $gte: cutoffTime },
+        },
+      ],
     }
 
     if (campaignOnly) {
@@ -74,9 +80,10 @@ export class DeviceUsageCalculatorService {
       .exec()
 
     // Use the appropriate timestamp based on status
-    const oldestTime = oldestMessage?.status === 'pending'
-      ? oldestMessage.requestedAt
-      : (oldestMessage?.sentAt || oldestMessage?.requestedAt)
+    const oldestTime =
+      oldestMessage?.status === 'pending'
+        ? oldestMessage.requestedAt
+        : oldestMessage?.sentAt || oldestMessage?.requestedAt
 
     return {
       count,
@@ -119,10 +126,14 @@ export class DeviceUsageCalculatorService {
     }
 
     const windowMinutes = usagePlan.usageWindowMinutes || 1440
-    const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
+    const currentTier = usagePlan.tiers.find(
+      (t) => t.tier === device.current_tier,
+    )
 
     if (!currentTier) {
-      this.logger.warn(`Current tier ${device.current_tier} not found in usage plan for device ${device._id}`)
+      this.logger.warn(
+        `Current tier ${device.current_tier} not found in usage plan for device ${device._id}`,
+      )
       return {
         messagesSentInWindow: 0,
         currentTierLimit: 0,
@@ -142,7 +153,10 @@ export class DeviceUsageCalculatorService {
       true, // Campaign only
     )
 
-    const usagePercentage = Math.min((count / currentTier.messages_per_cycle) * 100, 100)
+    const usagePercentage = Math.min(
+      (count / currentTier.messages_per_cycle) * 100,
+      100,
+    )
     const isOverLimit = count >= currentTier.messages_per_cycle
 
     // Determine if device should be on cooldown
@@ -150,7 +164,10 @@ export class DeviceUsageCalculatorService {
     let estimatedCooldownEndTime: Date | null = null
 
     // Check if device has an active tier promotion cooldown
-    if (device.cooldown_reason === 'tier_promotion' && device.cooldown_end_time) {
+    if (
+      device.cooldown_reason === 'tier_promotion' &&
+      device.cooldown_end_time
+    ) {
       const now = new Date()
       if (device.cooldown_end_time > now) {
         // Tier promotion cooldown is still active
@@ -163,7 +180,8 @@ export class DeviceUsageCalculatorService {
     }
     // Check if device is at max tier and over limit (rolling window cooldown)
     else {
-      const isMaxTier = device.current_tier === usagePlan.tiers[usagePlan.tiers.length - 1].tier
+      const isMaxTier =
+        device.current_tier === usagePlan.tiers[usagePlan.tiers.length - 1].tier
       shouldBeOnCooldown = isMaxTier && isOverLimit
 
       // Estimate cooldown end time for max tier cooldown
@@ -189,7 +207,9 @@ export class DeviceUsageCalculatorService {
   /**
    * Check if device cooldown status needs updating and return new status
    */
-  async checkAndUpdateCooldownStatus(device: DeviceDocument): Promise<CooldownUpdateResult> {
+  async checkAndUpdateCooldownStatus(
+    device: DeviceDocument,
+  ): Promise<CooldownUpdateResult> {
     const stats = await this.getDeviceUsageStats(device)
 
     const needsUpdate = device.is_on_cooldown !== stats.shouldBeOnCooldown
@@ -217,7 +237,8 @@ export class DeviceUsageCalculatorService {
     for (const device of devices) {
       try {
         const stats = await this.getDeviceUsageStats(device)
-        const { needsUpdate, newCooldownStatus } = await this.checkAndUpdateCooldownStatus(device)
+        const { needsUpdate, newCooldownStatus } =
+          await this.checkAndUpdateCooldownStatus(device)
 
         if (needsUpdate) {
           const wasOnCooldown = device.is_on_cooldown
@@ -238,13 +259,27 @@ export class DeviceUsageCalculatorService {
 
           // If device is coming OFF cooldown, schedule a wake-device job
           if (wasOnCooldown && !newCooldownStatus) {
-            this.logger.log(`Device ${device._id} is coming off cooldown - scheduling wake-device job`)
-            await this.smsQueueService.scheduleWakeDevice(device._id.toString(), new Date())
+            this.logger.log(
+              `Device ${device._id} is coming off cooldown - scheduling wake-device job`,
+            )
+            await this.smsQueueService.scheduleWakeDevice(
+              device._id.toString(),
+              new Date(),
+            )
           }
           // If device is going ON cooldown and we have an estimated end time, schedule wake job
-          else if (!wasOnCooldown && newCooldownStatus && stats.estimatedCooldownEndTime) {
-            this.logger.log(`Device ${device._id} entering cooldown - scheduling wake for ${stats.estimatedCooldownEndTime}`)
-            await this.smsQueueService.scheduleWakeDevice(device._id.toString(), stats.estimatedCooldownEndTime)
+          else if (
+            !wasOnCooldown &&
+            newCooldownStatus &&
+            stats.estimatedCooldownEndTime
+          ) {
+            this.logger.log(
+              `Device ${device._id} entering cooldown - scheduling wake for ${stats.estimatedCooldownEndTime}`,
+            )
+            await this.smsQueueService.scheduleWakeDevice(
+              device._id.toString(),
+              stats.estimatedCooldownEndTime,
+            )
           }
         }
       } catch (error) {

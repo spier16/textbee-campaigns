@@ -26,7 +26,8 @@ export class MessageTemplate {
   updatedAt: Date
 }
 
-export const MessageTemplateSchema = SchemaFactory.createForClass(MessageTemplate)
+export const MessageTemplateSchema =
+  SchemaFactory.createForClass(MessageTemplate)
 
 MessageTemplateSchema.index({ userId: 1, groupId: 1 })
 MessageTemplateSchema.index({ groupId: 1, name: 1 }, { unique: true })

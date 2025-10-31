@@ -19,7 +19,9 @@ import { ModernizeSchemasMigration } from './modernize-schemas.migration'
  */
 async function runMigration() {
   console.log('Initializing NestJS application...')
-  console.log(`MongoDB URI: ${process.env.MONGO_URI ? 'Loaded ✓' : 'Missing ✗'}`)
+  console.log(
+    `MongoDB URI: ${process.env.MONGO_URI ? 'Loaded ✓' : 'Missing ✗'}`,
+  )
 
   const app = await NestFactory.createApplicationContext(AppModule)
 
@@ -35,7 +37,6 @@ async function runMigration() {
     console.log('\n===========================================')
     console.log('Migration completed successfully!')
     console.log('===========================================\n')
-
   } catch (error) {
     console.error('\n===========================================')
     console.error('Migration failed!')

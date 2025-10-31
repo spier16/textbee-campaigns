@@ -1,5 +1,8 @@
 import { Contact } from '../../contacts/schemas/contact.schema'
-import { SUPPORTED_TEMPLATE_VARIABLES, TEMPLATE_VARIABLE_CATEGORIES } from '../constants/template-variables'
+import {
+  SUPPORTED_TEMPLATE_VARIABLES,
+  TEMPLATE_VARIABLE_CATEGORIES,
+} from '../constants/template-variables'
 
 /**
  * Interface for contact data used in template processing
@@ -54,7 +57,10 @@ export interface HighlightedContent {
  * @param contact The contact data to substitute variables with
  * @returns The processed content with variables replaced by actual contact data
  */
-export function processTemplateVariables(templateContent: string, contact: ContactData): string {
+export function processTemplateVariables(
+  templateContent: string,
+  contact: ContactData,
+): string {
   let processedContent = templateContent
 
   // Define variable mappings
@@ -76,7 +82,10 @@ export function processTemplateVariables(templateContent: string, contact: Conta
 
   // Replace all variables
   Object.entries(variableMap).forEach(([variable, value]) => {
-    processedContent = processedContent.replace(new RegExp(variable.replace(/[{}]/g, '\\$&'), 'g'), value)
+    processedContent = processedContent.replace(
+      new RegExp(variable.replace(/[{}]/g, '\\$&'), 'g'),
+      value,
+    )
   })
 
   return processedContent
@@ -110,7 +119,9 @@ export function validateTemplateVariables(templateContent: string): string[] {
   const supportedVariables = SUPPORTED_TEMPLATE_VARIABLES
 
   const usedVariables = extractTemplateVariables(templateContent)
-  return usedVariables.filter(variable => !supportedVariables.includes(variable as any))
+  return usedVariables.filter(
+    (variable) => !supportedVariables.includes(variable as any),
+  )
 }
 
 /**
@@ -120,7 +131,9 @@ export function validateTemplateVariables(templateContent: string): string[] {
  */
 export function getVariableType(variableName: string): string {
   // Check each category for the variable
-  for (const [categoryKey, category] of Object.entries(TEMPLATE_VARIABLE_CATEGORIES)) {
+  for (const [categoryKey, category] of Object.entries(
+    TEMPLATE_VARIABLE_CATEGORIES,
+  )) {
     if ((category.variables as readonly string[]).includes(variableName)) {
       return categoryKey
     }
@@ -136,7 +149,7 @@ export function getVariableType(variableName: string): string {
  */
 export function processTemplateVariablesWithHighlighting(
   templateContent: string,
-  contact: ContactData
+  contact: ContactData,
 ): HighlightedContent {
   const segments: HighlightedSegment[] = []
   const validationErrors: ValidationError[] = []
@@ -164,7 +177,11 @@ export function processTemplateVariablesWithHighlighting(
 
   // Find all variable occurrences with their positions
   const variableRegex = /\{([^}]+)\}/g
-  const matches: Array<{ match: RegExpExecArray; variable: string; value: string }> = []
+  const matches: Array<{
+    match: RegExpExecArray
+    variable: string
+    value: string
+  }> = []
 
   let match
   while ((match = variableRegex.exec(templateContent)) !== null) {
@@ -177,7 +194,7 @@ export function processTemplateVariablesWithHighlighting(
       validationErrors.push({
         variableName,
         errorType: 'unsupported_variable',
-        message: `Variable '${variableName}' is not supported. Supported variables: ${supportedVariables.join(', ')}`
+        message: `Variable '${variableName}' is not supported. Supported variables: ${supportedVariables.join(', ')}`,
       })
     } else {
       value = variableMap[variableWithBraces] || ''
@@ -187,7 +204,7 @@ export function processTemplateVariablesWithHighlighting(
         validationErrors.push({
           variableName,
           errorType: 'empty_value',
-          message: `Variable '${variableName}' has no value for this contact`
+          message: `Variable '${variableName}' has no value for this contact`,
         })
       }
     }
@@ -195,7 +212,7 @@ export function processTemplateVariablesWithHighlighting(
     matches.push({
       match,
       variable: variableName,
-      value
+      value,
     })
   }
 
@@ -209,7 +226,7 @@ export function processTemplateVariablesWithHighlighting(
       if (plainText.length > 0) {
         segments.push({
           text: plainText,
-          isVariable: false
+          isVariable: false,
         })
       }
     }
@@ -219,7 +236,7 @@ export function processTemplateVariablesWithHighlighting(
       text: value,
       isVariable: true,
       variableName: variable,
-      variableType: getVariableType(variable)
+      variableType: getVariableType(variable),
     })
 
     currentPosition = match.index + match[0].length
@@ -231,7 +248,7 @@ export function processTemplateVariablesWithHighlighting(
     if (remainingText.length > 0) {
       segments.push({
         text: remainingText,
-        isVariable: false
+        isVariable: false,
       })
     }
   }
@@ -240,16 +257,17 @@ export function processTemplateVariablesWithHighlighting(
   if (matches.length === 0 && segments.length === 0) {
     segments.push({
       text: templateContent,
-      isVariable: false
+      isVariable: false,
     })
   }
 
   // Generate plain text version for compatibility
-  const plainText = segments.map(segment => segment.text).join('')
+  const plainText = segments.map((segment) => segment.text).join('')
 
   return {
     segments,
     plainText,
-    validationErrors: validationErrors.length > 0 ? validationErrors : undefined
+    validationErrors:
+      validationErrors.length > 0 ? validationErrors : undefined,
   }
 }

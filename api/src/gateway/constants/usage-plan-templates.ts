@@ -12,12 +12,12 @@ export const PREDEFINED_PLANS = [
     usageWindowMinutes: 1440, // 24 hours rolling window
     tierPromotionCooldownHours: 24,
     tiers: [
-      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 70 },  // 10%
+      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 70 }, // 10%
       { tier: 2, min_wait_seconds: 240, messages_per_cycle: 140 }, // 20%
       { tier: 3, min_wait_seconds: 180, messages_per_cycle: 280 }, // 40%
       { tier: 4, min_wait_seconds: 120, messages_per_cycle: 420 }, // 60%
-      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 560 },  // 80%
-      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 700 },  // 100%
+      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 560 }, // 80%
+      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 700 }, // 100%
     ],
     isDefault: false,
     isActive: true,
@@ -31,12 +31,12 @@ export const PREDEFINED_PLANS = [
     usageWindowMinutes: 1440, // 24 hours rolling window
     tierPromotionCooldownHours: 24,
     tiers: [
-      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 20 },  // 10%
-      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 40 },  // 20%
-      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 80 },  // 40%
+      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 20 }, // 10%
+      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 40 }, // 20%
+      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 80 }, // 40%
       { tier: 4, min_wait_seconds: 120, messages_per_cycle: 120 }, // 60%
-      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 160 },  // 80%
-      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 200 },  // 100%
+      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 160 }, // 80%
+      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 200 }, // 100%
     ],
     isDefault: false,
     isActive: true,
@@ -50,12 +50,12 @@ export const PREDEFINED_PLANS = [
     usageWindowMinutes: 1440, // 24 hours rolling window
     tierPromotionCooldownHours: 24,
     tiers: [
-      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 },  // 10%
-      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 },  // 20%
-      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 60 },  // 40%
-      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 90 },  // 60%
-      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 120 },  // 80%
-      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 150 },  // 100%
+      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 }, // 10%
+      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 }, // 20%
+      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 60 }, // 40%
+      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 90 }, // 60%
+      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 120 }, // 80%
+      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 150 }, // 100%
     ],
     isDefault: false,
     isActive: true,
@@ -65,16 +65,17 @@ export const PREDEFINED_PLANS = [
   {
     _id: 'template_tracfone',
     name: 'Tracfone SIM',
-    description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
+    description:
+      'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
     usageWindowMinutes: 1440, // 24 hours rolling window
     tierPromotionCooldownHours: 24,
     tiers: [
-      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 },  // 10%
-      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 },  // 20%
-      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 60 },  // 40%
-      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 90 },  // 60%
-      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 120 },  // 80%
-      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 150 },  // 100%
+      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 }, // 10%
+      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 }, // 20%
+      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 60 }, // 40%
+      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 90 }, // 60%
+      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 120 }, // 80%
+      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 150 }, // 100%
     ],
     isDefault: false,
     isActive: true,
@@ -84,7 +85,8 @@ export const PREDEFINED_PLANS = [
   {
     _id: 'template_dev_testing',
     name: 'Dev Testing Plan',
-    description: 'For testing tier progression and rate limiting (5-minute cycles)',
+    description:
+      'For testing tier progression and rate limiting (5-minute cycles)',
     usageWindowMinutes: 5, // 5 minutes rolling window for fast testing
     tierPromotionCooldownHours: 5 / 60, // 5 minutes cooldown for testing
     tiers: [

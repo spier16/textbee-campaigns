@@ -216,28 +216,28 @@ export class PaginationMetaDTO {
     required: true,
     description: 'Current page number',
   })
-  page: number;
+  page: number
 
   @ApiProperty({
     type: Number,
     required: true,
     description: 'Number of items per page',
   })
-  limit: number;
+  limit: number
 
   @ApiProperty({
     type: Number,
     required: true,
     description: 'Total number of items',
   })
-  total: number;
+  total: number
 
   @ApiProperty({
     type: Number,
     required: true,
     description: 'Total number of pages',
   })
-  totalPages: number;
+  totalPages: number
 }
 
 export class RetrieveSMSResponseDTO {

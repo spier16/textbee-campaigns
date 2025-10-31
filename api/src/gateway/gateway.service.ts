@@ -31,7 +31,8 @@ export class GatewayService {
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     @InjectModel(SMS.name) private smsModel: Model<SMS>,
     @InjectModel(SMSBatch.name) private smsBatchModel: Model<SMSBatch>,
-    @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
+    @InjectModel(UsagePlan.name)
+    private usagePlanModel: Model<UsagePlanDocument>,
     private authService: AuthService,
     private webhookService: WebhookService,
     private billingService: BillingService,
@@ -39,10 +40,14 @@ export class GatewayService {
     private usageCalculator: DeviceUsageCalculatorService,
   ) {}
 
-  private async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
+  private async getUsagePlanById(
+    planId: string | Types.ObjectId,
+  ): Promise<UsagePlan | null> {
     if (typeof planId === 'string' && planId.startsWith('template_')) {
-      const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
-      return templatePlan ? templatePlan as any : null
+      const templatePlan = PREDEFINED_PLANS.find(
+        (template) => template._id === planId,
+      )
+      return templatePlan ? (templatePlan as any) : null
     }
 
     if (Types.ObjectId.isValid(planId as string)) {
@@ -73,9 +78,7 @@ export class GatewayService {
   }
 
   async getDevicesForUser(user: User): Promise<any> {
-    const devices = await this.deviceModel
-      .find({ user: user._id })
-      .exec()
+    const devices = await this.deviceModel.find({ user: user._id }).exec()
 
     // Enrich devices with real-time rolling window usage stats
     const enrichedDevices = await Promise.all(
@@ -96,14 +99,17 @@ export class GatewayService {
               estimated_cooldown_end: stats.estimatedCooldownEndTime,
             }
           } catch (error) {
-            console.error(`Failed to calculate usage for device ${device._id}:`, error)
+            console.error(
+              `Failed to calculate usage for device ${device._id}:`,
+              error,
+            )
             // Return device without calculated stats if calculation fails
             return deviceObj
           }
         }
 
         return deviceObj
-      })
+      }),
     )
 
     return enrichedDevices
@@ -129,24 +135,38 @@ export class GatewayService {
     }
 
     if (input.enabled !== false) {
-      input.enabled = true;
+      input.enabled = true
     }
 
     // Phone number change detection
     const updateData: any = { ...input }
-    if (input.phoneNumber && device.phoneNumber && input.phoneNumber !== device.phoneNumber) {
+    if (
+      input.phoneNumber &&
+      device.phoneNumber &&
+      input.phoneNumber !== device.phoneNumber
+    ) {
       updateData.previousPhoneNumber = device.phoneNumber
       updateData.phoneNumberLastUpdated = new Date()
-      console.log(`Phone number changed for device ${deviceId}: ${device.phoneNumber} -> ${input.phoneNumber}`)
+      console.log(
+        `Phone number changed for device ${deviceId}: ${device.phoneNumber} -> ${input.phoneNumber}`,
+      )
     } else if (input.phoneNumber && !device.phoneNumber) {
       updateData.phoneNumberLastUpdated = new Date()
-      console.log(`Phone number set for device ${deviceId}: ${input.phoneNumber}`)
+      console.log(
+        `Phone number set for device ${deviceId}: ${input.phoneNumber}`,
+      )
     }
 
     // Same for phoneNumber2 (dual-SIM)
-    if (input.phoneNumber2 && device.phoneNumber2 && input.phoneNumber2 !== device.phoneNumber2) {
+    if (
+      input.phoneNumber2 &&
+      device.phoneNumber2 &&
+      input.phoneNumber2 !== device.phoneNumber2
+    ) {
       updateData.phoneNumberLastUpdated = new Date()
-      console.log(`Phone number 2 changed for device ${deviceId}: ${device.phoneNumber2} -> ${input.phoneNumber2}`)
+      console.log(
+        `Phone number 2 changed for device ${deviceId}: ${device.phoneNumber2} -> ${input.phoneNumber2}`,
+      )
     }
 
     return await this.deviceModel.findByIdAndUpdate(
@@ -172,7 +192,11 @@ export class GatewayService {
     // return await this.deviceModel.findByIdAndDelete(deviceId)
   }
 
-  async sendSMS(deviceId: string, smsData: SendSMSInputDTO, campaignId?: string): Promise<any> {
+  async sendSMS(
+    deviceId: string,
+    smsData: SendSMSInputDTO,
+    campaignId?: string,
+  ): Promise<any> {
     const device = await this.deviceModel.findById(deviceId)
 
     if (!device?.enabled) {
@@ -822,10 +846,12 @@ export class GatewayService {
     }
   }
 
-  async updateSMSStatus(deviceId: string, dto: UpdateSMSStatusDTO): Promise<any> {
+  async updateSMSStatus(
+    deviceId: string,
+    dto: UpdateSMSStatusDTO,
+  ): Promise<any> {
+    const device = await this.deviceModel.findById(deviceId)
 
-    const device = await this.deviceModel.findById(deviceId);
-    
     if (!device) {
       throw new HttpException(
         {
@@ -833,11 +859,11 @@ export class GatewayService {
           error: 'Device not found',
         },
         HttpStatus.NOT_FOUND,
-      );
+      )
     }
-    
-    const sms = await this.smsModel.findById(dto.smsId);
-    
+
+    const sms = await this.smsModel.findById(dto.smsId)
+
     if (!sms) {
       throw new HttpException(
         {
@@ -845,9 +871,9 @@ export class GatewayService {
           error: 'SMS not found',
         },
         HttpStatus.NOT_FOUND,
-      );
+      )
     }
-    
+
     // Verify the SMS belongs to this device
     if (sms.device.toString() !== deviceId) {
       throw new HttpException(
@@ -856,68 +882,73 @@ export class GatewayService {
           error: 'SMS does not belong to this device',
         },
         HttpStatus.FORBIDDEN,
-      );
+      )
     }
-    
+
     // Normalize status to lowercase for comparison
-    const normalizedStatus = dto.status.toLowerCase();
-    
+    const normalizedStatus = dto.status.toLowerCase()
+
     const updateData: any = {
       status: normalizedStatus, // Store normalized status
-    };
+    }
 
     // Update timestamps based on status
     if (normalizedStatus === 'sent' && dto.sentAtInMillis) {
-      updateData.sentAt = new Date(dto.sentAtInMillis);
+      updateData.sentAt = new Date(dto.sentAtInMillis)
     } else if (normalizedStatus === 'delivered' && dto.deliveredAtInMillis) {
-      updateData.deliveredAt = new Date(dto.deliveredAtInMillis);
+      updateData.deliveredAt = new Date(dto.deliveredAtInMillis)
     } else if (normalizedStatus === 'failed' && dto.failedAtInMillis) {
-      updateData.failedAt = new Date(dto.failedAtInMillis);
-      updateData.errorCode = dto.errorCode;
-      updateData.errorMessage = dto.errorMessage || 'Unknown error';
+      updateData.failedAt = new Date(dto.failedAtInMillis)
+      updateData.errorCode = dto.errorCode
+      updateData.errorMessage = dto.errorMessage || 'Unknown error'
     }
 
     // Include sender phone number if provided (for tracking dual-SIM)
     if (dto.senderPhoneNumber) {
-      updateData.senderPhoneNumber = dto.senderPhoneNumber;
+      updateData.senderPhoneNumber = dto.senderPhoneNumber
     }
 
     // Update the SMS
-    await this.smsModel.findByIdAndUpdate(dto.smsId, { $set: updateData });
-    
+    await this.smsModel.findByIdAndUpdate(dto.smsId, { $set: updateData })
+
     // Check if all SMS in batch have the same status, then update batch status
     if (dto.smsBatchId) {
-      const smsBatch = await this.smsBatchModel.findById(dto.smsBatchId);
+      const smsBatch = await this.smsBatchModel.findById(dto.smsBatchId)
       if (smsBatch) {
-        const allSmsInBatch = await this.smsModel.find({ smsBatch: dto.smsBatchId });
-        
+        const allSmsInBatch = await this.smsModel.find({
+          smsBatch: dto.smsBatchId,
+        })
+
         // Check if all SMS in batch have the same status (case insensitive)
-        const allHaveSameStatus = allSmsInBatch.every(sms => sms.status.toLowerCase() === normalizedStatus);
-        
+        const allHaveSameStatus = allSmsInBatch.every(
+          (sms) => sms.status.toLowerCase() === normalizedStatus,
+        )
+
         if (allHaveSameStatus) {
-          const smsBatchStatus = normalizedStatus === 'failed' ? 'failed' : 'completed';
-          await this.smsBatchModel.findByIdAndUpdate(dto.smsBatchId, { 
-            $set: { status: smsBatchStatus } 
-          });
+          const smsBatchStatus =
+            normalizedStatus === 'failed' ? 'failed' : 'completed'
+          await this.smsBatchModel.findByIdAndUpdate(dto.smsBatchId, {
+            $set: { status: smsBatchStatus },
+          })
         }
       }
     }
-    
+
     // Trigger webhook event for SMS status update
     try {
       this.webhookService.deliverNotification({
         sms,
         user: device.user,
         event: WebhookEvent.SMS_STATUS_UPDATED,
-      });
+      })
     } catch (error) {
-      console.error('Failed to trigger webhook event:', error);
+      console.error('Failed to trigger webhook event:', error)
     }
-    
+
     return {
       success: true,
       message: 'SMS status updated successfully',
-    };
+    }
   }
 
   async getStatsForUser(
@@ -955,7 +986,9 @@ export class GatewayService {
         endDateInclusive.setDate(endDateInclusive.getDate() + 1)
 
         sentDateQuery = { sentAt: { $gte: startDate, $lt: endDateInclusive } }
-        receivedDateQuery = { receivedAt: { $gte: startDate, $lt: endDateInclusive } }
+        receivedDateQuery = {
+          receivedAt: { $gte: startDate, $lt: endDateInclusive },
+        }
       } else if (startDate) {
         sentDateQuery = { sentAt: { $gte: startDate } }
         receivedDateQuery = { receivedAt: { $gte: startDate } }
@@ -993,9 +1026,7 @@ export class GatewayService {
 
     // Calculate delivery rate
     const smsDeliveryRate =
-      totalSentSMSCount > 0
-        ? (deliveredSMSCount / totalSentSMSCount) * 100
-        : 0
+      totalSentSMSCount > 0 ? (deliveredSMSCount / totalSentSMSCount) * 100 : 0
 
     // Total device count and API key count remain unfiltered
     const totalDeviceCount = allDevices.length
@@ -1053,8 +1084,7 @@ export class GatewayService {
         }
       }
 
-      campaignResponseRate =
-        (respondedCount / campaignRecipients.length) * 100
+      campaignResponseRate = (respondedCount / campaignRecipients.length) * 100
     }
 
     return {
@@ -1084,8 +1114,7 @@ export class GatewayService {
   }
 
   async getSMSById(smsId: string): Promise<any> {
-
-    const sms = await this.smsModel.findById(smsId);
+    const sms = await this.smsModel.findById(smsId)
 
     if (!sms) {
       throw new HttpException(
@@ -1094,15 +1123,14 @@ export class GatewayService {
           error: 'SMS not found',
         },
         HttpStatus.NOT_FOUND,
-      );
+      )
     }
 
-    return sms;
+    return sms
   }
 
   async getSmsBatchById(smsBatchId: string): Promise<any> {
-
-    const smsBatch = await this.smsBatchModel.findById(smsBatchId);
+    const smsBatch = await this.smsBatchModel.findById(smsBatchId)
 
     if (!smsBatch) {
       throw new HttpException(
@@ -1111,27 +1139,29 @@ export class GatewayService {
           error: 'SMS batch not found',
         },
         HttpStatus.NOT_FOUND,
-      );
+      )
     }
 
     // Find all SMS messages that belong to this batch
-    const smsMessages = await this.smsModel.find({ 
+    const smsMessages = await this.smsModel.find({
       smsBatch: new Types.ObjectId(smsBatchId),
-      device: smsBatch.device
-    });
+      device: smsBatch.device,
+    })
 
     // Return both the batch and its SMS messages
     return {
       batch: smsBatch,
-      messages: smsMessages
-    };
+      messages: smsMessages,
+    }
   }
 
   /**
    * Check and update tier progression based on rolling window usage
    * Now takes deviceId instead of device document to ensure fresh data
    */
-  async checkTierProgression(deviceId: string | Types.ObjectId): Promise<boolean> {
+  async checkTierProgression(
+    deviceId: string | Types.ObjectId,
+  ): Promise<boolean> {
     const device = await this.deviceModel.findById(deviceId).exec()
     if (!device || !device.usagePlan) {
       return false
@@ -1148,12 +1178,17 @@ export class GatewayService {
     // Check if current tier limit exceeded
     if (stats.isOverLimit) {
       // Find next tier
-      const nextTier = usagePlan.tiers.find(t => t.tier === device.current_tier + 1)
+      const nextTier = usagePlan.tiers.find(
+        (t) => t.tier === device.current_tier + 1,
+      )
 
       if (nextTier) {
         // Apply tier promotion cooldown FIRST, then upgrade tier when cooldown ends
-        const cooldownHours = (usagePlan as any).tierPromotionCooldownHours || 24
-        const cooldownEndTime = new Date(Date.now() + cooldownHours * 60 * 60 * 1000)
+        const cooldownHours =
+          (usagePlan as any).tierPromotionCooldownHours || 24
+        const cooldownEndTime = new Date(
+          Date.now() + cooldownHours * 60 * 60 * 1000,
+        )
 
         device.is_on_cooldown = true
         device.cooldown_end_time = cooldownEndTime
@@ -1163,10 +1198,15 @@ export class GatewayService {
         device.pending_tier_upgrade = nextTier.tier
 
         await device.save()
-        console.log(`Device ${device._id} placed on tier promotion cooldown until ${cooldownEndTime}, will upgrade to tier ${nextTier.tier} after cooldown`)
+        console.log(
+          `Device ${device._id} placed on tier promotion cooldown until ${cooldownEndTime}, will upgrade to tier ${nextTier.tier} after cooldown`,
+        )
 
         // Schedule wake-device job for when cooldown ends (will handle tier upgrade)
-        await this.smsQueueService.scheduleWakeDevice(device._id.toString(), cooldownEndTime)
+        await this.smsQueueService.scheduleWakeDevice(
+          device._id.toString(),
+          cooldownEndTime,
+        )
 
         return true
       } else {
@@ -1177,7 +1217,10 @@ export class GatewayService {
         // Calculate cooldown end time based on rolling window
         if (stats.estimatedCooldownEndTime) {
           device.cooldown_end_time = stats.estimatedCooldownEndTime
-          await this.smsQueueService.scheduleWakeDevice(device._id.toString(), stats.estimatedCooldownEndTime)
+          await this.smsQueueService.scheduleWakeDevice(
+            device._id.toString(),
+            stats.estimatedCooldownEndTime,
+          )
         }
 
         await device.save()

@@ -4,21 +4,31 @@ import { Model, Types } from 'mongoose'
 import { UsagePlan, UsagePlanDocument } from './schemas/usage-plan.schema'
 import { Device, DeviceDocument } from './schemas/device.schema'
 import { User } from '../users/schemas/user.schema'
-import { CreateUsagePlanDTO, UpdateUsagePlanDTO, AssignUsagePlanDTO } from './usage-plan.dto'
+import {
+  CreateUsagePlanDTO,
+  UpdateUsagePlanDTO,
+  AssignUsagePlanDTO,
+} from './usage-plan.dto'
 import { PlanSwitchingService } from './services/plan-switching.service'
 import { PREDEFINED_PLANS } from './constants/usage-plan-templates'
 
 @Injectable()
 export class UsagePlanService {
   constructor(
-    @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
+    @InjectModel(UsagePlan.name)
+    private usagePlanModel: Model<UsagePlanDocument>,
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     private planSwitchingService: PlanSwitchingService,
   ) {}
 
-  async createUsagePlan(createUsagePlanDto: CreateUsagePlanDTO, user: User): Promise<UsagePlan> {
+  async createUsagePlan(
+    createUsagePlanDto: CreateUsagePlanDTO,
+    user: User,
+  ): Promise<UsagePlan> {
     // Validate tiers are sequential starting from 1
-    const sortedTiers = [...createUsagePlanDto.tiers].sort((a, b) => a.tier - b.tier)
+    const sortedTiers = [...createUsagePlanDto.tiers].sort(
+      (a, b) => a.tier - b.tier,
+    )
 
     for (let i = 0; i < sortedTiers.length; i++) {
       if (sortedTiers[i].tier !== i + 1) {
@@ -38,7 +48,9 @@ export class UsagePlanService {
 
     // Also check against predefined template names
     const templateNameExists = PREDEFINED_PLANS.some(
-      template => template.name.toLowerCase() === createUsagePlanDto.name.trim().toLowerCase()
+      (template) =>
+        template.name.toLowerCase() ===
+        createUsagePlanDto.name.trim().toLowerCase(),
     )
 
     if (existingPlan || templateNameExists) {
@@ -52,7 +64,7 @@ export class UsagePlanService {
     if (createUsagePlanDto.isDefault) {
       await this.usagePlanModel.updateMany(
         { user: user._id, isDefault: true },
-        { $set: { isDefault: false } }
+        { $set: { isDefault: false } },
       )
     }
 
@@ -73,8 +85,8 @@ export class UsagePlanService {
 
     // Combine with predefined template plans
     const allPlans = [
-      ...userPlans.map(plan => plan.toObject()),
-      ...PREDEFINED_PLANS
+      ...userPlans.map((plan) => plan.toObject()),
+      ...PREDEFINED_PLANS,
     ]
 
     // Sort by default status first, then by creation date (templates last)
@@ -93,7 +105,9 @@ export class UsagePlanService {
   async getUserUsagePlan(user: User, planId: string): Promise<UsagePlan> {
     // Check if this is a template plan first
     if (planId.startsWith('template_')) {
-      const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
+      const templatePlan = PREDEFINED_PLANS.find(
+        (template) => template._id === planId,
+      )
       if (templatePlan) {
         return templatePlan as unknown as UsagePlan
       }
@@ -120,17 +134,26 @@ export class UsagePlanService {
     return plan
   }
 
-  async updateUsagePlan(user: User, planId: string, updateUsagePlanDto: UpdateUsagePlanDTO): Promise<UsagePlan> {
+  async updateUsagePlan(
+    user: User,
+    planId: string,
+    updateUsagePlanDto: UpdateUsagePlanDTO,
+  ): Promise<UsagePlan> {
     // Template plans cannot be updated
     if (planId.startsWith('template_')) {
-      throw new HttpException('Template plans cannot be updated', HttpStatus.BAD_REQUEST)
+      throw new HttpException(
+        'Template plans cannot be updated',
+        HttpStatus.BAD_REQUEST,
+      )
     }
 
     const plan = await this.getUserUsagePlan(user, planId)
 
     // Validate tiers if provided
     if (updateUsagePlanDto.tiers) {
-      const sortedTiers = [...updateUsagePlanDto.tiers].sort((a, b) => a.tier - b.tier)
+      const sortedTiers = [...updateUsagePlanDto.tiers].sort(
+        (a, b) => a.tier - b.tier,
+      )
 
       for (let i = 0; i < sortedTiers.length; i++) {
         if (sortedTiers[i].tier !== i + 1) {
@@ -146,14 +169,18 @@ export class UsagePlanService {
     if (updateUsagePlanDto.name) {
       const existingPlan = await this.usagePlanModel.findOne({
         user: user._id,
-        name: { $regex: new RegExp(`^${updateUsagePlanDto.name.trim()}$`, 'i') },
+        name: {
+          $regex: new RegExp(`^${updateUsagePlanDto.name.trim()}$`, 'i'),
+        },
         isActive: true,
         _id: { $ne: planId }, // Exclude current plan
       })
 
       // Also check against predefined template names
       const templateNameExists = PREDEFINED_PLANS.some(
-        template => template.name.toLowerCase() === updateUsagePlanDto.name.trim().toLowerCase()
+        (template) =>
+          template.name.toLowerCase() ===
+          updateUsagePlanDto.name.trim().toLowerCase(),
       )
 
       if (existingPlan || templateNameExists) {
@@ -168,14 +195,14 @@ export class UsagePlanService {
     if (updateUsagePlanDto.isDefault) {
       await this.usagePlanModel.updateMany(
         { user: user._id, isDefault: true, _id: { $ne: planId } },
-        { $set: { isDefault: false } }
+        { $set: { isDefault: false } },
       )
     }
 
     const updatedPlan = await this.usagePlanModel.findByIdAndUpdate(
       planId,
       { $set: updateUsagePlanDto },
-      { new: true }
+      { new: true },
     )
 
     return updatedPlan
@@ -184,7 +211,10 @@ export class UsagePlanService {
   async deleteUsagePlan(user: User, planId: string): Promise<void> {
     // Template plans cannot be deleted
     if (planId.startsWith('template_')) {
-      throw new HttpException('Template plans cannot be deleted', HttpStatus.BAD_REQUEST)
+      throw new HttpException(
+        'Template plans cannot be deleted',
+        HttpStatus.BAD_REQUEST,
+      )
     }
 
     const plan = await this.getUserUsagePlan(user, planId)
@@ -204,13 +234,20 @@ export class UsagePlanService {
 
     // Soft delete
     await this.usagePlanModel.findByIdAndUpdate(planId, {
-      $set: { isActive: false }
+      $set: { isActive: false },
     })
   }
 
-  async assignUsagePlanToDevice(user: User, deviceId: string, assignUsagePlanDto: AssignUsagePlanDTO): Promise<Device> {
+  async assignUsagePlanToDevice(
+    user: User,
+    deviceId: string,
+    assignUsagePlanDto: AssignUsagePlanDTO,
+  ): Promise<Device> {
     // Verify the usage plan belongs to the user
-    const plan = await this.getUserUsagePlan(user, assignUsagePlanDto.usagePlanId)
+    const plan = await this.getUserUsagePlan(
+      user,
+      assignUsagePlanDto.usagePlanId,
+    )
 
     // Find the device
     const device = await this.deviceModel.findOne({
@@ -230,18 +267,24 @@ export class UsagePlanService {
 
     // Update historical limits based on tier 1 of the new plan
     // This ensures limits increase if the new plan has better limits than the old plan
-    const tier1Config = plan.tiers.find(t => t.tier === 1)
+    const tier1Config = plan.tiers.find((t) => t.tier === 1)
     if (tier1Config) {
       // Only update historical limits if using standard 24-hour window (1440 minutes)
       const usageWindowMinutes = (plan as any).usageWindowMinutes || 1440
       if (usageWindowMinutes === 1440) {
         // Update best_min_wait_seconds if tier 1's limit is better (lower)
-        if (!device.best_min_wait_seconds || tier1Config.min_wait_seconds < device.best_min_wait_seconds) {
+        if (
+          !device.best_min_wait_seconds ||
+          tier1Config.min_wait_seconds < device.best_min_wait_seconds
+        ) {
           device.best_min_wait_seconds = tier1Config.min_wait_seconds
         }
 
         // Update max_messages_per_cycle if tier 1's limit is better (higher)
-        if (!device.max_messages_per_cycle || tier1Config.messages_per_cycle > device.max_messages_per_cycle) {
+        if (
+          !device.max_messages_per_cycle ||
+          tier1Config.messages_per_cycle > device.max_messages_per_cycle
+        ) {
           device.max_messages_per_cycle = tier1Config.messages_per_cycle
         }
       }
@@ -257,10 +300,14 @@ export class UsagePlanService {
     return device
   }
 
-  async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
+  async getUsagePlanById(
+    planId: string | Types.ObjectId,
+  ): Promise<UsagePlan | null> {
     if (typeof planId === 'string' && planId.startsWith('template_')) {
-      const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
-      return templatePlan ? templatePlan as unknown as UsagePlan : null
+      const templatePlan = PREDEFINED_PLANS.find(
+        (template) => template._id === planId,
+      )
+      return templatePlan ? (templatePlan as unknown as UsagePlan) : null
     }
 
     if (Types.ObjectId.isValid(planId as string)) {
@@ -297,7 +344,11 @@ export class UsagePlanService {
     return await this.createUsagePlan(defaultPlanData, user)
   }
 
-  async getCurrentTierForDevice(device: DeviceDocument): Promise<{ tier: number; min_wait_seconds: number; messages_per_cycle: number } | null> {
+  async getCurrentTierForDevice(device: DeviceDocument): Promise<{
+    tier: number
+    min_wait_seconds: number
+    messages_per_cycle: number
+  } | null> {
     if (!device.usagePlan) {
       return null
     }
@@ -307,7 +358,9 @@ export class UsagePlanService {
       return null
     }
 
-    const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
+    const currentTier = usagePlan.tiers.find(
+      (t) => t.tier === device.current_tier,
+    )
     return currentTier || null
   }
 }

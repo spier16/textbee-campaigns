@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common'
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { InjectQueue } from '@nestjs/bull'
 import { Model, Types } from 'mongoose'
@@ -46,7 +51,11 @@ import { ContactsService } from '../contacts/contacts.service'
 import { GetContactsDto } from '../contacts/contacts.dto'
 import { User } from '../users/schemas/user.schema'
 import { CampaignQueueService } from './queue/campaign-queue.service'
-import { processTemplateVariables, processTemplateVariablesWithHighlighting, ContactData } from './utils/template-processor'
+import {
+  processTemplateVariables,
+  processTemplateVariablesWithHighlighting,
+  ContactData,
+} from './utils/template-processor'
 
 @Injectable()
 export class CampaignsService {
@@ -218,7 +227,7 @@ export class CampaignsService {
     // Verify all template groups belong to the user
     const groups = await this.messageTemplateGroupModel
       .find({
-        _id: { $in: templateGroupIds.map(id => new Types.ObjectId(id)) },
+        _id: { $in: templateGroupIds.map((id) => new Types.ObjectId(id)) },
         userId: new Types.ObjectId(userId),
       })
       .lean()
@@ -393,7 +402,11 @@ export class CampaignsService {
     // Validate templates exist and belong to user
     const templates = await this.messageTemplateModel
       .find({
-        _id: { $in: createCampaignDto.selectedTemplates.map(id => new Types.ObjectId(id)) },
+        _id: {
+          $in: createCampaignDto.selectedTemplates.map(
+            (id) => new Types.ObjectId(id),
+          ),
+        },
         userId: new Types.ObjectId(user._id),
       })
       .lean()
@@ -404,14 +417,16 @@ export class CampaignsService {
 
     // Get unique contact count to calculate total messages (deduplicated with filters)
     const excludeDnc = createCampaignDto.excludeDnc ?? true
-    const includePreviouslyMessaged = createCampaignDto.includePreviouslyMessaged ?? false
+    const includePreviouslyMessaged =
+      createCampaignDto.includePreviouslyMessaged ?? false
 
-    const uniqueContactResult = await this.contactsService.getUniqueContactCount(
-      user._id.toString(),
-      createCampaignDto.selectedContacts,
-      excludeDnc,
-      includePreviouslyMessaged
-    )
+    const uniqueContactResult =
+      await this.contactsService.getUniqueContactCount(
+        user._id.toString(),
+        createCampaignDto.selectedContacts,
+        excludeDnc,
+        includePreviouslyMessaged,
+      )
     const totalContacts = uniqueContactResult.uniqueContactCount
 
     // Create campaign
@@ -435,7 +450,10 @@ export class CampaignsService {
     return this.formatCampaignResponse(savedCampaign)
   }
 
-  async getCampaigns(user: User, includeDeleted: boolean = false): Promise<CampaignResponseDto[]> {
+  async getCampaigns(
+    user: User,
+    includeDeleted: boolean = false,
+  ): Promise<CampaignResponseDto[]> {
     const filter: any = { user: user._id }
     if (!includeDeleted) {
       filter.isDeleted = { $ne: true }
@@ -451,10 +469,10 @@ export class CampaignsService {
       campaigns.map(async (campaign) => {
         const stats = await this.calculateCampaignStats(
           campaign._id.toString(),
-          user._id
+          user._id,
         )
         return this.formatCampaignResponse(campaign, stats)
-      })
+      }),
     )
 
     return campaignsWithStats
@@ -464,12 +482,12 @@ export class CampaignsService {
     const campaigns = await this.campaignModel
       .find({
         user: user._id,
-        isDeleted: true
+        isDeleted: true,
       })
       .sort({ deletedAt: -1 })
       .lean()
 
-    return campaigns.map(campaign => this.formatCampaignResponse(campaign))
+    return campaigns.map((campaign) => this.formatCampaignResponse(campaign))
   }
 
   async getSidebarCampaigns(user: User, page: number = 1, limit: number = 10) {
@@ -479,7 +497,7 @@ export class CampaignsService {
     const filter = {
       user: user._id,
       isDeleted: { $ne: true },
-      sentMessages: { $gt: 0 }
+      sentMessages: { $gt: 0 },
     }
 
     // Get campaigns and total count in parallel
@@ -491,26 +509,30 @@ export class CampaignsService {
         .limit(limit)
         .select('_id name sentMessages createdAt')
         .lean(),
-      this.campaignModel.countDocuments(filter)
+      this.campaignModel.countDocuments(filter),
     ])
 
     const hasMore = skip + campaigns.length < totalCount
 
     return {
-      campaigns: campaigns.map(campaign => ({
+      campaigns: campaigns.map((campaign) => ({
         _id: campaign._id.toString(),
         name: campaign.name,
         sentMessages: campaign.sentMessages,
-        createdAt: campaign.createdAt
+        createdAt: campaign.createdAt,
       })),
       totalCount,
       page,
       limit,
-      hasMore
+      hasMore,
     }
   }
 
-  async getCampaign(user: User, campaignId: string, includeDeleted: boolean = false): Promise<CampaignResponseDto> {
+  async getCampaign(
+    user: User,
+    campaignId: string,
+    includeDeleted: boolean = false,
+  ): Promise<CampaignResponseDto> {
     const filter: any = {
       _id: new Types.ObjectId(campaignId),
       user: user._id,
@@ -520,9 +542,7 @@ export class CampaignsService {
       filter.isDeleted = { $ne: true }
     }
 
-    const campaign = await this.campaignModel
-      .findOne(filter)
-      .lean()
+    const campaign = await this.campaignModel.findOne(filter).lean()
 
     if (!campaign) {
       throw new NotFoundException('Campaign not found')
@@ -549,12 +569,15 @@ export class CampaignsService {
     const oldStatus = campaign.status
     campaign.status = updateStatusDto.status
 
-    if (updateStatusDto.status === CampaignStatus.RUNNING && oldStatus === CampaignStatus.DRAFT) {
+    if (
+      updateStatusDto.status === CampaignStatus.RUNNING &&
+      oldStatus === CampaignStatus.DRAFT
+    ) {
       campaign.startedAt = new Date()
       // Add job to campaign queue for processing
       await this.campaignQueueService.addCampaignToQueue(
         campaign._id.toString(),
-        user._id.toString()
+        user._id.toString(),
       )
     } else if (updateStatusDto.status === CampaignStatus.SCHEDULED) {
       // Schedule the campaign to start at specified time using queue
@@ -562,12 +585,18 @@ export class CampaignsService {
       await this.campaignQueueService.scheduleCampaignStart(
         campaign._id.toString(),
         user._id.toString(),
-        startTime
+        startTime,
       )
     } else if (updateStatusDto.status === CampaignStatus.PAUSED) {
       await this.campaignQueueService.pauseCampaign(campaign._id.toString())
-    } else if (updateStatusDto.status === CampaignStatus.RUNNING && oldStatus === CampaignStatus.PAUSED) {
-      await this.campaignQueueService.resumeCampaign(campaign._id.toString(), user._id.toString())
+    } else if (
+      updateStatusDto.status === CampaignStatus.RUNNING &&
+      oldStatus === CampaignStatus.PAUSED
+    ) {
+      await this.campaignQueueService.resumeCampaign(
+        campaign._id.toString(),
+        user._id.toString(),
+      )
     } else if (updateStatusDto.status === CampaignStatus.CANCELLED) {
       await this.campaignQueueService.cancelCampaign(campaign._id.toString())
     }
@@ -580,7 +609,7 @@ export class CampaignsService {
     const campaign = await this.campaignModel.findOne({
       _id: new Types.ObjectId(campaignId),
       user: user._id,
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
     })
 
     if (!campaign) {
@@ -597,24 +626,24 @@ export class CampaignsService {
     }
 
     // Soft delete the campaign
-    await this.campaignModel.findByIdAndUpdate(
-      campaign._id,
-      {
-        $set: {
-          isDeleted: true,
-          deletedAt: new Date(),
-          statusBeforeDelete,
-          status: campaign.status, // Keep the current status (which might be PAUSED if it was running)
-        }
-      }
-    )
+    await this.campaignModel.findByIdAndUpdate(campaign._id, {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        statusBeforeDelete,
+        status: campaign.status, // Keep the current status (which might be PAUSED if it was running)
+      },
+    })
   }
 
-  async restoreCampaign(user: User, campaignId: string): Promise<CampaignResponseDto> {
+  async restoreCampaign(
+    user: User,
+    campaignId: string,
+  ): Promise<CampaignResponseDto> {
     const campaign = await this.campaignModel.findOne({
       _id: new Types.ObjectId(campaignId),
       user: user._id,
-      isDeleted: true
+      isDeleted: true,
     })
 
     if (!campaign) {
@@ -634,9 +663,9 @@ export class CampaignsService {
         $unset: {
           deletedAt: 1,
           statusBeforeDelete: 1,
-        }
+        },
       },
-      { new: true }
+      { new: true },
     )
 
     return this.formatCampaignResponse(updatedCampaign)
@@ -656,7 +685,7 @@ export class CampaignsService {
       user._id.toString(),
       campaign.selectedContacts,
       campaign.excludeDnc,
-      campaign.includePreviouslyMessaged
+      campaign.includePreviouslyMessaged,
     )
 
     // Create messages for each unique contact, rotating through templates
@@ -680,7 +709,10 @@ export class CampaignsService {
         mailingZip: contact.mailingZip,
       }
 
-      const processedContent = processTemplateVariables(template.content, contactData)
+      const processedContent = processTemplateVariables(
+        template.content,
+        contactData,
+      )
 
       messages.push({
         user: user._id,
@@ -713,7 +745,9 @@ export class CampaignsService {
     // Use the first sending window's start time if available
     if (campaign.sendingWindows && campaign.sendingWindows.length > 0) {
       const firstWindow = campaign.sendingWindows[0]
-      const windowStart = new Date(`${firstWindow.startDate}T${firstWindow.startTime}:00Z`)
+      const windowStart = new Date(
+        `${firstWindow.startDate}T${firstWindow.startTime}:00Z`,
+      )
       return windowStart > now ? windowStart : now
     }
 
@@ -737,7 +771,7 @@ export class CampaignsService {
    */
   private async calculateCampaignStats(
     campaignId: string,
-    userId: Types.ObjectId
+    userId: Types.ObjectId,
   ): Promise<{ deliveryRate?: number; responseRate?: number }> {
     const campaignIdStr = campaignId.toString()
 
@@ -779,9 +813,7 @@ export class CampaignsService {
 
     // Calculate delivery rate
     const deliveryRate =
-      totalSentSMSCount > 0
-        ? (deliveredSMSCount / totalSentSMSCount) * 100
-        : 0
+      totalSentSMSCount > 0 ? (deliveredSMSCount / totalSentSMSCount) * 100 : 0
 
     // Calculate Response Rate
     let responseRate = 0
@@ -842,7 +874,7 @@ export class CampaignsService {
 
   private formatCampaignResponse(
     campaign: any,
-    stats?: { deliveryRate?: number; responseRate?: number }
+    stats?: { deliveryRate?: number; responseRate?: number },
   ): CampaignResponseDto {
     return {
       _id: campaign._id.toString(),
@@ -892,7 +924,7 @@ export class CampaignsService {
     // Validate templates exist and belong to user
     const templates = await this.messageTemplateModel
       .find({
-        _id: { $in: templateIds.map(id => new Types.ObjectId(id)) },
+        _id: { $in: templateIds.map((id) => new Types.ObjectId(id)) },
         userId: new Types.ObjectId(user._id),
       })
       .lean()
@@ -906,7 +938,7 @@ export class CampaignsService {
       user._id.toString(),
       contactSpreadsheetIds,
       excludeDnc,
-      includePreviouslyMessaged
+      includePreviouslyMessaged,
     )
 
     const uniqueContacts = uniqueContactsResult.data.slice(0, maxPreviewCount)
@@ -937,27 +969,34 @@ export class CampaignsService {
       }
 
       // Process template variables with contact data
-      const processedContent = processTemplateVariables(template.content, contactData)
+      const processedContent = processTemplateVariables(
+        template.content,
+        contactData,
+      )
 
       // Generate highlighted content if requested
       let highlightedContentDto: HighlightedContentDto | undefined
       if (highlightVariables) {
-        const highlightedContent = processTemplateVariablesWithHighlighting(template.content, contactData)
+        const highlightedContent = processTemplateVariablesWithHighlighting(
+          template.content,
+          contactData,
+        )
         highlightedContentDto = {
-          segments: highlightedContent.segments.map(segment => ({
+          segments: highlightedContent.segments.map((segment) => ({
             text: segment.text,
             isVariable: segment.isVariable,
             variableName: segment.variableName,
             variableType: segment.variableType,
           })),
           plainText: highlightedContent.plainText,
-          validationErrors: highlightedContent.validationErrors?.map(error => ({
-            variableName: error.variableName,
-            errorType: error.errorType,
-            message: error.message,
-          })),
+          validationErrors: highlightedContent.validationErrors?.map(
+            (error) => ({
+              variableName: error.variableName,
+              errorType: error.errorType,
+              message: error.message,
+            }),
+          ),
         }
-
       }
 
       // Convert to DTO format

@@ -5,7 +5,12 @@ import { User } from '../../users/schemas/user.schema'
 export type CheckoutSessionDocument = CheckoutSession & Document
 
 export interface AbandonedEmailRecord {
-  emailType: 'first_reminder' | 'second_reminder' | 'third_reminder' | 'final_reminder' | 'last_chance'
+  emailType:
+    | 'first_reminder'
+    | 'second_reminder'
+    | 'third_reminder'
+    | 'final_reminder'
+    | 'last_chance'
   sentAt: Date
   emailSubject: string
 }
@@ -30,13 +35,24 @@ export class CheckoutSession {
   payload: any
 
   // Abandoned checkout email tracking
-  @Prop({ 
-    type: [{ 
-      emailType: { type: String, enum: ['first_reminder', 'second_reminder', 'third_reminder', 'final_reminder', 'last_chance'] },
-      sentAt: { type: Date },
-      emailSubject: { type: String }
-    }], 
-    default: [] 
+  @Prop({
+    type: [
+      {
+        emailType: {
+          type: String,
+          enum: [
+            'first_reminder',
+            'second_reminder',
+            'third_reminder',
+            'final_reminder',
+            'last_chance',
+          ],
+        },
+        sentAt: { type: Date },
+        emailSubject: { type: String },
+      },
+    ],
+    default: [],
   })
   abandonedEmails: AbandonedEmailRecord[]
 
@@ -50,4 +66,5 @@ export class CheckoutSession {
   completedAt?: Date
 }
 
-export const CheckoutSessionSchema = SchemaFactory.createForClass(CheckoutSession)
+export const CheckoutSessionSchema =
+  SchemaFactory.createForClass(CheckoutSession)

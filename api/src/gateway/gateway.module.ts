@@ -16,7 +16,10 @@ import { SmsQueueService } from './queue/sms-queue.service'
 import { SmsQueueProcessor } from './queue/sms-queue.processor'
 import { SmsStatusUpdateTask } from './tasks/sms-status-update.task'
 import { UsagePlanService } from './usage-plan.service'
-import { CampaignMessage, CampaignMessageSchema } from '../campaigns/schemas/campaign-message.schema'
+import {
+  CampaignMessage,
+  CampaignMessageSchema,
+} from '../campaigns/schemas/campaign-message.schema'
 import { Campaign, CampaignSchema } from '../campaigns/schemas/campaign.schema'
 import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
 import { DeviceUsageSchedulerService } from './services/device-usage-scheduler.service'
@@ -83,7 +86,7 @@ import { MessageSweeperService } from './queue/message-sweeper.service'
     SmsQueueProcessor,
     SmsStatusUpdateTask,
     DeviceWorkerService,
-    MessageSweeperService
+    MessageSweeperService,
   ],
   exports: [
     MongooseModule,
@@ -92,7 +95,7 @@ import { MessageSweeperService } from './queue/message-sweeper.service'
     UsagePlanService,
     DeviceUsageCalculatorService,
     RandomizedDelayService,
-    PlanSwitchingService
+    PlanSwitchingService,
   ],
 })
 export class GatewayModule {}

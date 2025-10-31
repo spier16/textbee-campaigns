@@ -25,7 +25,11 @@ export class ContactSpreadsheet {
   @Prop({ type: Number, required: true })
   fileSize: number
 
-  @Prop({ type: String, enum: ['pending', 'processed', 'manually_created'], default: 'pending' })
+  @Prop({
+    type: String,
+    enum: ['pending', 'processed', 'manually_created'],
+    default: 'pending',
+  })
   status: string
 
   @Prop({ type: Types.ObjectId, ref: 'ContactTemplate' })
@@ -50,12 +54,14 @@ export class ContactSpreadsheet {
   processingErrors?: string[]
 
   @Prop({
-    type: [{
-      phone: { type: String, required: true },
-      firstName: { type: String },
-      lastName: { type: String },
-      reason: { type: String, required: true }
-    }]
+    type: [
+      {
+        phone: { type: String, required: true },
+        firstName: { type: String },
+        lastName: { type: String },
+        reason: { type: String, required: true },
+      },
+    ],
   })
   duplicateContacts?: Array<{
     phone: string
@@ -65,4 +71,5 @@ export class ContactSpreadsheet {
   }>
 }
 
-export const ContactSpreadsheetSchema = SchemaFactory.createForClass(ContactSpreadsheet)
+export const ContactSpreadsheetSchema =
+  SchemaFactory.createForClass(ContactSpreadsheet)

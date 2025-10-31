@@ -13,7 +13,7 @@ export enum MessageStatus {
   SENDING = 'sending',
   SENT = 'sent',
   FAILED = 'failed',
-  CANCELLED = 'cancelled'
+  CANCELLED = 'cancelled',
 }
 
 @Schema({ timestamps: true })
@@ -46,7 +46,7 @@ export class CampaignMessage {
   @Prop({
     type: String,
     enum: Object.values(MessageStatus),
-    default: MessageStatus.PENDING
+    default: MessageStatus.PENDING,
   })
   status: MessageStatus
 
@@ -76,7 +76,7 @@ export class CampaignMessage {
     type: String,
     enum: Object.values(CampaignStatus),
     required: true,
-    default: CampaignStatus.DRAFT
+    default: CampaignStatus.DRAFT,
   })
   campaignStatus: CampaignStatus // Denormalized from Campaign for efficient filtering
 
@@ -107,7 +107,8 @@ export class CampaignMessage {
   updatedAt?: Date
 }
 
-export const CampaignMessageSchema = SchemaFactory.createForClass(CampaignMessage)
+export const CampaignMessageSchema =
+  SchemaFactory.createForClass(CampaignMessage)
 
 // Add indexes for efficient queries
 CampaignMessageSchema.index({ user: 1, campaign: 1 })
@@ -116,9 +117,9 @@ CampaignMessageSchema.index({ campaign: 1, status: 1 })
 // Primary queue query index - compound for atomic claim with FIFO ordering
 CampaignMessageSchema.index({
   status: 1,
-  campaignStatus: 1,  // Enables filtering by campaign status without join
+  campaignStatus: 1, // Enables filtering by campaign status without join
   not_before: 1,
-  queuedAt: 1  // Tie-breaker for FIFO order
+  queuedAt: 1, // Tie-breaker for FIFO order
 })
 
 // Optional: per-campaign filtering (for analytics/monitoring)

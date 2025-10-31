@@ -51,10 +51,12 @@ export class RandomizedDelayService {
    */
   private inverseNormalCDF(p: number): number {
     const a = [2.50662823884, -18.61500062529, 41.39119773534, -25.44106049637]
-    const b = [-8.47351093090, 23.08336743743, -21.06224101826, 3.13082909833]
-    const c = [0.3374754822726147, 0.9761690190917186, 0.1607979714918209,
-               0.0276438810333863, 0.0038405729373609, 0.0003951896511919,
-               0.0000321767881768, 0.0000002888167364, 0.0000003960315187]
+    const b = [-8.4735109309, 23.08336743743, -21.06224101826, 3.13082909833]
+    const c = [
+      0.3374754822726147, 0.9761690190917186, 0.1607979714918209,
+      0.0276438810333863, 0.0038405729373609, 0.0003951896511919,
+      0.0000321767881768, 0.0000002888167364, 0.0000003960315187,
+    ]
 
     const y = p - 0.5
 
@@ -62,7 +64,7 @@ export class RandomizedDelayService {
       const r = y * y
       let x = y
       for (let i = 0; i < 4; i++) {
-        x = y * (a[i] + r * x) / (1 + r * (b[i] + r))
+        x = (y * (a[i] + r * x)) / (1 + r * (b[i] + r))
       }
       return x
     }
@@ -168,7 +170,7 @@ export class RandomizedDelayService {
     const result = Math.round(sample)
 
     this.logger.debug(
-      `Randomized wait: min=${minWaitSeconds}s, result=${result}s, gamma_sample=${gammaSample.toFixed(2)}s, max=${hardMaxTotal.toFixed(2)}s`
+      `Randomized wait: min=${minWaitSeconds}s, result=${result}s, gamma_sample=${gammaSample.toFixed(2)}s, max=${hardMaxTotal.toFixed(2)}s`,
     )
 
     return result
@@ -191,7 +193,7 @@ export class RandomizedDelayService {
     const nextTime = new Date(lastSentAt.getTime() + randomizedWait * 1000)
 
     this.logger.debug(
-      `Next available time: lastSent=${lastSentAt.toISOString()}, wait=${randomizedWait}s, next=${nextTime.toISOString()}`
+      `Next available time: lastSent=${lastSentAt.toISOString()}, wait=${randomizedWait}s, next=${nextTime.toISOString()}`,
     )
 
     return nextTime
@@ -234,7 +236,7 @@ export class RandomizedDelayService {
   generateBatchDelays(
     count: number,
     minWaitSeconds: number,
-    startTime: Date = new Date()
+    startTime: Date = new Date(),
   ): Date[] {
     const times: Date[] = []
     let currentTime = new Date(startTime)
@@ -255,7 +257,10 @@ export class RandomizedDelayService {
    * @param sampleSize - Number of samples to generate (default: 1000)
    * @returns Statistics object with mean, stdDev, min, max
    */
-  getStatistics(minWaitSeconds: number, sampleSize: number = 1000): {
+  getStatistics(
+    minWaitSeconds: number,
+    sampleSize: number = 1000,
+  ): {
     mean: number
     stdDev: number
     min: number
@@ -272,7 +277,9 @@ export class RandomizedDelayService {
     }
 
     const mean = samples.reduce((sum, val) => sum + val, 0) / samples.length
-    const variance = samples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / samples.length
+    const variance =
+      samples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) /
+      samples.length
     const stdDev = Math.sqrt(variance)
     const min = Math.min(...samples)
     const max = Math.max(...samples)
@@ -282,7 +289,8 @@ export class RandomizedDelayService {
     const scale = this.GAMMA_SCALE_MULTIPLIER * minWaitSeconds
     const targetMean = minWaitSeconds + shape * scale
     const targetStdDev = Math.sqrt(shape) * scale
-    const hardMax = minWaitSeconds + this.calculateGammaPercentile99_99(shape, scale)
+    const hardMax =
+      minWaitSeconds + this.calculateGammaPercentile99_99(shape, scale)
 
     return {
       mean: parseFloat(mean.toFixed(2)),
@@ -292,7 +300,7 @@ export class RandomizedDelayService {
       targetMean: parseFloat(targetMean.toFixed(2)),
       targetStdDev: parseFloat(targetStdDev.toFixed(2)),
       theoreticalMin: minWaitSeconds,
-      hardMax: parseFloat(hardMax.toFixed(2))
+      hardMax: parseFloat(hardMax.toFixed(2)),
     }
   }
 }

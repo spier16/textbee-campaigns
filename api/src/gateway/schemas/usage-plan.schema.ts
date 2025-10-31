@@ -30,12 +30,14 @@ export class UsagePlan {
   tierPromotionCooldownHours: number // Cooldown period after tier promotion (default: 24 hours)
 
   @Prop({
-    type: [{
-      tier: { type: Number, required: true },
-      min_wait_seconds: { type: Number, required: true },
-      messages_per_cycle: { type: Number, required: true }
-    }],
-    required: true
+    type: [
+      {
+        tier: { type: Number, required: true },
+        min_wait_seconds: { type: Number, required: true },
+        messages_per_cycle: { type: Number, required: true },
+      },
+    ],
+    required: true,
   })
   tiers: UsagePlanTier[]
 
@@ -55,14 +57,16 @@ export class UsagePlan {
 export const UsagePlanSchema = SchemaFactory.createForClass(UsagePlan)
 
 // Ensure tiers are sorted by tier number
-UsagePlanSchema.pre('save', function() {
+UsagePlanSchema.pre('save', function () {
   if (this.tiers) {
     this.tiers.sort((a, b) => a.tier - b.tier)
 
     // Validate tier numbers are sequential starting from 1
     this.tiers.forEach((tier, index) => {
       if (tier.tier !== index + 1) {
-        throw new Error(`Tiers must be sequential starting from 1. Found tier ${tier.tier} at position ${index + 1}`)
+        throw new Error(
+          `Tiers must be sequential starting from 1. Found tier ${tier.tier} at position ${index + 1}`,
+        )
       }
     })
   }

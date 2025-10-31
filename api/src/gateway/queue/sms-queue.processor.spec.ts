@@ -4,7 +4,10 @@ import { getModelToken } from '@nestjs/mongoose'
 import { Device } from '../schemas/device.schema'
 import { SMS } from '../schemas/sms.schema'
 import { SMSBatch } from '../schemas/sms-batch.schema'
-import { CampaignMessage, MessageStatus } from '../../campaigns/schemas/campaign-message.schema'
+import {
+  CampaignMessage,
+  MessageStatus,
+} from '../../campaigns/schemas/campaign-message.schema'
 import { WebhookService } from '../../webhook/webhook.service'
 import { UsagePlanService } from '../usage-plan.service'
 import { Job } from 'bull'
@@ -142,19 +145,29 @@ describe('SmsQueueProcessor', () => {
     beforeEach(() => {
       mockCampaignMessageModel.findById.mockResolvedValue(mockCampaignMessage)
       mockDeviceModel.findById.mockResolvedValue(mockDevice)
-      mockUsagePlanService.getCurrentTierForDevice.mockResolvedValue(mockUsageTier)
+      mockUsagePlanService.getCurrentTierForDevice.mockResolvedValue(
+        mockUsageTier,
+      )
       mockSmsBatchModel.findByIdAndUpdate.mockResolvedValue({})
       mockDeviceModel.findByIdAndUpdate.mockResolvedValue({})
-      jest.spyOn(firebaseAdmin.messaging(), 'send').mockResolvedValue('fcm-message-id')
+      jest
+        .spyOn(firebaseAdmin.messaging(), 'send')
+        .mockResolvedValue('fcm-message-id')
     })
 
     it('should send campaign message successfully', async () => {
       const result = await processor.handleSendCampaignMessage(mockJob)
 
-      expect(mockCampaignMessageModel.findById).toHaveBeenCalledWith('message123')
+      expect(mockCampaignMessageModel.findById).toHaveBeenCalledWith(
+        'message123',
+      )
       expect(mockDeviceModel.findById).toHaveBeenCalledWith('device123')
-      expect(mockUsagePlanService.getCurrentTierForDevice).toHaveBeenCalledWith(mockDevice)
-      expect(firebaseAdmin.messaging().send).toHaveBeenCalledWith(mockJob.data.fcmMessage)
+      expect(mockUsagePlanService.getCurrentTierForDevice).toHaveBeenCalledWith(
+        mockDevice,
+      )
+      expect(firebaseAdmin.messaging().send).toHaveBeenCalledWith(
+        mockJob.data.fcmMessage,
+      )
       expect(mockCampaignMessage.save).toHaveBeenCalled()
       expect(mockCampaignMessage.status).toBe(MessageStatus.SENT)
       expect(result).toBe('fcm-message-id')
@@ -194,7 +207,9 @@ describe('SmsQueueProcessor', () => {
       expect(firebaseAdmin.messaging().send).not.toHaveBeenCalled()
       expect(mockCampaignMessage.save).toHaveBeenCalled()
       expect(mockCampaignMessage.status).toBe(MessageStatus.SCHEDULED)
-      expect(mockCampaignMessage.lastError).toBe('Device not available, rescheduled')
+      expect(mockCampaignMessage.lastError).toBe(
+        'Device not available, rescheduled',
+      )
     })
 
     it('should update device counters after successful send', async () => {
@@ -216,14 +231,18 @@ describe('SmsQueueProcessor', () => {
             messages_sent_this_hour_timestamp: currentHour,
             lastMessageSentAt: expect.any(Date),
           },
-        }
+        },
       )
     })
 
     it('should handle send errors and update status', async () => {
-      jest.spyOn(firebaseAdmin.messaging(), 'send').mockRejectedValue(new Error('FCM Error'))
+      jest
+        .spyOn(firebaseAdmin.messaging(), 'send')
+        .mockRejectedValue(new Error('FCM Error'))
 
-      await expect(processor.handleSendCampaignMessage(mockJob)).rejects.toThrow('FCM Error')
+      await expect(
+        processor.handleSendCampaignMessage(mockJob),
+      ).rejects.toThrow('FCM Error')
 
       expect(mockCampaignMessage.save).toHaveBeenCalled()
       expect(mockCampaignMessage.status).toBe(MessageStatus.FAILED)
@@ -234,9 +253,13 @@ describe('SmsQueueProcessor', () => {
     it('should schedule retry for failed messages within retry limit', async () => {
       mockCampaignMessage.retryCount = 1
       mockCampaignMessage.maxRetries = 3
-      jest.spyOn(firebaseAdmin.messaging(), 'send').mockRejectedValue(new Error('FCM Error'))
+      jest
+        .spyOn(firebaseAdmin.messaging(), 'send')
+        .mockRejectedValue(new Error('FCM Error'))
 
-      await expect(processor.handleSendCampaignMessage(mockJob)).rejects.toThrow('FCM Error')
+      await expect(
+        processor.handleSendCampaignMessage(mockJob),
+      ).rejects.toThrow('FCM Error')
 
       expect(mockCampaignMessage.status).toBe(MessageStatus.SCHEDULED)
       expect(mockCampaignMessage.nextRetryAt).toBeInstanceOf(Date)
@@ -257,7 +280,9 @@ describe('SmsQueueProcessor', () => {
     }
 
     beforeEach(() => {
-      mockUsagePlanService.getCurrentTierForDevice.mockResolvedValue(mockUsageTier)
+      mockUsagePlanService.getCurrentTierForDevice.mockResolvedValue(
+        mockUsageTier,
+      )
       mockDeviceModel.findById.mockResolvedValue(mockDevice)
     })
 

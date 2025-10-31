@@ -11,10 +11,7 @@ import {
   MessageTemplate,
   MessageTemplateSchema,
 } from './schemas/message-template.schema'
-import {
-  Campaign,
-  CampaignSchema,
-} from './schemas/campaign.schema'
+import { Campaign, CampaignSchema } from './schemas/campaign.schema'
 import {
   CampaignMessage,
   CampaignMessageSchema,
@@ -41,11 +38,7 @@ import { CampaignQueueService } from './queue/campaign-queue.service'
     forwardRef(() => GatewayModule),
   ],
   controllers: [CampaignsController],
-  providers: [
-    CampaignsService,
-    CampaignQueueProcessor,
-    CampaignQueueService,
-  ],
+  providers: [CampaignsService, CampaignQueueProcessor, CampaignQueueService],
   exports: [CampaignsService, CampaignQueueService],
 })
 export class CampaignsModule {}

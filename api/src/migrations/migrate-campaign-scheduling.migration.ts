@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model } from 'mongoose'
-import { Campaign, CampaignDocument, ScheduleType } from '../campaigns/schemas/campaign.schema'
+import {
+  Campaign,
+  CampaignDocument,
+  ScheduleType,
+} from '../campaigns/schemas/campaign.schema'
 
 /**
  * Migration script to unify campaign scheduling under sendingWindows format
@@ -39,7 +43,9 @@ export class MigrateCampaignSchedulingMigration {
       for (const campaign of campaigns) {
         try {
           if (campaign.sendingWindows && campaign.sendingWindows.length > 0) {
-            this.logger.debug(`Campaign ${campaign._id} already has sendingWindows, skipping`)
+            this.logger.debug(
+              `Campaign ${campaign._id} already has sendingWindows, skipping`,
+            )
             skipped++
             continue
           }
@@ -47,17 +53,21 @@ export class MigrateCampaignSchedulingMigration {
           const sendingWindows = this.generateWindowsForCampaign(campaign)
 
           if (sendingWindows.length === 0) {
-            this.logger.warn(`Could not generate windows for campaign ${campaign._id} (${campaign.scheduleType})`)
+            this.logger.warn(
+              `Could not generate windows for campaign ${campaign._id} (${campaign.scheduleType})`,
+            )
             errors++
             continue
           }
 
           await this.campaignModel.updateOne(
             { _id: campaign._id },
-            { $set: { sendingWindows } }
+            { $set: { sendingWindows } },
           )
 
-          this.logger.debug(`Migrated campaign ${campaign._id} (${campaign.scheduleType}): ${sendingWindows.length} windows`)
+          this.logger.debug(
+            `Migrated campaign ${campaign._id} (${campaign.scheduleType}): ${sendingWindows.length} windows`,
+          )
           migrated++
         } catch (error) {
           this.logger.error(`Error migrating campaign ${campaign._id}:`, error)
@@ -66,7 +76,7 @@ export class MigrateCampaignSchedulingMigration {
       }
 
       this.logger.log(
-        `Campaign scheduling migration completed: ${migrated} migrated, ${skipped} skipped, ${errors} errors`
+        `Campaign scheduling migration completed: ${migrated} migrated, ${skipped} skipped, ${errors} errors`,
       )
     } catch (error) {
       this.logger.error('Migration failed:', error)
@@ -95,7 +105,9 @@ export class MigrateCampaignSchedulingMigration {
         return this.generateWindowsForWeekday(campaign, timezone)
 
       default:
-        this.logger.warn(`Unknown schedule type: ${campaign.scheduleType} for campaign ${campaign._id}`)
+        this.logger.warn(
+          `Unknown schedule type: ${campaign.scheduleType} for campaign ${campaign._id}`,
+        )
         return []
     }
   }
@@ -103,52 +115,81 @@ export class MigrateCampaignSchedulingMigration {
   /**
    * Generate windows for NOW mode
    */
-  private generateWindowsForNow(campaign: CampaignDocument, timezone: string): any[] {
-    const startUTC = this.convertToUTC(campaign.campaignStartDate, '00:00', timezone)
-    const endUTC = this.convertToUTC(campaign.campaignEndDate, '23:59', timezone)
+  private generateWindowsForNow(
+    campaign: CampaignDocument,
+    timezone: string,
+  ): any[] {
+    const startUTC = this.convertToUTC(
+      campaign.campaignStartDate,
+      '00:00',
+      timezone,
+    )
+    const endUTC = this.convertToUTC(
+      campaign.campaignEndDate,
+      '23:59',
+      timezone,
+    )
 
-    return [{
-      startDate: startUTC.date,
-      startTime: startUTC.time,
-      endDate: endUTC.date,
-      endTime: endUTC.time
-    }]
+    return [
+      {
+        startDate: startUTC.date,
+        startTime: startUTC.time,
+        endDate: endUTC.date,
+        endTime: endUTC.time,
+      },
+    ]
   }
 
   /**
    * Generate windows for LATER mode
    */
-  private generateWindowsForLater(campaign: CampaignDocument, timezone: string): any[] {
+  private generateWindowsForLater(
+    campaign: CampaignDocument,
+    timezone: string,
+  ): any[] {
     // @ts-ignore - scheduledDate/scheduledTime will be removed in schema but exist in old data
     const scheduledDate = campaign.scheduledDate
     // @ts-ignore
     const scheduledTime = campaign.scheduledTime
 
     if (!scheduledDate || !scheduledTime) {
-      this.logger.warn(`Campaign ${campaign._id} has LATER schedule but missing scheduledDate/scheduledTime`)
+      this.logger.warn(
+        `Campaign ${campaign._id} has LATER schedule but missing scheduledDate/scheduledTime`,
+      )
       // Fallback to NOW mode behavior
       return this.generateWindowsForNow(campaign, timezone)
     }
 
     const startUTC = this.convertToUTC(scheduledDate, scheduledTime, timezone)
-    const endUTC = this.convertToUTC(campaign.campaignEndDate, '23:59', timezone)
+    const endUTC = this.convertToUTC(
+      campaign.campaignEndDate,
+      '23:59',
+      timezone,
+    )
 
-    return [{
-      startDate: startUTC.date,
-      startTime: startUTC.time,
-      endDate: endUTC.date,
-      endTime: endUTC.time
-    }]
+    return [
+      {
+        startDate: startUTC.date,
+        startTime: startUTC.time,
+        endDate: endUTC.date,
+        endTime: endUTC.time,
+      },
+    ]
   }
 
   /**
    * Generate windows for WEEKDAY mode
    */
-  private generateWindowsForWeekday(campaign: CampaignDocument, timezone: string): any[] {
+  private generateWindowsForWeekday(
+    campaign: CampaignDocument,
+    timezone: string,
+  ): any[] {
     const windows: any[] = []
 
     if (!campaign.weekdayWindows) {
-      this.logger.warn(`Campaign ${campaign._id} has WEEKDAY schedule but no weekdayWindows defined`)
+      this.logger.warn(
+        `Campaign ${campaign._id} has WEEKDAY schedule but no weekdayWindows defined`,
+      )
       return []
     }
 
@@ -160,7 +201,7 @@ export class MigrateCampaignSchedulingMigration {
       thursday: true,
       friday: true,
       saturday: false,
-      sunday: false
+      sunday: false,
     }
 
     const startDate = new Date(campaign.campaignStartDate + 'T00:00:00')
@@ -169,9 +210,15 @@ export class MigrateCampaignSchedulingMigration {
     // Iterate through each day in the campaign range
     const currentDate = new Date(startDate)
     while (currentDate <= endDate) {
-      const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][
-        currentDate.getDay()
-      ]
+      const dayName = [
+        'sunday',
+        'monday',
+        'tuesday',
+        'wednesday',
+        'thursday',
+        'friday',
+        'saturday',
+      ][currentDate.getDay()]
 
       const dayWindows = campaign.weekdayWindows[dayName]
       const isDayEnabled = weekdayEnabled[dayName]
@@ -182,21 +229,29 @@ export class MigrateCampaignSchedulingMigration {
         const day = String(currentDate.getDate()).padStart(2, '0')
         const dateStr = `${year}-${month}-${day}`
 
-        dayWindows.forEach(window => {
+        dayWindows.forEach((window) => {
           if (window.startTime && window.endTime) {
             // Validate time range
             const startMinutes = this.timeToMinutes(window.startTime)
             const endMinutes = this.timeToMinutes(window.endTime)
 
             if (endMinutes > startMinutes) {
-              const startUTC = this.convertToUTC(dateStr, window.startTime, timezone)
-              const endUTC = this.convertToUTC(dateStr, window.endTime, timezone)
+              const startUTC = this.convertToUTC(
+                dateStr,
+                window.startTime,
+                timezone,
+              )
+              const endUTC = this.convertToUTC(
+                dateStr,
+                window.endTime,
+                timezone,
+              )
 
               windows.push({
                 startDate: startUTC.date,
                 startTime: startUTC.time,
                 endDate: endUTC.date,
-                endTime: endUTC.time
+                endTime: endUTC.time,
               })
             }
           }
@@ -214,15 +269,19 @@ export class MigrateCampaignSchedulingMigration {
    * Convert existing windows to UTC
    */
   private convertWindowsToUTC(windows: any[], timezone: string): any[] {
-    return windows.map(window => {
-      const startUTC = this.convertToUTC(window.startDate, window.startTime, timezone)
+    return windows.map((window) => {
+      const startUTC = this.convertToUTC(
+        window.startDate,
+        window.startTime,
+        timezone,
+      )
       const endUTC = this.convertToUTC(window.endDate, window.endTime, timezone)
 
       return {
         startDate: startUTC.date,
         startTime: startUTC.time,
         endDate: endUTC.date,
-        endTime: endUTC.time
+        endTime: endUTC.time,
       }
     })
   }
@@ -230,7 +289,11 @@ export class MigrateCampaignSchedulingMigration {
   /**
    * Convert local time to UTC
    */
-  private convertToUTC(dateStr: string, timeStr: string, timezone: string): { date: string; time: string } {
+  private convertToUTC(
+    dateStr: string,
+    timeStr: string,
+    timezone: string,
+  ): { date: string; time: string } {
     try {
       // Create ISO string in local timezone
       const localDateTime = `${dateStr}T${timeStr}:00`
@@ -239,7 +302,9 @@ export class MigrateCampaignSchedulingMigration {
       const date = new Date(localDateTime)
 
       // Get the offset for the timezone at this specific date/time
-      const utcDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }))
+      const utcDate = new Date(
+        date.toLocaleString('en-US', { timeZone: timezone }),
+      )
       const tzDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }))
       const offset = tzDate.getTime() - utcDate.getTime()
 
@@ -253,10 +318,13 @@ export class MigrateCampaignSchedulingMigration {
 
       return {
         date: datePart,
-        time: `${hour}:${minute}`
+        time: `${hour}:${minute}`,
       }
     } catch (error) {
-      this.logger.error(`Error converting ${dateStr} ${timeStr} in ${timezone} to UTC:`, error)
+      this.logger.error(
+        `Error converting ${dateStr} ${timeStr} in ${timezone} to UTC:`,
+        error,
+      )
       // Fallback: return as-is
       return { date: dateStr, time: timeStr }
     }

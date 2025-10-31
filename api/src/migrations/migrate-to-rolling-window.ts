@@ -24,7 +24,9 @@ async function migrate() {
   const app = await NestFactory.createApplicationContext(AppModule)
 
   try {
-    const usagePlanModel = app.get<Model<UsagePlan>>(getModelToken(UsagePlan.name))
+    const usagePlanModel = app.get<Model<UsagePlan>>(
+      getModelToken(UsagePlan.name),
+    )
     const deviceModel = app.get<Model<Device>>(getModelToken(Device.name))
     const smsModel = app.get<Model<SMS>>(getModelToken(SMS.name))
 
@@ -32,7 +34,7 @@ async function migrate() {
     console.log('Step 1: Adding usageWindowMinutes to existing usage plans...')
     const planUpdateResult = await usagePlanModel.updateMany(
       { usageWindowMinutes: { $exists: false } },
-      { $set: { usageWindowMinutes: 1440 } }  // Default to 24 hours
+      { $set: { usageWindowMinutes: 1440 } }, // Default to 24 hours
     )
     console.log(`✓ Updated ${planUpdateResult.modifiedCount} usage plans\n`)
 
@@ -42,13 +44,13 @@ async function migrate() {
       {},
       {
         $unset: {
-          messages_sent_today: "",
-          messages_sent_this_hour: "",
-          daily_counter_reset: "",
-          hourly_counter_reset: "",
-          cooldown_until: ""  // No longer needed with rolling cooldown
-        }
-      }
+          messages_sent_today: '',
+          messages_sent_this_hour: '',
+          daily_counter_reset: '',
+          hourly_counter_reset: '',
+          cooldown_until: '', // No longer needed with rolling cooldown
+        },
+      },
     )
     console.log(`✓ Updated ${deviceUpdateResult.modifiedCount} devices\n`)
 
@@ -57,11 +59,12 @@ async function migrate() {
     try {
       await smsModel.collection.createIndex(
         { device: 1, campaignId: 1, sentAt: -1 },
-        { name: 'device_campaign_time_idx' }
+        { name: 'device_campaign_time_idx' },
       )
       console.log('✓ Created device_campaign_time_idx index\n')
     } catch (error) {
-      if (error.code === 85) { // Index already exists
+      if (error.code === 85) {
+        // Index already exists
         console.log('✓ Index already exists (skipped)\n')
       } else {
         throw error
@@ -72,16 +75,19 @@ async function migrate() {
     console.log('Step 4: Resetting cooldown status for all devices...')
     const cooldownResetResult = await deviceModel.updateMany(
       {},
-      { $set: { is_on_cooldown: false } }
+      { $set: { is_on_cooldown: false } },
     )
-    console.log(`✓ Reset cooldown status for ${cooldownResetResult.modifiedCount} devices\n`)
+    console.log(
+      `✓ Reset cooldown status for ${cooldownResetResult.modifiedCount} devices\n`,
+    )
 
     console.log('✅ Migration completed successfully!')
     console.log('\nNext steps:')
     console.log('1. Restart your application')
-    console.log('2. The scheduler will automatically recalculate device usage every 5 minutes')
+    console.log(
+      '2. The scheduler will automatically recalculate device usage every 5 minutes',
+    )
     console.log('3. Verify dashboard displays correct usage stats')
-
   } catch (error) {
     console.error('❌ Migration failed:', error)
     throw error

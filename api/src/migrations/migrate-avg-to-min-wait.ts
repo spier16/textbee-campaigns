@@ -29,16 +29,22 @@ import { UsagePlan } from '../gateway/schemas/usage-plan.schema'
 
 async function migrate() {
   console.log('Starting migration: avg_wait_seconds → min_wait_seconds...\n')
-  console.log(`MongoDB URI: ${process.env.MONGO_URI ? 'Loaded ✓' : 'Missing ✗'}\n`)
+  console.log(
+    `MongoDB URI: ${process.env.MONGO_URI ? 'Loaded ✓' : 'Missing ✗'}\n`,
+  )
 
   const app = await NestFactory.createApplicationContext(AppModule)
 
   try {
-    const usagePlanModel = app.get<Model<UsagePlan>>(getModelToken(UsagePlan.name))
+    const usagePlanModel = app.get<Model<UsagePlan>>(
+      getModelToken(UsagePlan.name),
+    )
     const deviceModel = app.get<Model<Device>>(getModelToken(Device.name))
 
     // Step 1: Rename avg_wait_seconds to min_wait_seconds in usage plan tiers
-    console.log('Step 1: Renaming avg_wait_seconds to min_wait_seconds in usage plans...')
+    console.log(
+      'Step 1: Renaming avg_wait_seconds to min_wait_seconds in usage plans...',
+    )
 
     const plans = await usagePlanModel.find({}).exec()
     let planUpdateCount = 0
@@ -66,15 +72,17 @@ async function migrate() {
     console.log(`✓ Updated ${planUpdateCount} usage plans\n`)
 
     // Step 2: Rename min_avg_wait_seconds to best_min_wait_seconds in devices
-    console.log('Step 2: Renaming min_avg_wait_seconds to best_min_wait_seconds in devices...')
+    console.log(
+      'Step 2: Renaming min_avg_wait_seconds to best_min_wait_seconds in devices...',
+    )
 
     const deviceUpdateResult = await deviceModel.updateMany(
       { min_avg_wait_seconds: { $exists: true } },
       {
         $rename: {
-          min_avg_wait_seconds: 'best_min_wait_seconds'
-        }
-      }
+          min_avg_wait_seconds: 'best_min_wait_seconds',
+        },
+      },
     )
 
     console.log(`✓ Updated ${deviceUpdateResult.modifiedCount} devices\n`)
@@ -83,17 +91,21 @@ async function migrate() {
     console.log('Step 3: Verifying migration...')
 
     const plansWithOldField = await usagePlanModel.countDocuments({
-      'tiers.avg_wait_seconds': { $exists: true }
+      'tiers.avg_wait_seconds': { $exists: true },
     })
 
     const devicesWithOldField = await deviceModel.countDocuments({
-      min_avg_wait_seconds: { $exists: true }
+      min_avg_wait_seconds: { $exists: true },
     })
 
     if (plansWithOldField === 0 && devicesWithOldField === 0) {
-      console.log('✓ Verification passed - no documents with old field names found\n')
+      console.log(
+        '✓ Verification passed - no documents with old field names found\n',
+      )
     } else {
-      console.warn(`⚠ Warning: Found ${plansWithOldField} plans and ${devicesWithOldField} devices with old field names\n`)
+      console.warn(
+        `⚠ Warning: Found ${plansWithOldField} plans and ${devicesWithOldField} devices with old field names\n`,
+      )
     }
 
     console.log('✅ Migration completed successfully!')
@@ -103,8 +115,9 @@ async function migrate() {
     console.log('\nNext steps:')
     console.log('1. Deploy updated application code with new field names')
     console.log('2. The randomization service will now use Gamma distribution')
-    console.log('3. Verify message scheduling uses minimum wait times correctly')
-
+    console.log(
+      '3. Verify message scheduling uses minimum wait times correctly',
+    )
   } catch (error) {
     console.error('❌ Migration failed:', error)
     throw error

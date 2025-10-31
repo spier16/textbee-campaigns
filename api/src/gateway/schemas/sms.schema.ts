@@ -49,7 +49,7 @@ export class SMS {
 
   @Prop({ type: Date })
   failedAt: Date
-  
+
   @Prop({ type: String, required: false })
   errorCode: string
 

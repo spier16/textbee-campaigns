@@ -24,9 +24,14 @@ async function verifyMigration() {
       console.log(`  ID: ${campaign._id}`)
       console.log(`  Name: ${campaign.name}`)
       console.log(`  Schedule Type: ${campaign.scheduleType}`)
-      console.log(`  Campaign Dates: ${campaign.campaignStartDate} to ${campaign.campaignEndDate}`)
+      console.log(
+        `  Campaign Dates: ${campaign.campaignStartDate} to ${campaign.campaignEndDate}`,
+      )
       console.log(`  Timezone: ${campaign.timezone}`)
-      console.log(`  Sending Windows:`, JSON.stringify(campaign.sendingWindows, null, 4))
+      console.log(
+        `  Sending Windows:`,
+        JSON.stringify(campaign.sendingWindows, null, 4),
+      )
       console.log('')
     })
 

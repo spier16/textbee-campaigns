@@ -11,14 +11,14 @@ export enum CampaignStatus {
   PAUSED = 'paused',
   COMPLETED = 'completed',
   FAILED = 'failed',
-  CANCELLED = 'cancelled'
+  CANCELLED = 'cancelled',
 }
 
 export enum ScheduleType {
   NOW = 'now',
   LATER = 'later',
   WINDOWS = 'windows',
-  WEEKDAY = 'weekday'
+  WEEKDAY = 'weekday',
 }
 
 export interface SendingWindow {
@@ -43,7 +43,6 @@ export interface WeekdayWindows {
   sunday: WeekdayWindow[]
 }
 
-
 @Schema({ timestamps: true })
 export class Campaign {
   _id?: Types.ObjectId
@@ -60,7 +59,7 @@ export class Campaign {
   @Prop({
     type: String,
     enum: Object.values(CampaignStatus),
-    default: CampaignStatus.DRAFT
+    default: CampaignStatus.DRAFT,
   })
   status: CampaignStatus
 
@@ -78,7 +77,7 @@ export class Campaign {
   @Prop({
     type: String,
     enum: Object.values(ScheduleType),
-    required: true
+    required: true,
   })
   scheduleType: ScheduleType
 

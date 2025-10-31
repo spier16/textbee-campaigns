@@ -21,7 +21,9 @@ import { Plan, PlanDocument } from './billing/schemas/plan.schema'
  */
 async function seedDevPlan() {
   console.log('Initializing NestJS application...')
-  console.log(`MongoDB URI: ${process.env.MONGO_URI ? 'Loaded ✓' : 'Missing ✗'}`)
+  console.log(
+    `MongoDB URI: ${process.env.MONGO_URI ? 'Loaded ✓' : 'Missing ✗'}`,
+  )
 
   const app = await NestFactory.createApplicationContext(AppModule)
 
@@ -40,18 +42,24 @@ async function seedDevPlan() {
       console.log('✓ Dev plan already exists')
       console.log(`  Plan ID: ${existingDevPlan._id}`)
       console.log(`  Name: ${existingDevPlan.name}`)
-      console.log(`  Daily Limit: ${existingDevPlan.dailyLimit === -1 ? 'Unlimited' : existingDevPlan.dailyLimit}`)
-      console.log(`  Monthly Limit: ${existingDevPlan.monthlyLimit === -1 ? 'Unlimited' : existingDevPlan.monthlyLimit}`)
-      console.log(`  Bulk Send Limit: ${existingDevPlan.bulkSendLimit === -1 ? 'Unlimited' : existingDevPlan.bulkSendLimit}`)
+      console.log(
+        `  Daily Limit: ${existingDevPlan.dailyLimit === -1 ? 'Unlimited' : existingDevPlan.dailyLimit}`,
+      )
+      console.log(
+        `  Monthly Limit: ${existingDevPlan.monthlyLimit === -1 ? 'Unlimited' : existingDevPlan.monthlyLimit}`,
+      )
+      console.log(
+        `  Bulk Send Limit: ${existingDevPlan.bulkSendLimit === -1 ? 'Unlimited' : existingDevPlan.bulkSendLimit}`,
+      )
     } else {
       // Create the 'dev' plan with unlimited access
       const devPlan = await planModel.create({
         name: 'dev',
-        dailyLimit: -1,        // -1 means unlimited
-        monthlyLimit: -1,      // -1 means unlimited
-        bulkSendLimit: -1,     // -1 means unlimited
-        monthlyPrice: 0,       // Free for dev
-        yearlyPrice: 0,        // Free for dev
+        dailyLimit: -1, // -1 means unlimited
+        monthlyLimit: -1, // -1 means unlimited
+        bulkSendLimit: -1, // -1 means unlimited
+        monthlyPrice: 0, // Free for dev
+        yearlyPrice: 0, // Free for dev
         isActive: true,
       })
 
@@ -67,7 +75,6 @@ async function seedDevPlan() {
     console.log('\n===========================================')
     console.log('Seeding completed successfully!')
     console.log('===========================================\n')
-
   } catch (error) {
     console.error('\n===========================================')
     console.error('Seeding failed!')

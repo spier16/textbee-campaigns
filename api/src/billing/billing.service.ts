@@ -1,4 +1,10 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common'
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+} from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
 import { Plan, PlanDocument } from './schemas/plan.schema'
@@ -17,7 +23,10 @@ import {
   PolarWebhookPayload,
   PolarWebhookPayloadDocument,
 } from './schemas/polar-webhook-payload.schema'
-import { CheckoutSession, CheckoutSessionDocument } from './schemas/checkout-session.schema'
+import {
+  CheckoutSession,
+  CheckoutSessionDocument,
+} from './schemas/checkout-session.schema'
 
 @Injectable()
 export class BillingService {
@@ -59,7 +68,7 @@ export class BillingService {
 
     // Get user's devices and usage data
     const userDevices = await this.deviceModel.find({ user: user._id }, '_id')
-    const deviceIds = userDevices.map(d => d._id)
+    const deviceIds = userDevices.map((d) => d._id)
 
     const processedSmsToday = await this.smsModel.countDocuments({
       device: { $in: deviceIds },
@@ -82,11 +91,21 @@ export class BillingService {
           processedSmsLastMonth,
           dailyLimit: plan.dailyLimit,
           monthlyLimit: plan.monthlyLimit,
-          dailyRemaining: plan.dailyLimit === -1 ? -1 : plan.dailyLimit - processedSmsToday,
-          monthlyRemaining: plan.monthlyLimit === -1 ? -1 : plan.monthlyLimit - processedSmsLastMonth,
-          dailyUsagePercentage: plan.dailyLimit === -1 ? 0 : Math.round((processedSmsToday / plan.dailyLimit) * 100),
-          monthlyUsagePercentage: plan.monthlyLimit === -1 ? 0 : Math.round((processedSmsLastMonth / plan.monthlyLimit) * 100),
-        }
+          dailyRemaining:
+            plan.dailyLimit === -1 ? -1 : plan.dailyLimit - processedSmsToday,
+          monthlyRemaining:
+            plan.monthlyLimit === -1
+              ? -1
+              : plan.monthlyLimit - processedSmsLastMonth,
+          dailyUsagePercentage:
+            plan.dailyLimit === -1
+              ? 0
+              : Math.round((processedSmsToday / plan.dailyLimit) * 100),
+          monthlyUsagePercentage:
+            plan.monthlyLimit === -1
+              ? 0
+              : Math.round((processedSmsLastMonth / plan.monthlyLimit) * 100),
+        },
       }
     }
 
@@ -112,7 +131,7 @@ export class BillingService {
           monthlyRemaining: -1,
           dailyUsagePercentage: 0,
           monthlyUsagePercentage: 0,
-        }
+        },
       }
     }
 
@@ -124,11 +143,21 @@ export class BillingService {
         processedSmsLastMonth,
         dailyLimit: plan.dailyLimit,
         monthlyLimit: plan.monthlyLimit,
-        dailyRemaining: plan.dailyLimit === -1 ? -1 : plan.dailyLimit - processedSmsToday,
-        monthlyRemaining: plan.monthlyLimit === -1 ? -1 : plan.monthlyLimit - processedSmsLastMonth,
-        dailyUsagePercentage: plan.dailyLimit === -1 ? 0 : Math.round((processedSmsToday / plan.dailyLimit) * 100),
-        monthlyUsagePercentage: plan.monthlyLimit === -1 ? 0 : Math.round((processedSmsLastMonth / plan.monthlyLimit) * 100),
-      }
+        dailyRemaining:
+          plan.dailyLimit === -1 ? -1 : plan.dailyLimit - processedSmsToday,
+        monthlyRemaining:
+          plan.monthlyLimit === -1
+            ? -1
+            : plan.monthlyLimit - processedSmsLastMonth,
+        dailyUsagePercentage:
+          plan.dailyLimit === -1
+            ? 0
+            : Math.round((processedSmsToday / plan.dailyLimit) * 100),
+        monthlyUsagePercentage:
+          plan.monthlyLimit === -1
+            ? 0
+            : Math.round((processedSmsLastMonth / plan.monthlyLimit) * 100),
+      },
     }
   }
 
@@ -165,7 +194,8 @@ export class BillingService {
 
     // const product = await this.polarApi.products.get(selectedPlan.polarProductId)
 
-    const discountId = payload.discountId ?? process.env.POLAR_DEFAULT_DISCOUNT_ID
+    const discountId =
+      payload.discountId ?? process.env.POLAR_DEFAULT_DISCOUNT_ID
 
     try {
       const checkoutOptions: any = {
@@ -195,22 +225,26 @@ export class BillingService {
       } catch (error) {
         console.error('failed to get discount', error)
       }
-      
 
       const checkout = await this.polarApi.checkouts.create(checkoutOptions)
-      
-      
-      this.checkoutSessionModel.updateOne({
-        user: user._id,
-      },{
-        user: user._id,
-        checkoutSessionId: checkout.id,
-        checkoutUrl: checkout.url,
-        expiresAt: new Date(checkout.expiresAt),
-        payload: checkout,
-      }, { upsert: true }).catch((error) => {
-        console.error(error)
-      })
+
+      this.checkoutSessionModel
+        .updateOne(
+          {
+            user: user._id,
+          },
+          {
+            user: user._id,
+            checkoutSessionId: checkout.id,
+            checkoutUrl: checkout.url,
+            expiresAt: new Date(checkout.expiresAt),
+            payload: checkout,
+          },
+          { upsert: true },
+        )
+        .catch((error) => {
+          console.error(error)
+        })
 
       return { redirectUrl: checkout.url }
     } catch (error) {
@@ -424,7 +458,7 @@ export class BillingService {
       if (!plan) {
         this.logger.error(
           `canPerformAction: No plan found for user ${userId}. ` +
-          `Subscription: ${subscription ? subscription.plan : 'none'}`
+            `Subscription: ${subscription ? subscription.plan : 'none'}`,
         )
         throw new HttpException(
           {
@@ -444,7 +478,7 @@ export class BillingService {
 
       // Get user's devices and then count SMS
       const userDevices = await this.deviceModel.find({ user: user._id }, '_id')
-      const deviceIds = userDevices.map(d => d._id)
+      const deviceIds = userDevices.map((d) => d._id)
 
       const processedSmsToday = await this.smsModel.countDocuments({
         device: { $in: deviceIds },
@@ -521,13 +555,16 @@ export class BillingService {
       }
 
       // Log unexpected errors with full stack trace
-      this.logger.error('canPerformAction: Unexpected exception in canPerformAction', {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        userId,
-        action,
-        value,
-      })
+      this.logger.error(
+        'canPerformAction: Unexpected exception in canPerformAction',
+        {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          userId,
+          action,
+          value,
+        },
+      )
 
       // Fail open: Allow the action to proceed on unexpected errors
       // This prevents system failures from blocking legitimate users
@@ -544,8 +581,10 @@ export class BillingService {
     const plan = await this.planModel.findById(subscription.plan)
 
     // First get all devices belonging to the user
-    const userDevices = await this.deviceModel.find({ user: new Types.ObjectId(userId) }).select('_id')
-    const deviceIds = userDevices.map(device => device._id)
+    const userDevices = await this.deviceModel
+      .find({ user: new Types.ObjectId(userId) })
+      .select('_id')
+    const deviceIds = userDevices.map((device) => device._id)
 
     const processedSmsToday = await this.smsModel.countDocuments({
       device: { $in: deviceIds },

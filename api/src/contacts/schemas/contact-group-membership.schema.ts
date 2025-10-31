@@ -23,10 +23,15 @@ export class ContactGroupMembership {
   wasNewContact: boolean
 }
 
-export const ContactGroupMembershipSchema = SchemaFactory.createForClass(ContactGroupMembership)
+export const ContactGroupMembershipSchema = SchemaFactory.createForClass(
+  ContactGroupMembership,
+)
 
 // Ensure unique membership per contact-group pair
-ContactGroupMembershipSchema.index({ contactId: 1, groupId: 1 }, { unique: true })
+ContactGroupMembershipSchema.index(
+  { contactId: 1, groupId: 1 },
+  { unique: true },
+)
 // Index for efficient queries
 ContactGroupMembershipSchema.index({ userId: 1, groupId: 1 })
 ContactGroupMembershipSchema.index({ userId: 1, contactId: 1 })

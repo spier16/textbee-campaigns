@@ -1,12 +1,25 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common'
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
 import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
 import Redis from 'ioredis'
 import { Device, DeviceDocument } from '../schemas/device.schema'
-import { Campaign, CampaignDocument, CampaignStatus } from '../../campaigns/schemas/campaign.schema'
-import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../../campaigns/schemas/campaign-message.schema'
+import {
+  Campaign,
+  CampaignDocument,
+  CampaignStatus,
+} from '../../campaigns/schemas/campaign.schema'
+import {
+  CampaignMessage,
+  CampaignMessageDocument,
+  MessageStatus,
+} from '../../campaigns/schemas/campaign-message.schema'
 import { GatewayService } from '../gateway.service'
 import { UsagePlanService } from '../usage-plan.service'
 import { DeviceUsageCalculatorService } from '../services/device-usage-calculator.service'
@@ -36,7 +49,8 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     @InjectModel(Campaign.name) private campaignModel: Model<CampaignDocument>,
-    @InjectModel(CampaignMessage.name) private campaignMessageModel: Model<CampaignMessageDocument>,
+    @InjectModel(CampaignMessage.name)
+    private campaignMessageModel: Model<CampaignMessageDocument>,
     @InjectQueue('sms') private smsQueue: Queue,
     private gatewayService: GatewayService,
     private usagePlanService: UsagePlanService,
@@ -48,12 +62,16 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    this.logger.log('DeviceWorkerService initializing - starting device worker loops')
+    this.logger.log(
+      'DeviceWorkerService initializing - starting device worker loops',
+    )
     await this.startAllDeviceWorkers()
   }
 
   async onModuleDestroy() {
-    this.logger.log('DeviceWorkerService shutting down - stopping all device worker loops')
+    this.logger.log(
+      'DeviceWorkerService shutting down - stopping all device worker loops',
+    )
     await this.stopAllDeviceWorkers()
   }
 
@@ -62,7 +80,9 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
    */
   async startAllDeviceWorkers() {
     const devices = await this.deviceModel.find({ enabled: true }).exec()
-    this.logger.log(`Starting worker loops for ${devices.length} enabled devices`)
+    this.logger.log(
+      `Starting worker loops for ${devices.length} enabled devices`,
+    )
 
     for (const device of devices) {
       await this.startDeviceWorker(device)
@@ -102,7 +122,9 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
     const loopPromise = this.runDeviceLoop(device)
     this.loopPromises.set(deviceId, loopPromise)
 
-    this.logger.log(`Started worker loop for device ${deviceId} (${device.brand} ${device.model})`)
+    this.logger.log(
+      `Started worker loop for device ${deviceId} (${device.brand} ${device.model})`,
+    )
   }
 
   /**
@@ -140,7 +162,7 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
           const backoffMs = Math.pow(2, attempt) * 1000 // 1s, 2s, 4s
           this.logger.debug(
             `Could not acquire lease for device ${deviceId} (attempt ${attempt + 1}/${maxRetries}) - ` +
-            `retrying in ${backoffMs}ms...`
+              `retrying in ${backoffMs}ms...`,
           )
           await this.sleep(backoffMs)
         }
@@ -149,7 +171,7 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       if (!acquired) {
         this.logger.warn(
           `Failed to acquire lease for device ${deviceId} after ${maxRetries} attempts - ` +
-          `another pod owns this device or there may be a stale lease`
+            `another pod owns this device or there may be a stale lease`,
         )
         return
       }
@@ -162,12 +184,14 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
           // Refresh device data periodically
           const freshDevice = await this.deviceModel.findById(deviceId).exec()
           if (!freshDevice || !freshDevice.enabled) {
-            this.logger.log(`Device ${deviceId} no longer enabled, stopping worker loop`)
+            this.logger.log(
+              `Device ${deviceId} no longer enabled, stopping worker loop`,
+            )
             break
           }
 
           // 1. Check device gates BEFORE claiming
-          if (!await this.canDeviceSendNow(freshDevice)) {
+          if (!(await this.canDeviceSendNow(freshDevice))) {
             await this.sleep(500 + Math.random() * 500) // 500-1000ms jitter
             await this.renewLease(leaseKey)
             continue
@@ -185,16 +209,22 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
           this.logger.debug(`Device ${deviceId} claimed message ${message._id}`)
 
           // 3. Validate sending window (load campaign only when we have a message)
-          const campaign = await this.campaignModel.findById(message.campaign).exec()
+          const campaign = await this.campaignModel
+            .findById(message.campaign)
+            .exec()
           if (!campaign) {
-            this.logger.error(`Campaign ${message.campaign} not found for message ${message._id}`)
+            this.logger.error(
+              `Campaign ${message.campaign} not found for message ${message._id}`,
+            )
             await this.markMessageFailed(message, 'Campaign not found')
             continue
           }
 
           if (!this.isInSendingWindow(campaign, new Date())) {
             // Update not_before to next window
-            this.logger.debug(`Message ${message._id} outside sending window, updating not_before`)
+            this.logger.debug(
+              `Message ${message._id} outside sending window, updating not_before`,
+            )
             await this.pushToNextWindow(message, campaign)
             continue
           }
@@ -204,17 +234,20 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
 
           // 5. Calculate delay and wait
           const delay = await this.calculateNextDelay(freshDevice)
-          this.logger.debug(`Device ${deviceId} waiting ${delay}ms before next claim`)
+          this.logger.debug(
+            `Device ${deviceId} waiting ${delay}ms before next claim`,
+          )
           await this.sleep(delay)
 
           await this.renewLease(leaseKey)
-
         } catch (error) {
-          this.logger.error(`Device worker error for ${deviceId}:`, error.stack || error)
+          this.logger.error(
+            `Device worker error for ${deviceId}:`,
+            error.stack || error,
+          )
           await this.sleep(5000) // Back off on error
         }
       }
-
     } finally {
       // Release lease on exit
       await this.releaseLease(leaseKey)
@@ -227,31 +260,35 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
    * Atomically claim the next eligible message from the queue
    * Uses denormalized campaignStatus for efficient filtering without campaign join
    */
-  private async claimNextMessage(device: DeviceDocument): Promise<CampaignMessageDocument | null> {
+  private async claimNextMessage(
+    device: DeviceDocument,
+  ): Promise<CampaignMessageDocument | null> {
     const now = new Date()
     const deviceId = device._id.toString()
 
     // Atomic claim with sort - NO campaign query needed!
     // Uses denormalized campaignStatus for efficient filtering
-    const message = await this.campaignMessageModel.findOneAndUpdate(
-      {
-        status: MessageStatus.QUEUED,
-        campaignStatus: CampaignStatus.RUNNING,  // Efficient filter via denormalized field
-        not_before: { $lte: now }
-      },
-      {
-        $set: {
-          status: MessageStatus.CLAIMED,
-          claimedBy: deviceId,
-          claimUntil: new Date(now.getTime() + 90 * 1000) // 90 sec visibility timeout
-        }
-      },
-      {
-        sort: { not_before: 1, queuedAt: 1 }, // FIFO tie-break
-        returnDocument: 'after',
-        new: true
-      }
-    ).exec()
+    const message = await this.campaignMessageModel
+      .findOneAndUpdate(
+        {
+          status: MessageStatus.QUEUED,
+          campaignStatus: CampaignStatus.RUNNING, // Efficient filter via denormalized field
+          not_before: { $lte: now },
+        },
+        {
+          $set: {
+            status: MessageStatus.CLAIMED,
+            claimedBy: deviceId,
+            claimUntil: new Date(now.getTime() + 90 * 1000), // 90 sec visibility timeout
+          },
+        },
+        {
+          sort: { not_before: 1, queuedAt: 1 }, // FIFO tie-break
+          returnDocument: 'after',
+          new: true,
+        },
+      )
+      .exec()
 
     return message
   }
@@ -259,26 +296,32 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Send a claimed message
    */
-  private async sendMessage(device: DeviceDocument, message: CampaignMessageDocument, campaign: CampaignDocument) {
+  private async sendMessage(
+    device: DeviceDocument,
+    message: CampaignMessageDocument,
+    campaign: CampaignDocument,
+  ) {
     try {
       // Update to SENDING
       message.status = MessageStatus.SENDING
       await message.save()
 
-      this.logger.log(`Sending message ${message._id} via device ${device._id} to ${message.recipient}`)
+      this.logger.log(
+        `Sending message ${message._id} via device ${device._id} to ${message.recipient}`,
+      )
 
       // Send via gateway
       const smsData = {
         message: message.content,
         recipients: [message.recipient],
         smsBody: message.content,
-        receivers: [message.recipient]
+        receivers: [message.recipient],
       }
 
       await this.gatewayService.sendSMS(
         device._id.toString(),
         smsData,
-        campaign._id.toString()
+        campaign._id.toString(),
       )
 
       // Update to SENT
@@ -294,7 +337,6 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       await this.updateCampaignStatsAfterSend(campaign._id)
 
       this.logger.log(`Message ${message._id} sent successfully`)
-
     } catch (error) {
       // Handle retry with backoff
       this.logger.error(`Failed to send message ${message._id}:`, error)
@@ -305,14 +347,20 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Handle message send failure with retry logic
    */
-  private async handleSendFailure(message: CampaignMessageDocument, campaign: CampaignDocument, error: Error) {
+  private async handleSendFailure(
+    message: CampaignMessageDocument,
+    campaign: CampaignDocument,
+    error: Error,
+  ) {
     message.retryCount = (message.retryCount || 0) + 1
     message.lastError = error.message
 
     if (message.retryCount >= message.maxRetries) {
       // Move to DLQ
       message.status = MessageStatus.FAILED
-      this.logger.warn(`Message ${message._id} failed after ${message.retryCount} attempts, moving to DLQ`)
+      this.logger.warn(
+        `Message ${message._id} failed after ${message.retryCount} attempts, moving to DLQ`,
+      )
 
       // Update campaign stats for permanent failure
       await message.save()
@@ -320,7 +368,10 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       return
     } else {
       // Retry with exponential backoff
-      const backoffMs = Math.min(300000, Math.pow(2, message.retryCount) * 60000) // Max 5 min
+      const backoffMs = Math.min(
+        300000,
+        Math.pow(2, message.retryCount) * 60000,
+      ) // Max 5 min
       const nextAttempt = new Date(Date.now() + backoffMs)
 
       // Push to next valid window after backoff
@@ -330,7 +381,9 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       message.claimedBy = undefined
       message.claimUntil = undefined
 
-      this.logger.debug(`Message ${message._id} retry scheduled for ${message.not_before.toISOString()} (attempt ${message.retryCount}/${message.maxRetries})`)
+      this.logger.debug(
+        `Message ${message._id} retry scheduled for ${message.not_before.toISOString()} (attempt ${message.retryCount}/${message.maxRetries})`,
+      )
     }
 
     await message.save()
@@ -339,7 +392,10 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Mark a message as failed
    */
-  private async markMessageFailed(message: CampaignMessageDocument, error: string) {
+  private async markMessageFailed(
+    message: CampaignMessageDocument,
+    error: string,
+  ) {
     message.status = MessageStatus.FAILED
     message.lastError = error
     await message.save()
@@ -365,7 +421,8 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
 
     // 3. Check min_wait delay since last message
     if (device.lastMessageSentAt) {
-      const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
+      const currentTier =
+        await this.usagePlanService.getCurrentTierForDevice(device)
       if (!currentTier) return false
 
       const minWaitMs = currentTier.min_wait_seconds * 1000
@@ -383,13 +440,15 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
    * Calculate next delay based on current tier's min_wait with randomization
    */
   private async calculateNextDelay(device: DeviceDocument): Promise<number> {
-    const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
+    const currentTier =
+      await this.usagePlanService.getCurrentTierForDevice(device)
     if (!currentTier) return 5000 // Default 5 sec
 
     // Use randomized delay service with gamma distribution
-    const randomizedWaitSeconds = this.randomizedDelayService.calculateRandomizedWait(
-      currentTier.min_wait_seconds
-    )
+    const randomizedWaitSeconds =
+      this.randomizedDelayService.calculateRandomizedWait(
+        currentTier.min_wait_seconds,
+      )
 
     return randomizedWaitSeconds * 1000
   }
@@ -400,14 +459,18 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
   private isInSendingWindow(campaign: CampaignDocument, now: Date): boolean {
     // Check if campaign has any sending windows defined
     if (!campaign.sendingWindows || campaign.sendingWindows.length === 0) {
-      this.logger.warn(`Campaign ${campaign._id} has no sending windows defined`)
+      this.logger.warn(
+        `Campaign ${campaign._id} has no sending windows defined`,
+      )
       return false
     }
 
     // Check if current time falls within any of the defined windows
     // All times in sendingWindows are stored in UTC for consistency
-    return campaign.sendingWindows.some(window => {
-      const windowStart = new Date(`${window.startDate}T${window.startTime}:00Z`)
+    return campaign.sendingWindows.some((window) => {
+      const windowStart = new Date(
+        `${window.startDate}T${window.startTime}:00Z`,
+      )
       const windowEnd = new Date(`${window.endDate}T${window.endTime}:59Z`)
       return now >= windowStart && now <= windowEnd
     })
@@ -416,18 +479,21 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Find the next valid sending window for a campaign after a given time
    */
-  private getNextSendingWindow(campaign: CampaignDocument, afterTime: Date): Date | null {
+  private getNextSendingWindow(
+    campaign: CampaignDocument,
+    afterTime: Date,
+  ): Date | null {
     if (!campaign.sendingWindows || campaign.sendingWindows.length === 0) {
       return null
     }
 
     // Parse all windows and convert to Date objects
     const futureWindows = campaign.sendingWindows
-      .map(window => ({
+      .map((window) => ({
         start: new Date(`${window.startDate}T${window.startTime}:00Z`),
-        end: new Date(`${window.endDate}T${window.endTime}:59Z`)
+        end: new Date(`${window.endDate}T${window.endTime}:59Z`),
       }))
-      .filter(window => {
+      .filter((window) => {
         // Include windows that haven't ended yet
         return window.end > afterTime
       })
@@ -450,20 +516,27 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Update message's not_before to next valid sending window
    */
-  private async pushToNextWindow(message: CampaignMessageDocument, campaign: CampaignDocument) {
+  private async pushToNextWindow(
+    message: CampaignMessageDocument,
+    campaign: CampaignDocument,
+  ) {
     const nextWindow = this.getNextSendingWindow(campaign, new Date())
 
     if (!nextWindow) {
       // No more valid windows - mark as failed
       message.status = MessageStatus.FAILED
       message.lastError = 'No valid sending windows available'
-      this.logger.warn(`Message ${message._id} has no more valid sending windows`)
+      this.logger.warn(
+        `Message ${message._id} has no more valid sending windows`,
+      )
     } else {
       message.not_before = nextWindow
       message.status = MessageStatus.QUEUED
       message.claimedBy = undefined
       message.claimUntil = undefined
-      this.logger.debug(`Message ${message._id} rescheduled for next window: ${nextWindow.toISOString()}`)
+      this.logger.debug(
+        `Message ${message._id} rescheduled for next window: ${nextWindow.toISOString()}`,
+      )
     }
 
     await message.save()
@@ -514,19 +587,24 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       await this.campaignModel.findByIdAndUpdate(campaignId, {
         $inc: {
           sentMessages: 1,
-          pendingMessages: -1
+          pendingMessages: -1,
         },
         $set: {
-          lastMessageSentAt: new Date()
-        }
+          lastMessageSentAt: new Date(),
+        },
       })
 
-      this.logger.debug(`Updated campaign ${campaignId} stats: incremented sentMessages`)
+      this.logger.debug(
+        `Updated campaign ${campaignId} stats: incremented sentMessages`,
+      )
 
       // Check if campaign is complete
       await this.checkCampaignCompletion(campaignId)
     } catch (error) {
-      this.logger.error(`Error updating campaign stats after send for campaign ${campaignId}:`, error)
+      this.logger.error(
+        `Error updating campaign stats after send for campaign ${campaignId}:`,
+        error,
+      )
     }
   }
 
@@ -539,16 +617,21 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       await this.campaignModel.findByIdAndUpdate(campaignId, {
         $inc: {
           failedMessages: 1,
-          pendingMessages: -1
-        }
+          pendingMessages: -1,
+        },
       })
 
-      this.logger.debug(`Updated campaign ${campaignId} stats: incremented failedMessages`)
+      this.logger.debug(
+        `Updated campaign ${campaignId} stats: incremented failedMessages`,
+      )
 
       // Check if campaign is complete
       await this.checkCampaignCompletion(campaignId)
     } catch (error) {
-      this.logger.error(`Error updating campaign stats after failure for campaign ${campaignId}:`, error)
+      this.logger.error(
+        `Error updating campaign stats after failure for campaign ${campaignId}:`,
+        error,
+      )
     }
   }
 
@@ -559,18 +642,31 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
     try {
       const pendingCount = await this.campaignMessageModel.countDocuments({
         campaign: campaignId,
-        status: { $in: [MessageStatus.PENDING, MessageStatus.SCHEDULED, MessageStatus.QUEUED, MessageStatus.CLAIMED, MessageStatus.SENDING] }
+        status: {
+          $in: [
+            MessageStatus.PENDING,
+            MessageStatus.SCHEDULED,
+            MessageStatus.QUEUED,
+            MessageStatus.CLAIMED,
+            MessageStatus.SENDING,
+          ],
+        },
       })
 
       if (pendingCount === 0) {
         await this.campaignModel.findByIdAndUpdate(campaignId, {
           status: CampaignStatus.COMPLETED,
-          completedAt: new Date()
+          completedAt: new Date(),
         })
-        this.logger.log(`Campaign ${campaignId} completed - all messages sent or failed`)
+        this.logger.log(
+          `Campaign ${campaignId} completed - all messages sent or failed`,
+        )
       }
     } catch (error) {
-      this.logger.error(`Error checking campaign completion for campaign ${campaignId}:`, error)
+      this.logger.error(
+        `Error checking campaign completion for campaign ${campaignId}:`,
+        error,
+      )
     }
   }
 
@@ -578,6 +674,6 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
    * Sleep utility
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms))
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 }

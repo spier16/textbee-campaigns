@@ -6,9 +6,7 @@ import { DeviceUsageCalculatorService } from './device-usage-calculator.service'
 export class DeviceUsageSchedulerService {
   private readonly logger = new Logger(DeviceUsageSchedulerService.name)
 
-  constructor(
-    private readonly usageCalculator: DeviceUsageCalculatorService,
-  ) {}
+  constructor(private readonly usageCalculator: DeviceUsageCalculatorService) {}
 
   /**
    * Recalculate device usage and cooldown status every 5 minutes
@@ -20,7 +18,9 @@ export class DeviceUsageSchedulerService {
 
     try {
       await this.usageCalculator.batchRecalculateAllDevices()
-      this.logger.log('Scheduled device usage recalculation completed successfully')
+      this.logger.log(
+        'Scheduled device usage recalculation completed successfully',
+      )
     } catch (error) {
       this.logger.error('Failed to recalculate device usage', error.stack)
     }
@@ -33,7 +33,9 @@ export class DeviceUsageSchedulerService {
    */
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async logDailyMaintenanceTask() {
-    this.logger.log('Daily maintenance task triggered (placeholder for future cleanup logic)')
+    this.logger.log(
+      'Daily maintenance task triggered (placeholder for future cleanup logic)',
+    )
     // Future: Implement SMS archival or deletion for messages older than max window + buffer
   }
 }

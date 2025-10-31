@@ -26,7 +26,6 @@ export class CanModifyApiKey implements CanActivate {
 
     const apiKey = await this.authService.findApiKeyById(apiKeyId)
 
-
     if (
       !!userId &&
       (apiKey?.user == userId.toString() ||

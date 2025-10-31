@@ -11,9 +11,15 @@ import { AuthModule } from 'src/auth/auth.module'
 import { UsersModule } from 'src/users/users.module'
 import { GatewayModule } from 'src/gateway/gateway.module'
 import { MailModule } from 'src/mail/mail.module'
-import { PolarWebhookPayload, PolarWebhookPayloadSchema } from './schemas/polar-webhook-payload.schema'
+import {
+  PolarWebhookPayload,
+  PolarWebhookPayloadSchema,
+} from './schemas/polar-webhook-payload.schema'
 import { Device, DeviceSchema } from '../gateway/schemas/device.schema'
-import { CheckoutSession, CheckoutSessionSchema } from './schemas/checkout-session.schema'
+import {
+  CheckoutSession,
+  CheckoutSessionSchema,
+} from './schemas/checkout-session.schema'
 
 @Module({
   imports: [

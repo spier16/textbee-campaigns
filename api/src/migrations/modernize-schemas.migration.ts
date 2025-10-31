@@ -2,8 +2,15 @@ import { Injectable, Logger } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model } from 'mongoose'
 import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
-import { UsagePlan, UsagePlanDocument } from '../gateway/schemas/usage-plan.schema'
-import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../campaigns/schemas/campaign-message.schema'
+import {
+  UsagePlan,
+  UsagePlanDocument,
+} from '../gateway/schemas/usage-plan.schema'
+import {
+  CampaignMessage,
+  CampaignMessageDocument,
+  MessageStatus,
+} from '../campaigns/schemas/campaign-message.schema'
 
 /**
  * Migration script to modernize schemas for queue-based messaging system
@@ -21,8 +28,10 @@ export class ModernizeSchemasMigration {
 
   constructor(
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
-    @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
-    @InjectModel(CampaignMessage.name) private campaignMessageModel: Model<CampaignMessageDocument>,
+    @InjectModel(UsagePlan.name)
+    private usagePlanModel: Model<UsagePlanDocument>,
+    @InjectModel(CampaignMessage.name)
+    private campaignMessageModel: Model<CampaignMessageDocument>,
   ) {}
 
   /**
@@ -57,15 +66,24 @@ export class ModernizeSchemasMigration {
 
       // Get current usage plan to determine tier settings
       if (device.usagePlan) {
-        const usagePlan = await this.usagePlanModel.findById(device.usagePlan).exec()
+        const usagePlan = await this.usagePlanModel
+          .findById(device.usagePlan)
+          .exec()
 
         if (usagePlan) {
-          const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
+          const currentTier = usagePlan.tiers.find(
+            (t) => t.tier === device.current_tier,
+          )
 
           if (currentTier) {
             // Check if using old field names (for backward compatibility during migration)
-            const minWaitSeconds = (currentTier as any).min_wait_seconds || (currentTier as any).avg_wait_seconds || (currentTier as any).timeDelayBetweenMessages
-            const messagesPerCycle = (currentTier as any).messages_per_cycle || (currentTier as any).dailyLimit
+            const minWaitSeconds =
+              (currentTier as any).min_wait_seconds ||
+              (currentTier as any).avg_wait_seconds ||
+              (currentTier as any).timeDelayBetweenMessages
+            const messagesPerCycle =
+              (currentTier as any).messages_per_cycle ||
+              (currentTier as any).dailyLimit
 
             // Populate historical fields if not set
             if (!device.best_min_wait_seconds && minWaitSeconds) {
@@ -108,12 +126,18 @@ export class ModernizeSchemasMigration {
       if (plan.tiers && plan.tiers.length > 0) {
         const firstTier = plan.tiers[0] as any
 
-        if (firstTier.timeDelayBetweenMessages !== undefined || firstTier.dailyLimit !== undefined) {
+        if (
+          firstTier.timeDelayBetweenMessages !== undefined ||
+          firstTier.dailyLimit !== undefined
+        ) {
           // Migrate tier data from old field names to new
           plan.tiers = plan.tiers.map((tier: any) => ({
             tier: tier.tier,
-            min_wait_seconds: tier.min_wait_seconds || tier.avg_wait_seconds || tier.timeDelayBetweenMessages,
-            messages_per_cycle: tier.messages_per_cycle || tier.dailyLimit
+            min_wait_seconds:
+              tier.min_wait_seconds ||
+              tier.avg_wait_seconds ||
+              tier.timeDelayBetweenMessages,
+            messages_per_cycle: tier.messages_per_cycle || tier.dailyLimit,
           }))
           needsUpdate = true
         }
@@ -140,7 +164,7 @@ export class ModernizeSchemasMigration {
     const pendingMessages = await this.campaignMessageModel
       .find({
         status: { $in: [MessageStatus.PENDING, MessageStatus.SCHEDULED] },
-        not_before: { $exists: false }
+        not_before: { $exists: false },
       })
       .exec()
 
@@ -168,15 +192,15 @@ export class ModernizeSchemasMigration {
       {
         $unset: {
           best_min_wait_seconds: '',
-          max_messages_per_cycle: ''
-        }
-      }
+          max_messages_per_cycle: '',
+        },
+      },
     )
 
     // Remove not_before from campaign messages
     await this.campaignMessageModel.updateMany(
       {},
-      { $unset: { not_before: '' } }
+      { $unset: { not_before: '' } },
     )
 
     this.logger.log('Rollback completed')

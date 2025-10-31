@@ -1,11 +1,26 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common'
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common'
 import { normalizePhoneNumber } from './utils/phone.utils'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
-import { ContactSpreadsheet, ContactSpreadsheetDocument } from './schemas/contact-spreadsheet.schema'
+import {
+  ContactSpreadsheet,
+  ContactSpreadsheetDocument,
+} from './schemas/contact-spreadsheet.schema'
 import { Contact, ContactDocument } from './schemas/contact.schema'
-import { ContactTemplate, ContactTemplateDocument } from './schemas/contact-template.schema'
-import { ContactGroupMembership, ContactGroupMembershipDocument } from './schemas/contact-group-membership.schema'
+import {
+  ContactTemplate,
+  ContactTemplateDocument,
+} from './schemas/contact-template.schema'
+import {
+  ContactGroupMembership,
+  ContactGroupMembershipDocument,
+} from './schemas/contact-group-membership.schema'
 import { SMS, SMSDocument } from '../gateway/schemas/sms.schema'
 import { SMSType } from '../gateway/sms-type.enum'
 import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
@@ -23,7 +38,7 @@ import {
   ContactResponseDto,
   UpdateContactDto,
   CreateContactDto,
-  CreateGroupDto
+  CreateGroupDto,
 } from './contacts.dto'
 
 @Injectable()
@@ -48,7 +63,10 @@ export class ContactsService {
     uploadData: UploadSpreadsheetDto,
   ): Promise<ContactSpreadsheetResponseDto> {
     // Generate unique filename by checking for existing files
-    const uniqueFileName = await this.generateUniqueFileName(userId, uploadData.originalFileName)
+    const uniqueFileName = await this.generateUniqueFileName(
+      userId,
+      uploadData.originalFileName,
+    )
 
     const contactSpreadsheet = new this.contactSpreadsheetModel({
       userId: new Types.ObjectId(userId),
@@ -69,7 +87,11 @@ export class ContactsService {
   async getSpreadsheets(
     userId: string,
     query: GetSpreadsheetsDto,
-  ): Promise<{ data: ContactSpreadsheetResponseDto[]; total: number; totalContacts: number }> {
+  ): Promise<{
+    data: ContactSpreadsheetResponseDto[]
+    total: number
+    totalContacts: number
+  }> {
     const {
       search,
       sortBy = 'newest',
@@ -121,9 +143,12 @@ export class ContactsService {
     // Calculate DNC statistics for each spreadsheet
     const spreadsheetsWithStats = await Promise.all(
       spreadsheets.map(async (spreadsheet) => {
-        const stats = await this.calculateSpreadsheetStats(userId, spreadsheet._id.toString())
+        const stats = await this.calculateSpreadsheetStats(
+          userId,
+          spreadsheet._id.toString(),
+        )
         return this.mapToResponseDto(spreadsheet, stats)
-      })
+      }),
     )
 
     return {
@@ -151,7 +176,10 @@ export class ContactsService {
     return spreadsheet
   }
 
-  async deleteSpreadsheet(userId: string, spreadsheetId: string): Promise<void> {
+  async deleteSpreadsheet(
+    userId: string,
+    spreadsheetId: string,
+  ): Promise<void> {
     const spreadsheet = await this.contactSpreadsheetModel
       .findOne({
         _id: new Types.ObjectId(spreadsheetId),
@@ -164,18 +192,23 @@ export class ContactsService {
     }
 
     // Delete all group memberships for this group
-    await this.contactGroupMembershipModel.deleteMany({
-      groupId: new Types.ObjectId(spreadsheetId),
-      userId: new Types.ObjectId(userId),
-    }).exec()
+    await this.contactGroupMembershipModel
+      .deleteMany({
+        groupId: new Types.ObjectId(spreadsheetId),
+        userId: new Types.ObjectId(userId),
+      })
+      .exec()
 
     // Delete the spreadsheet itself
     await spreadsheet.deleteOne()
   }
 
-  async deleteMultipleSpreadsheets(userId: string, spreadsheetIds: string[]): Promise<void> {
-    const objectIds = spreadsheetIds.map(id => new Types.ObjectId(id))
-    
+  async deleteMultipleSpreadsheets(
+    userId: string,
+    spreadsheetIds: string[],
+  ): Promise<void> {
+    const objectIds = spreadsheetIds.map((id) => new Types.ObjectId(id))
+
     // Verify all spreadsheets belong to the user
     const spreadsheets = await this.contactSpreadsheetModel
       .find({
@@ -189,16 +222,20 @@ export class ContactsService {
     }
 
     // Delete all group memberships for these groups
-    await this.contactGroupMembershipModel.deleteMany({
-      groupId: { $in: objectIds },
-      userId: new Types.ObjectId(userId),
-    }).exec()
+    await this.contactGroupMembershipModel
+      .deleteMany({
+        groupId: { $in: objectIds },
+        userId: new Types.ObjectId(userId),
+      })
+      .exec()
 
     // Delete all spreadsheets
-    await this.contactSpreadsheetModel.deleteMany({
-      _id: { $in: objectIds },
-      userId: new Types.ObjectId(userId),
-    }).exec()
+    await this.contactSpreadsheetModel
+      .deleteMany({
+        _id: { $in: objectIds },
+        userId: new Types.ObjectId(userId),
+      })
+      .exec()
   }
 
   async downloadSpreadsheet(
@@ -213,12 +250,14 @@ export class ContactsService {
       const memberships = await this.contactGroupMembershipModel
         .find({
           userId: new Types.ObjectId(userId),
-          groupId: new Types.ObjectId(spreadsheetId)
+          groupId: new Types.ObjectId(spreadsheetId),
         })
         .populate('contactId')
         .exec()
 
-      const contacts = memberships.map(membership => membership.contactId as any).filter(Boolean)
+      const contacts = memberships
+        .map((membership) => membership.contactId as any)
+        .filter(Boolean)
 
       // Generate CSV content from the contacts
       const csvContent = this.generateCsvFromContacts(contacts)
@@ -245,7 +284,7 @@ export class ContactsService {
   ): Promise<{ fileName: string; content: string }[]> {
     const spreadsheets = await this.contactSpreadsheetModel
       .find({
-        _id: { $in: spreadsheetIds.map(id => new Types.ObjectId(id)) },
+        _id: { $in: spreadsheetIds.map((id) => new Types.ObjectId(id)) },
         userId: new Types.ObjectId(userId),
       })
       .exec()
@@ -254,7 +293,7 @@ export class ContactsService {
       throw new NotFoundException('One or more contact spreadsheets not found')
     }
 
-    return spreadsheets.map(spreadsheet => ({
+    return spreadsheets.map((spreadsheet) => ({
       fileName: spreadsheet.originalFileName,
       content: spreadsheet.fileContent,
     }))
@@ -262,18 +301,19 @@ export class ContactsService {
 
   async previewCsv(previewData: PreviewCsvDto): Promise<CsvPreviewResponseDto> {
     const { fileContent, previewRows = 10 } = previewData
-    
+
     try {
       const csvContent = Buffer.from(fileContent, 'base64').toString('utf-8')
-      const lines = csvContent.split('\n').filter(line => line.trim() !== '')
-      
+      const lines = csvContent.split('\n').filter((line) => line.trim() !== '')
+
       if (lines.length === 0) {
         throw new BadRequestException('CSV file is empty')
       }
 
       const headers = this.parseCsvRow(lines[0])
-      const rows = lines.slice(1, Math.min(previewRows + 1, lines.length))
-        .map(line => this.parseCsvRow(line))
+      const rows = lines
+        .slice(1, Math.min(previewRows + 1, lines.length))
+        .map((line) => this.parseCsvRow(line))
 
       return {
         headers,
@@ -301,15 +341,22 @@ export class ContactsService {
     // Validate required fields
     const requiredFields = ['firstName', 'lastName', 'phone']
     const mappedFields = Object.values(columnMapping)
-    const missingFields = requiredFields.filter(field => !mappedFields.includes(field))
+    const missingFields = requiredFields.filter(
+      (field) => !mappedFields.includes(field),
+    )
 
     if (missingFields.length > 0) {
-      throw new BadRequestException(`Missing required fields: ${missingFields.join(', ')}`)
+      throw new BadRequestException(
+        `Missing required fields: ${missingFields.join(', ')}`,
+      )
     }
 
     try {
-      const csvContent = Buffer.from(spreadsheet.fileContent, 'base64').toString('utf-8')
-      const lines = csvContent.split('\n').filter(line => line.trim() !== '')
+      const csvContent = Buffer.from(
+        spreadsheet.fileContent,
+        'base64',
+      ).toString('utf-8')
+      const lines = csvContent.split('\n').filter((line) => line.trim() !== '')
       const headers = this.parseCsvRow(lines[0])
       const dataRows = lines.slice(1)
 
@@ -325,13 +372,23 @@ export class ContactsService {
         .find({ userId: userObjectId }, { phone: 1, firstName: 1, lastName: 1 })
         .exec()
 
-      const existingContactsMap = new Map(existingContacts.map(contact => [contact.phone, contact]))
+      const existingContactsMap = new Map(
+        existingContacts.map((contact) => [contact.phone, contact]),
+      )
       const processedPhones = new Set()
 
       for (let i = 0; i < dataRows.length; i++) {
         try {
           const row = this.parseCsvRow(dataRows[i])
-          const contactData = this.mapRowToContact(userId, spreadsheetId, headers, row, columnMapping, dncColumn, dncValue)
+          const contactData = this.mapRowToContact(
+            userId,
+            spreadsheetId,
+            headers,
+            row,
+            columnMapping,
+            dncColumn,
+            dncValue,
+          )
 
           // Check for duplicates within the current CSV being processed
           if (processedPhones.has(contactData.phone)) {
@@ -339,7 +396,8 @@ export class ContactsService {
               phone: contactData.phone,
               firstName: contactData.firstName,
               lastName: contactData.lastName,
-              reason: 'Duplicate phone number found within the same spreadsheet'
+              reason:
+                'Duplicate phone number found within the same spreadsheet',
             })
             continue
           }
@@ -354,13 +412,14 @@ export class ContactsService {
               userId: userObjectId,
               contactId: existingContact._id,
               groupId: groupObjectId,
-              wasNewContact: false
+              wasNewContact: false,
             })
             duplicateContacts.push({
               phone: contactData.phone,
               firstName: contactData.firstName,
               lastName: contactData.lastName,
-              reason: 'Phone number already exists in your contacts - linked to this group'
+              reason:
+                'Phone number already exists in your contacts - linked to this group',
             })
           } else {
             // New contact - create contact and membership
@@ -375,16 +434,17 @@ export class ContactsService {
       // Save new contacts and create memberships
       let newContactIds = []
       if (contactsToCreate.length > 0) {
-        const savedContacts = await this.contactModel.insertMany(contactsToCreate)
-        newContactIds = savedContacts.map(contact => contact._id)
+        const savedContacts =
+          await this.contactModel.insertMany(contactsToCreate)
+        newContactIds = savedContacts.map((contact) => contact._id)
 
         // Create memberships for new contacts
-        savedContacts.forEach(contact => {
+        savedContacts.forEach((contact) => {
           membershipsToCreate.push({
             userId: userObjectId,
             contactId: contact._id,
             groupId: groupObjectId,
-            wasNewContact: true
+            wasNewContact: true,
           })
         })
       }
@@ -413,7 +473,9 @@ export class ContactsService {
         totalMembershipsCreated: membershipsToCreate.length, // Total contacts added to group
       }
     } catch (error) {
-      throw new BadRequestException(`Failed to process spreadsheet: ${error.message}`)
+      throw new BadRequestException(
+        `Failed to process spreadsheet: ${error.message}`,
+      )
     }
   }
 
@@ -442,7 +504,10 @@ export class ContactsService {
     return this.mapTemplateToResponseDto(savedTemplate)
   }
 
-  async getTemplateById(userId: string, templateId: string): Promise<ContactTemplateResponseDto> {
+  async getTemplateById(
+    userId: string,
+    templateId: string,
+  ): Promise<ContactTemplateResponseDto> {
     const template = await this.contactTemplateModel
       .findOne({
         _id: new Types.ObjectId(templateId),
@@ -504,7 +569,9 @@ export class ContactsService {
       return this.mapContactToResponseDto(savedContact)
     } catch (error) {
       if (error.code === 11000 && error.keyPattern?.phone) {
-        throw new ConflictException('A contact with this phone number already exists')
+        throw new ConflictException(
+          'A contact with this phone number already exists',
+        )
       }
       throw error
     }
@@ -532,19 +599,19 @@ export class ContactsService {
       const memberships = await this.contactGroupMembershipModel
         .find({
           userId: new Types.ObjectId(userId),
-          groupId: new Types.ObjectId(spreadsheetId)
+          groupId: new Types.ObjectId(spreadsheetId),
         })
         .select('contactId')
         .exec()
 
-      contactIdsInGroup = memberships.map(m => m.contactId)
+      contactIdsInGroup = memberships.map((m) => m.contactId)
       filter._id = { $in: contactIdsInGroup }
     }
 
     if (search) {
       // Handle comma-separated format (e.g., "Smith, John")
       if (search.includes(',')) {
-        const commaParts = search.split(',').map(part => part.trim())
+        const commaParts = search.split(',').map((part) => part.trim())
         if (commaParts.length === 2 && commaParts[0] && commaParts[1]) {
           const [lastNamePart, firstNamePart] = commaParts
 
@@ -553,15 +620,15 @@ export class ContactsService {
             {
               $and: [
                 { lastName: { $regex: lastNamePart, $options: 'i' } },
-                { firstName: { $regex: firstNamePart, $options: 'i' } }
-              ]
+                { firstName: { $regex: firstNamePart, $options: 'i' } },
+              ],
             },
             // Try: first part = firstName, second part = lastName (in case user reverses it)
             {
               $and: [
                 { firstName: { $regex: lastNamePart, $options: 'i' } },
-                { lastName: { $regex: firstNamePart, $options: 'i' } }
-              ]
+                { lastName: { $regex: firstNamePart, $options: 'i' } },
+              ],
             },
             // Also search individual fields for the full search string
             { firstName: { $regex: search, $options: 'i' } },
@@ -592,15 +659,15 @@ export class ContactsService {
             {
               $and: [
                 { firstName: { $regex: firstTerm, $options: 'i' } },
-                { lastName: { $regex: lastTerm, $options: 'i' } }
-              ]
+                { lastName: { $regex: lastTerm, $options: 'i' } },
+              ],
             },
             // Try: first term = lastName, rest = firstName (in case user enters "Smith John")
             {
               $and: [
                 { firstName: { $regex: lastTerm, $options: 'i' } },
-                { lastName: { $regex: firstTerm, $options: 'i' } }
-              ]
+                { lastName: { $regex: firstTerm, $options: 'i' } },
+              ],
             },
             // Also search individual fields for the full search string
             { firstName: { $regex: search, $options: 'i' } },
@@ -671,7 +738,10 @@ export class ContactsService {
     }
   }
 
-  async getContactById(userId: string, contactId: string): Promise<ContactResponseDto> {
+  async getContactById(
+    userId: string,
+    contactId: string,
+  ): Promise<ContactResponseDto> {
     const contact = await this.contactModel
       .findOne({
         _id: new Types.ObjectId(contactId),
@@ -703,7 +773,8 @@ export class ContactsService {
     }
 
     // Track if DNC status is changing
-    const isDncChanging = updateData.dnc !== undefined && updateData.dnc !== contact.dnc
+    const isDncChanging =
+      updateData.dnc !== undefined && updateData.dnc !== contact.dnc
 
     // Update only provided fields
     Object.keys(updateData).forEach((key) => {
@@ -726,7 +797,9 @@ export class ContactsService {
       return this.mapContactToResponseDto(updatedContact)
     } catch (error) {
       if (error.code === 11000 && error.keyPattern?.phone) {
-        throw new ConflictException('A contact with this phone number already exists')
+        throw new ConflictException(
+          'A contact with this phone number already exists',
+        )
       }
       throw error
     }
@@ -736,10 +809,10 @@ export class ContactsService {
     const result = []
     let current = ''
     let inQuotes = false
-    
+
     for (let i = 0; i < row.length; i++) {
       const char = row[i]
-      
+
       if (char === '"') {
         if (inQuotes && row[i + 1] === '"') {
           current += '"'
@@ -754,7 +827,7 @@ export class ContactsService {
         current += char
       }
     }
-    
+
     result.push(current.trim())
     return result
   }
@@ -806,7 +879,15 @@ export class ContactsService {
     }
 
     // Check for invalid phone number values
-    const invalidPhoneValues = ['landline excluded', 'excluded', 'n/a', 'na', 'none', 'null', 'undefined']
+    const invalidPhoneValues = [
+      'landline excluded',
+      'excluded',
+      'n/a',
+      'na',
+      'none',
+      'null',
+      'undefined',
+    ]
     if (invalidPhoneValues.includes(contact.phone.toLowerCase().trim())) {
       throw new Error(`Invalid phone number: ${contact.phone}`)
     }
@@ -815,7 +896,11 @@ export class ContactsService {
     if (contact.phone) {
       const normalized = normalizePhoneNumber(contact.phone)
       // If normalization results in just a + sign or the original invalid value, reject it
-      if (normalized === '+' || normalized === contact.phone && !/^\+?[\d\s\-\(\)]+$/.test(contact.phone)) {
+      if (
+        normalized === '+' ||
+        (normalized === contact.phone &&
+          !/^\+?[\d\s\-\(\)]+$/.test(contact.phone))
+      ) {
         throw new Error(`Invalid phone number format: ${contact.phone}`)
       }
       contact.phone = normalized
@@ -824,7 +909,10 @@ export class ContactsService {
     return contact
   }
 
-  private async calculateSpreadsheetStats(userId: string, spreadsheetId: string) {
+  private async calculateSpreadsheetStats(
+    userId: string,
+    spreadsheetId: string,
+  ) {
     const userObjectId = new Types.ObjectId(userId)
     const groupObjectId = new Types.ObjectId(spreadsheetId)
 
@@ -834,11 +922,15 @@ export class ContactsService {
       .populate('contactId')
       .exec()
 
-    const contacts = memberships.map(membership => membership.contactId as any).filter(Boolean)
+    const contacts = memberships
+      .map((membership) => membership.contactId as any)
+      .filter(Boolean)
 
     const validContactsCount = contacts.length
-    const nonDncCount = contacts.filter(contact => contact.dnc !== true).length
-    const dncCount = contacts.filter(contact => contact.dnc === true).length
+    const nonDncCount = contacts.filter(
+      (contact) => contact.dnc !== true,
+    ).length
+    const dncCount = contacts.filter((contact) => contact.dnc === true).length
 
     return { validContactsCount, nonDncCount, dncCount }
   }
@@ -861,7 +953,7 @@ export class ContactsService {
       'mailingCity',
       'mailingState',
       'mailingZip',
-      'dnc'
+      'dnc',
     ]
 
     // Helper function to escape CSV values
@@ -873,7 +965,12 @@ export class ContactsService {
       const stringValue = String(value)
 
       // If the value contains comma, quotes, or newlines, wrap in quotes and escape internal quotes
-      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+      if (
+        stringValue.includes(',') ||
+        stringValue.includes('"') ||
+        stringValue.includes('\n') ||
+        stringValue.includes('\r')
+      ) {
         return `"${stringValue.replace(/"/g, '""')}"`
       }
 
@@ -884,8 +981,8 @@ export class ContactsService {
     const csvRows = [headers.join(',')]
 
     // Generate data rows
-    contacts.forEach(contact => {
-      const row = headers.map(header => {
+    contacts.forEach((contact) => {
+      const row = headers.map((header) => {
         let value = contact[header as keyof ContactDocument]
 
         // Handle boolean values for dnc field
@@ -904,7 +1001,11 @@ export class ContactsService {
 
   private mapToResponseDto(
     spreadsheet: ContactSpreadsheetDocument,
-    stats?: { validContactsCount: number; nonDncCount: number; dncCount: number }
+    stats?: {
+      validContactsCount: number
+      nonDncCount: number
+      dncCount: number
+    },
   ): ContactSpreadsheetResponseDto {
     return {
       id: spreadsheet._id.toString(),
@@ -924,7 +1025,9 @@ export class ContactsService {
     }
   }
 
-  private mapTemplateToResponseDto(template: ContactTemplateDocument): ContactTemplateResponseDto {
+  private mapTemplateToResponseDto(
+    template: ContactTemplateDocument,
+  ): ContactTemplateResponseDto {
     return {
       id: template._id.toString(),
       name: template.name,
@@ -953,8 +1056,11 @@ export class ContactsService {
     })
   }
 
-  async deleteMultipleContacts(userId: string, contactIds: string[]): Promise<void> {
-    const objectIds = contactIds.map(id => new Types.ObjectId(id))
+  async deleteMultipleContacts(
+    userId: string,
+    contactIds: string[],
+  ): Promise<void> {
+    const objectIds = contactIds.map((id) => new Types.ObjectId(id))
 
     const result = await this.contactModel.deleteMany({
       _id: { $in: objectIds },
@@ -970,12 +1076,12 @@ export class ContactsService {
     const memberships = await this.contactGroupMembershipModel
       .find({
         userId: new Types.ObjectId(userId),
-        contactId: new Types.ObjectId(contactId)
+        contactId: new Types.ObjectId(contactId),
       })
       .populate('groupId', 'originalFileName')
       .exec()
 
-    return memberships.map(membership => {
+    return memberships.map((membership) => {
       const group = membership.groupId as any
       return group?.originalFileName || 'Unknown Group'
     })
@@ -987,7 +1093,7 @@ export class ContactsService {
     excludeDnc: boolean = true,
     includePreviouslyMessaged: boolean = false,
   ): Promise<{ uniqueContactCount: number }> {
-    const objectIds = spreadsheetIds.map(id => new Types.ObjectId(id))
+    const objectIds = spreadsheetIds.map((id) => new Types.ObjectId(id))
 
     // Verify all spreadsheets belong to the user
     const spreadsheets = await this.contactSpreadsheetModel
@@ -1009,7 +1115,6 @@ export class ContactsService {
       })
       .exec()
 
-
     // Build aggregation pipeline with conditional filtering
     const pipeline: any[] = [
       {
@@ -1028,42 +1133,46 @@ export class ContactsService {
       },
       {
         $unwind: '$contact',
-      }
+      },
     ]
 
     // Add DNC filtering if excludeDnc is true
     if (excludeDnc) {
       pipeline.push({
         $match: {
-          'contact.dnc': { $ne: true }
-        }
+          'contact.dnc': { $ne: true },
+        },
       })
     }
 
     // Add previously messaged filtering if includePreviouslyMessaged is false
     if (!includePreviouslyMessaged) {
-
       // First get user's device IDs to scope SMS query to current user
-      const userDevices = await this.deviceModel.find({
-        user: new Types.ObjectId(userId)
-      }).select('_id')
-      const userDeviceIds = userDevices.map(device => device._id)
+      const userDevices = await this.deviceModel
+        .find({
+          user: new Types.ObjectId(userId),
+        })
+        .select('_id')
+      const userDeviceIds = userDevices.map((device) => device._id)
 
       if (userDeviceIds.length > 0) {
         // Get list of previously messaged phone numbers from user's devices
         const smsQuery = {
           device: { $in: userDeviceIds },
           type: SMSType.SENT,
-          status: { $in: ['sent', 'delivered'] }
+          status: { $in: ['sent', 'delivered'] },
         }
 
-        const previouslyMessagedPhones = await this.smsModel.distinct('recipient', smsQuery)
+        const previouslyMessagedPhones = await this.smsModel.distinct(
+          'recipient',
+          smsQuery,
+        )
 
         if (previouslyMessagedPhones.length > 0) {
           const matchStage = {
             $match: {
-              'contact.phone': { $nin: previouslyMessagedPhones }
-            }
+              'contact.phone': { $nin: previouslyMessagedPhones },
+            },
           }
           pipeline.push(matchStage)
         } else {
@@ -1082,13 +1191,15 @@ export class ContactsService {
       },
       {
         $count: 'uniqueContactCount',
-      }
+      },
     )
 
     // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
-    const uniqueContacts = await this.contactGroupMembershipModel.aggregate(pipeline)
+    const uniqueContacts =
+      await this.contactGroupMembershipModel.aggregate(pipeline)
     const result = {
-      uniqueContactCount: uniqueContacts.length > 0 ? uniqueContacts[0].uniqueContactCount : 0,
+      uniqueContactCount:
+        uniqueContacts.length > 0 ? uniqueContacts[0].uniqueContactCount : 0,
     }
 
     return result
@@ -1099,8 +1210,8 @@ export class ContactsService {
     spreadsheetIds: string[],
     excludeDnc: boolean = true,
     includePreviouslyMessaged: boolean = false,
-  ): Promise<{ data: ContactResponseDto[], total: number }> {
-    const objectIds = spreadsheetIds.map(id => new Types.ObjectId(id))
+  ): Promise<{ data: ContactResponseDto[]; total: number }> {
+    const objectIds = spreadsheetIds.map((id) => new Types.ObjectId(id))
 
     // Verify all spreadsheets belong to the user
     const spreadsheets = await this.contactSpreadsheetModel
@@ -1132,42 +1243,46 @@ export class ContactsService {
       },
       {
         $unwind: '$contact',
-      }
+      },
     ]
 
     // Add DNC filtering if excludeDnc is true
     if (excludeDnc) {
       pipeline.push({
         $match: {
-          'contact.dnc': { $ne: true }
-        }
+          'contact.dnc': { $ne: true },
+        },
       })
     }
 
     // Add previously messaged filtering if includePreviouslyMessaged is false
     if (!includePreviouslyMessaged) {
-
       // First get user's device IDs to scope SMS query to current user
-      const userDevices = await this.deviceModel.find({
-        user: new Types.ObjectId(userId)
-      }).select('_id')
-      const userDeviceIds = userDevices.map(device => device._id)
+      const userDevices = await this.deviceModel
+        .find({
+          user: new Types.ObjectId(userId),
+        })
+        .select('_id')
+      const userDeviceIds = userDevices.map((device) => device._id)
 
       if (userDeviceIds.length > 0) {
         // Get list of previously messaged phone numbers from user's devices
         const smsQuery = {
           device: { $in: userDeviceIds },
           type: SMSType.SENT,
-          status: { $in: ['sent', 'delivered'] }
+          status: { $in: ['sent', 'delivered'] },
         }
 
-        const previouslyMessagedPhones = await this.smsModel.distinct('recipient', smsQuery)
+        const previouslyMessagedPhones = await this.smsModel.distinct(
+          'recipient',
+          smsQuery,
+        )
 
         if (previouslyMessagedPhones.length > 0) {
           const matchStage = {
             $match: {
-              'contact.phone': { $nin: previouslyMessagedPhones }
-            }
+              'contact.phone': { $nin: previouslyMessagedPhones },
+            },
           }
           pipeline.push(matchStage)
         } else {
@@ -1189,13 +1304,16 @@ export class ContactsService {
         $replaceRoot: {
           newRoot: '$contact',
         },
-      }
+      },
     )
 
     // Get unique contacts across all specified spreadsheets by joining with ContactGroupMembership
-    const uniqueContacts = await this.contactGroupMembershipModel.aggregate(pipeline)
+    const uniqueContacts =
+      await this.contactGroupMembershipModel.aggregate(pipeline)
 
-    const mappedContacts = uniqueContacts.map(contact => this.mapContactToResponseDto(contact))
+    const mappedContacts = uniqueContacts.map((contact) =>
+      this.mapContactToResponseDto(contact),
+    )
     const result = {
       data: mappedContacts,
       total: mappedContacts.length,
@@ -1204,7 +1322,9 @@ export class ContactsService {
     return result
   }
 
-  private mapContactToResponseDto = (contact: ContactDocument): ContactResponseDto => {
+  private mapContactToResponseDto = (
+    contact: ContactDocument,
+  ): ContactResponseDto => {
     return {
       id: contact._id.toString(),
       firstName: contact.firstName,
@@ -1234,7 +1354,9 @@ export class ContactsService {
   ): Promise<ContactSpreadsheetResponseDto> {
     try {
       // Validate that all contact IDs exist and belong to the user
-      const contactObjectIds = createGroupData.contactIds.map(id => new Types.ObjectId(id))
+      const contactObjectIds = createGroupData.contactIds.map(
+        (id) => new Types.ObjectId(id),
+      )
       const existingContacts = await this.contactModel
         .find({
           _id: { $in: contactObjectIds },
@@ -1243,11 +1365,16 @@ export class ContactsService {
         .exec()
 
       if (existingContacts.length !== createGroupData.contactIds.length) {
-        throw new BadRequestException('One or more contacts not found or do not belong to you')
+        throw new BadRequestException(
+          'One or more contacts not found or do not belong to you',
+        )
       }
 
       // Generate unique group name if needed
-      const uniqueGroupName = await this.generateUniqueFileName(userId, createGroupData.name)
+      const uniqueGroupName = await this.generateUniqueFileName(
+        userId,
+        createGroupData.name,
+      )
 
       // Create a "virtual" spreadsheet for the custom group
       const groupSpreadsheet = new this.contactSpreadsheetModel({
@@ -1264,14 +1391,16 @@ export class ContactsService {
         fileSize: 0, // No actual file size
         status: 'manually_created', // Mark as manually created
         validContactsCount: existingContacts.length,
-        nonDncCount: existingContacts.filter(contact => contact.dnc !== true).length,
-        dncCount: existingContacts.filter(contact => contact.dnc === true).length,
+        nonDncCount: existingContacts.filter((contact) => contact.dnc !== true)
+          .length,
+        dncCount: existingContacts.filter((contact) => contact.dnc === true)
+          .length,
       })
 
       const savedGroup = await groupSpreadsheet.save()
 
       // Create memberships for all contacts in the group
-      const memberships = existingContacts.map(contact => ({
+      const memberships = existingContacts.map((contact) => ({
         userId: new Types.ObjectId(userId),
         contactId: contact._id,
         groupId: savedGroup._id,
@@ -1283,8 +1412,10 @@ export class ContactsService {
       // Return the group as a spreadsheet response
       const stats = {
         validContactsCount: existingContacts.length,
-        nonDncCount: existingContacts.filter(contact => contact.dnc !== true).length,
-        dncCount: existingContacts.filter(contact => contact.dnc === true).length,
+        nonDncCount: existingContacts.filter((contact) => contact.dnc !== true)
+          .length,
+        dncCount: existingContacts.filter((contact) => contact.dnc === true)
+          .length,
       }
       return this.mapToResponseDto(savedGroup, stats)
     } catch (error) {
@@ -1295,22 +1426,29 @@ export class ContactsService {
     }
   }
 
-  private async generateUniqueFileName(userId: string, originalFileName: string): Promise<string> {
+  private async generateUniqueFileName(
+    userId: string,
+    originalFileName: string,
+  ): Promise<string> {
     // Extract filename without extension and extension
     const lastDotIndex = originalFileName.lastIndexOf('.')
-    const nameWithoutExt = lastDotIndex > 0 ? originalFileName.substring(0, lastDotIndex) : originalFileName
-    const extension = lastDotIndex > 0 ? originalFileName.substring(lastDotIndex) : ''
+    const nameWithoutExt =
+      lastDotIndex > 0
+        ? originalFileName.substring(0, lastDotIndex)
+        : originalFileName
+    const extension =
+      lastDotIndex > 0 ? originalFileName.substring(lastDotIndex) : ''
 
     // Check if the original filename already exists
     const existingFiles = await this.contactSpreadsheetModel
       .find({
         userId: new Types.ObjectId(userId),
-        isDeleted: { $ne: true }
+        isDeleted: { $ne: true },
       })
       .select('originalFileName')
       .exec()
 
-    const existingFileNames = existingFiles.map(file => file.originalFileName)
+    const existingFileNames = existingFiles.map((file) => file.originalFileName)
 
     // If the original filename doesn't exist, return it as is
     if (!existingFileNames.includes(originalFileName)) {
@@ -1319,9 +1457,11 @@ export class ContactsService {
 
     // Find the highest number in existing files with the same base name
     let highestNumber = 0
-    const regex = new RegExp(`^${nameWithoutExt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: \\((\\d+)\\))?${extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
+    const regex = new RegExp(
+      `^${nameWithoutExt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: \\((\\d+)\\))?${extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+    )
 
-    existingFileNames.forEach(fileName => {
+    existingFileNames.forEach((fileName) => {
       const match = fileName.match(regex)
       if (match) {
         const number = match[1] ? parseInt(match[1], 10) : 0

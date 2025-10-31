@@ -26,7 +26,14 @@ export class MailService {
     }
   }
 
-  async sendEmailFromTemplate({ to, cc, subject, template, context, from }: ISendMailOptions) {
+  async sendEmailFromTemplate({
+    to,
+    cc,
+    subject,
+    template,
+    context,
+    from,
+  }: ISendMailOptions) {
     const sendMailOptions: ISendMailOptions = {
       to,
       cc,

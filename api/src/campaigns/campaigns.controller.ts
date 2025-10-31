@@ -154,7 +154,10 @@ export class CampaignsController {
     @Request() req,
     @Body() processPreviewDto: ProcessTemplatePreviewDto,
   ): Promise<ProcessedTemplateResponseDto> {
-    return this.campaignsService.processTemplatePreview(req.user, processPreviewDto)
+    return this.campaignsService.processTemplatePreview(
+      req.user,
+      processPreviewDto,
+    )
   }
 
   // Campaign Management
@@ -169,14 +172,14 @@ export class CampaignsController {
 
   @Get()
   @ApiOperation({ summary: 'Get all campaigns for the user' })
-  async getCampaigns(
-    @Request() req,
-  ): Promise<CampaignResponseDto[]> {
+  async getCampaigns(@Request() req): Promise<CampaignResponseDto[]> {
     return this.campaignsService.getCampaigns(req.user)
   }
 
   @Get('sidebar')
-  @ApiOperation({ summary: 'Get campaigns for sidebar (campaigns with sent messages)' })
+  @ApiOperation({
+    summary: 'Get campaigns for sidebar (campaigns with sent messages)',
+  })
   async getSidebarCampaigns(
     @Request() req,
     @Query('page') page: string = '1',
@@ -184,7 +187,11 @@ export class CampaignsController {
   ): Promise<SidebarCampaignsResponseDto> {
     const pageNum = parseInt(page, 10) || 1
     const limitNum = parseInt(limit, 10) || 10
-    return this.campaignsService.getSidebarCampaigns(req.user, pageNum, limitNum)
+    return this.campaignsService.getSidebarCampaigns(
+      req.user,
+      pageNum,
+      limitNum,
+    )
   }
 
   @Get(':id')
@@ -197,13 +204,19 @@ export class CampaignsController {
   }
 
   @Put(':id/status')
-  @ApiOperation({ summary: 'Update campaign status (start, pause, resume, cancel)' })
+  @ApiOperation({
+    summary: 'Update campaign status (start, pause, resume, cancel)',
+  })
   async updateCampaignStatus(
     @Request() req,
     @Param('id') campaignId: string,
     @Body() updateStatusDto: UpdateCampaignStatusDto,
   ): Promise<CampaignResponseDto> {
-    return this.campaignsService.updateCampaignStatus(req.user, campaignId, updateStatusDto)
+    return this.campaignsService.updateCampaignStatus(
+      req.user,
+      campaignId,
+      updateStatusDto,
+    )
   }
 
   @Delete(':id')
@@ -218,9 +231,7 @@ export class CampaignsController {
 
   @Get('deleted/list')
   @ApiOperation({ summary: 'Get all deleted campaigns for the user' })
-  async getDeletedCampaigns(
-    @Request() req,
-  ): Promise<CampaignResponseDto[]> {
+  async getDeletedCampaigns(@Request() req): Promise<CampaignResponseDto[]> {
     return this.campaignsService.getDeletedCampaigns(req.user)
   }
 

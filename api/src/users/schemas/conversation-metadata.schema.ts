@@ -38,7 +38,11 @@ export class ConversationMetadata {
   preferredDeviceId?: string
 }
 
-export const ConversationMetadataSchema = SchemaFactory.createForClass(ConversationMetadata)
+export const ConversationMetadataSchema =
+  SchemaFactory.createForClass(ConversationMetadata)
 
 // Create compound index for efficient queries
-ConversationMetadataSchema.index({ user: 1, normalizedPhoneNumber: 1 }, { unique: true })
+ConversationMetadataSchema.index(
+  { user: 1, normalizedPhoneNumber: 1 },
+  { unique: true },
+)

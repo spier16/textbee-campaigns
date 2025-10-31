@@ -17,7 +17,12 @@ export class ConversationReadStatus {
   lastSeenAt: Date
 }
 
-export const ConversationReadStatusSchema = SchemaFactory.createForClass(ConversationReadStatus)
+export const ConversationReadStatusSchema = SchemaFactory.createForClass(
+  ConversationReadStatus,
+)
 
 // Create compound index for efficient queries
-ConversationReadStatusSchema.index({ user: 1, normalizedPhoneNumber: 1 }, { unique: true })
+ConversationReadStatusSchema.index(
+  { user: 1, normalizedPhoneNumber: 1 },
+  { unique: true },
+)

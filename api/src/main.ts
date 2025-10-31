@@ -56,7 +56,7 @@ async function bootstrap() {
     '/api/v1/billing/webhook/polar',
     express.raw({ type: 'application/json' }),
   )
-  app.useBodyParser('json', { limit: '2mb' });
+  app.useBodyParser('json', { limit: '2mb' })
   app.enableCors()
   await app.listen(PORT)
 }

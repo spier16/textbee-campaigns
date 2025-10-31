@@ -3,8 +3,16 @@ import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
-import { Campaign, CampaignDocument, CampaignStatus } from '../schemas/campaign.schema'
-import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../schemas/campaign-message.schema'
+import {
+  Campaign,
+  CampaignDocument,
+  CampaignStatus,
+} from '../schemas/campaign.schema'
+import {
+  CampaignMessage,
+  CampaignMessageDocument,
+  MessageStatus,
+} from '../schemas/campaign-message.schema'
 
 @Injectable()
 export class CampaignQueueService {
@@ -13,7 +21,8 @@ export class CampaignQueueService {
   constructor(
     @InjectQueue('campaign-queue') private readonly campaignQueue: Queue,
     @InjectModel(Campaign.name) private campaignModel: Model<CampaignDocument>,
-    @InjectModel(CampaignMessage.name) private campaignMessageModel: Model<CampaignMessageDocument>,
+    @InjectModel(CampaignMessage.name)
+    private campaignMessageModel: Model<CampaignMessageDocument>,
   ) {}
 
   /**
@@ -39,7 +48,7 @@ export class CampaignQueueService {
         campaignId,
         userId,
       },
-      jobOptions
+      jobOptions,
     )
   }
 
@@ -47,7 +56,9 @@ export class CampaignQueueService {
    * Schedule message processing for a campaign
    */
   async scheduleMessageProcessing(campaignId: string, delay: number = 0) {
-    this.logger.debug(`Scheduling message processing for campaign ${campaignId}`)
+    this.logger.debug(
+      `Scheduling message processing for campaign ${campaignId}`,
+    )
 
     await this.campaignQueue.add(
       'schedule-messages',
@@ -59,7 +70,7 @@ export class CampaignQueueService {
         attempts: 2,
         removeOnComplete: 5,
         removeOnFail: 10,
-      }
+      },
     )
   }
 
@@ -71,24 +82,28 @@ export class CampaignQueueService {
   async pauseCampaign(campaignId: string) {
     // Update campaign status
     await this.campaignModel.findByIdAndUpdate(campaignId, {
-      status: CampaignStatus.PAUSED
+      status: CampaignStatus.PAUSED,
     })
 
     // Propagate status to all messages for efficient worker filtering
     // Workers will automatically stop claiming these messages
     const result = await this.campaignMessageModel.updateMany(
       { campaign: new Types.ObjectId(campaignId) },
-      { $set: { campaignStatus: CampaignStatus.PAUSED } }
+      { $set: { campaignStatus: CampaignStatus.PAUSED } },
     )
 
-    this.logger.log(`Campaign ${campaignId} paused and ${result.modifiedCount} messages updated with PAUSED status`)
+    this.logger.log(
+      `Campaign ${campaignId} paused and ${result.modifiedCount} messages updated with PAUSED status`,
+    )
 
     // Remove any legacy queue jobs (for backwards compatibility)
     const jobs = await this.campaignQueue.getJobs(['waiting', 'delayed'])
     for (const job of jobs) {
       if (job.data.campaignId === campaignId) {
         await job.remove()
-        this.logger.debug(`Removed legacy job ${job.id} for paused campaign ${campaignId}`)
+        this.logger.debug(
+          `Removed legacy job ${job.id} for paused campaign ${campaignId}`,
+        )
       }
     }
   }
@@ -104,17 +119,19 @@ export class CampaignQueueService {
     // Update campaign status
     await this.campaignModel.findByIdAndUpdate(campaignId, {
       status: CampaignStatus.RUNNING,
-      $unset: { completedAt: '' }
+      $unset: { completedAt: '' },
     })
 
     // Propagate status to all messages
     // Workers will automatically start claiming these messages
     const result = await this.campaignMessageModel.updateMany(
       { campaign: new Types.ObjectId(campaignId) },
-      { $set: { campaignStatus: CampaignStatus.RUNNING } }
+      { $set: { campaignStatus: CampaignStatus.RUNNING } },
     )
 
-    this.logger.log(`Campaign ${campaignId} resumed and ${result.modifiedCount} messages updated with RUNNING status`)
+    this.logger.log(
+      `Campaign ${campaignId} resumed and ${result.modifiedCount} messages updated with RUNNING status`,
+    )
 
     // No need to add to queue - device workers continuously monitor the unified queue
   }
@@ -123,12 +140,18 @@ export class CampaignQueueService {
    * Cancel a campaign and remove all its jobs
    */
   async cancelCampaign(campaignId: string) {
-    const jobs = await this.campaignQueue.getJobs(['waiting', 'delayed', 'active'])
+    const jobs = await this.campaignQueue.getJobs([
+      'waiting',
+      'delayed',
+      'active',
+    ])
 
     for (const job of jobs) {
       if (job.data.campaignId === campaignId) {
         await job.remove()
-        this.logger.debug(`Removed job ${job.id} for cancelled campaign ${campaignId}`)
+        this.logger.debug(
+          `Removed job ${job.id} for cancelled campaign ${campaignId}`,
+        )
       }
     }
   }
@@ -158,10 +181,16 @@ export class CampaignQueueService {
    * Schedule a campaign to start at a specific time
    * Replaces cron-based campaign start checking
    */
-  async scheduleCampaignStart(campaignId: string, userId: string, startTime: Date) {
+  async scheduleCampaignStart(
+    campaignId: string,
+    userId: string,
+    startTime: Date,
+  ) {
     const delay = Math.max(0, startTime.getTime() - Date.now())
 
-    this.logger.debug(`Scheduling campaign ${campaignId} to start at ${startTime} (delay: ${delay}ms)`)
+    this.logger.debug(
+      `Scheduling campaign ${campaignId} to start at ${startTime} (delay: ${delay}ms)`,
+    )
 
     await this.campaignQueue.add(
       'start-campaign',
@@ -178,7 +207,7 @@ export class CampaignQueueService {
         },
         removeOnComplete: 10,
         removeOnFail: 50,
-      }
+      },
     )
   }
 
@@ -187,7 +216,9 @@ export class CampaignQueueService {
    * This is useful for processing large campaigns in smaller batches
    */
   async scheduleMessageDispatch(campaignId: string, delay: number = 0) {
-    this.logger.debug(`Scheduling message dispatch for campaign ${campaignId} with delay ${delay}ms`)
+    this.logger.debug(
+      `Scheduling message dispatch for campaign ${campaignId} with delay ${delay}ms`,
+    )
 
     await this.campaignQueue.add(
       'dispatch-campaign-messages',
@@ -199,18 +230,23 @@ export class CampaignQueueService {
         attempts: 2,
         removeOnComplete: 5,
         removeOnFail: 10,
-      }
+      },
     )
   }
 
   /**
    * Check if a campaign should start now based on its schedule
    */
-  private shouldCampaignStartNow(campaign: CampaignDocument, now: Date): boolean {
+  private shouldCampaignStartNow(
+    campaign: CampaignDocument,
+    now: Date,
+  ): boolean {
     // Use sendingWindows for all schedule types
     if (campaign.sendingWindows && campaign.sendingWindows.length > 0) {
       const firstWindow = campaign.sendingWindows[0]
-      const windowStart = new Date(`${firstWindow.startDate}T${firstWindow.startTime}:00Z`)
+      const windowStart = new Date(
+        `${firstWindow.startDate}T${firstWindow.startTime}:00Z`,
+      )
       return now >= windowStart
     }
 
@@ -233,11 +269,16 @@ export class CampaignQueueService {
   /**
    * Check if current time is within valid sending windows
    */
-  private isInValidSendingWindow(campaign: CampaignDocument, now: Date): boolean {
+  private isInValidSendingWindow(
+    campaign: CampaignDocument,
+    now: Date,
+  ): boolean {
     // Use unified sendingWindows array for all schedule types
     if (campaign.sendingWindows && campaign.sendingWindows.length > 0) {
-      return campaign.sendingWindows.some(window => {
-        const windowStart = new Date(`${window.startDate}T${window.startTime}:00Z`)
+      return campaign.sendingWindows.some((window) => {
+        const windowStart = new Date(
+          `${window.startDate}T${window.startTime}:00Z`,
+        )
         const windowEnd = new Date(`${window.endDate}T${window.endTime}:59Z`)
         return now >= windowStart && now <= windowEnd
       })
@@ -245,6 +286,9 @@ export class CampaignQueueService {
 
     // Fallback: allow sending during campaign date range (for unmigrated campaigns)
     const campaignDate = now.toISOString().split('T')[0]
-    return campaignDate >= campaign.campaignStartDate && campaignDate <= campaign.campaignEndDate
+    return (
+      campaignDate >= campaign.campaignStartDate &&
+      campaignDate <= campaign.campaignEndDate
+    )
   }
 }

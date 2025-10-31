@@ -122,7 +122,6 @@ export class GatewayController {
     return { data }
   }
 
-
   @ApiOperation({ summary: 'Received SMS from a device' })
   @HttpCode(HttpStatus.OK)
   // deprecate receiveSMS route in favor of receive-sms
@@ -135,8 +134,18 @@ export class GatewayController {
 
   @ApiOperation({ summary: 'Get received SMS from a device' })
   @ApiResponse({ status: 200, type: RetrieveSMSResponseDTO })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Number of items per page (default: 50, max: 100)' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Number of items per page (default: 50, max: 100)',
+  })
   @UseGuards(AuthGuard, CanModifyDevice)
   // deprecate getReceivedSMS route in favor of get-received-sms
   @Get(['/devices/:id/getReceivedSMS', '/devices/:id/get-received-sms'])
@@ -145,18 +154,42 @@ export class GatewayController {
     @Request() req,
   ): Promise<RetrieveSMSResponseDTO> {
     // Extract page and limit from query params, with defaults and max values
-    const page = req.query.page ? parseInt(req.query.page, 10) : 1;
-    const limit = req.query.limit ? Math.min(parseInt(req.query.limit, 10), 100) : 50;
-    
-    const result = await this.gatewayService.getReceivedSMS(deviceId, page, limit)
-    return result;
+    const page = req.query.page ? parseInt(req.query.page, 10) : 1
+    const limit = req.query.limit
+      ? Math.min(parseInt(req.query.limit, 10), 100)
+      : 50
+
+    const result = await this.gatewayService.getReceivedSMS(
+      deviceId,
+      page,
+      limit,
+    )
+    return result
   }
 
-  @ApiOperation({ summary: 'Get message history (sent and received) from a device' })
+  @ApiOperation({
+    summary: 'Get message history (sent and received) from a device',
+  })
   @ApiResponse({ status: 200, type: RetrieveSMSResponseDTO })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Number of items per page (default: 50, max: 100)' })
-  @ApiQuery({ name: 'type', required: false, type: String, description: 'Filter by message type: all, sent, or received (default: all)' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Number of items per page (default: 50, max: 100)',
+  })
+  @ApiQuery({
+    name: 'type',
+    required: false,
+    type: String,
+    description:
+      'Filter by message type: all, sent, or received (default: all)',
+  })
   @UseGuards(AuthGuard, CanModifyDevice)
   @Get('/devices/:id/messages')
   async getMessages(
@@ -164,12 +197,19 @@ export class GatewayController {
     @Request() req,
   ): Promise<RetrieveSMSResponseDTO> {
     // Extract page and limit from query params, with defaults and max values
-    const page = req.query.page ? parseInt(req.query.page, 10) : 1;
-    const limit = req.query.limit ? Math.min(parseInt(req.query.limit, 10), 100) : 50;
-    const type = req.query.type || '';
-    
-    const result = await this.gatewayService.getMessages(deviceId, type, page, limit);
-    return result;
+    const page = req.query.page ? parseInt(req.query.page, 10) : 1
+    const limit = req.query.limit
+      ? Math.min(parseInt(req.query.limit, 10), 100)
+      : 50
+    const type = req.query.type || ''
+
+    const result = await this.gatewayService.getMessages(
+      deviceId,
+      type,
+      page,
+      limit,
+    )
+    return result
   }
 
   @ApiOperation({ summary: 'Update SMS status' })
@@ -180,8 +220,8 @@ export class GatewayController {
     @Param('id') deviceId: string,
     @Body() dto: UpdateSMSStatusDTO,
   ) {
-    const data = await this.gatewayService.updateSMSStatus(deviceId, dto);
-    return { data };
+    const data = await this.gatewayService.updateSMSStatus(deviceId, dto)
+    return { data }
   }
 
   @ApiOperation({ summary: 'Get a single SMS by ID' })
@@ -191,8 +231,8 @@ export class GatewayController {
     @Param('id') deviceId: string,
     @Param('smsId') smsId: string,
   ) {
-    const data = await this.gatewayService.getSMSById(smsId);
-    return { data };
+    const data = await this.gatewayService.getSMSById(smsId)
+    return { data }
   }
 
   @ApiOperation({ summary: 'Get an SMS batch by ID with all its SMS messages' })
@@ -202,8 +242,8 @@ export class GatewayController {
     @Param('id') deviceId: string,
     @Param('smsBatchId') smsBatchId: string,
   ) {
-    const data = await this.gatewayService.getSmsBatchById(smsBatchId);
-    return { data };
+    const data = await this.gatewayService.getSmsBatchById(smsBatchId)
+    return { data }
   }
 
   // Usage Plan Management Endpoints
@@ -211,25 +251,31 @@ export class GatewayController {
   @ApiOperation({ summary: 'Create a new usage plan' })
   @UseGuards(AuthGuard)
   @Post('/usage-plans')
-  async createUsagePlan(@Body() createUsagePlanDto: CreateUsagePlanDTO, @Request() req) {
-    const data = await this.usagePlanService.createUsagePlan(createUsagePlanDto, req.user);
-    return { data };
+  async createUsagePlan(
+    @Body() createUsagePlanDto: CreateUsagePlanDTO,
+    @Request() req,
+  ) {
+    const data = await this.usagePlanService.createUsagePlan(
+      createUsagePlanDto,
+      req.user,
+    )
+    return { data }
   }
 
   @ApiOperation({ summary: 'Get all usage plans for the user' })
   @UseGuards(AuthGuard)
   @Get('/usage-plans')
   async getUserUsagePlans(@Request() req) {
-    const data = await this.usagePlanService.getUserUsagePlans(req.user);
-    return { data };
+    const data = await this.usagePlanService.getUserUsagePlans(req.user)
+    return { data }
   }
 
   @ApiOperation({ summary: 'Get a specific usage plan' })
   @UseGuards(AuthGuard)
   @Get('/usage-plans/:id')
   async getUserUsagePlan(@Param('id') planId: string, @Request() req) {
-    const data = await this.usagePlanService.getUserUsagePlan(req.user, planId);
-    return { data };
+    const data = await this.usagePlanService.getUserUsagePlan(req.user, planId)
+    return { data }
   }
 
   @ApiOperation({ summary: 'Update a usage plan' })
@@ -238,18 +284,22 @@ export class GatewayController {
   async updateUsagePlan(
     @Param('id') planId: string,
     @Body() updateUsagePlanDto: UpdateUsagePlanDTO,
-    @Request() req
+    @Request() req,
   ) {
-    const data = await this.usagePlanService.updateUsagePlan(req.user, planId, updateUsagePlanDto);
-    return { data };
+    const data = await this.usagePlanService.updateUsagePlan(
+      req.user,
+      planId,
+      updateUsagePlanDto,
+    )
+    return { data }
   }
 
   @ApiOperation({ summary: 'Delete a usage plan' })
   @UseGuards(AuthGuard)
   @Delete('/usage-plans/:id')
   async deleteUsagePlan(@Param('id') planId: string, @Request() req) {
-    await this.usagePlanService.deleteUsagePlan(req.user, planId);
-    return { success: true };
+    await this.usagePlanService.deleteUsagePlan(req.user, planId)
+    return { success: true }
   }
 
   @ApiOperation({ summary: 'Assign usage plan to device' })
@@ -258,19 +308,23 @@ export class GatewayController {
   async assignUsagePlanToDevice(
     @Param('id') deviceId: string,
     @Body() assignUsagePlanDto: AssignUsagePlanDTO,
-    @Request() req
+    @Request() req,
   ) {
-    const data = await this.usagePlanService.assignUsagePlanToDevice(req.user, deviceId, assignUsagePlanDto);
-    return { data };
+    const data = await this.usagePlanService.assignUsagePlanToDevice(
+      req.user,
+      deviceId,
+      assignUsagePlanDto,
+    )
+    return { data }
   }
 
   @ApiOperation({ summary: 'Get device usage statistics (rolling window)' })
   @UseGuards(AuthGuard, CanModifyDevice)
   @Get('/devices/:id/usage-stats')
   async getDeviceUsageStats(@Param('id') deviceId: string, @Request() req) {
-    const device = await this.gatewayService.getDeviceById(deviceId);
-    const stats = await this.deviceUsageCalculator.getDeviceUsageStats(device);
-    return { data: stats };
+    const device = await this.gatewayService.getDeviceById(deviceId)
+    const stats = await this.deviceUsageCalculator.getDeviceUsageStats(device)
+    return { data: stats }
   }
 
   @ApiOperation({ summary: 'Get recommended tier for device on a plan' })
@@ -280,19 +334,27 @@ export class GatewayController {
     @Param('id') deviceId: string,
     @Param('planId') planId: string,
   ) {
-    const data = await this.planSwitchingService.getRecommendedTier(deviceId, planId);
-    return { data };
+    const data = await this.planSwitchingService.getRecommendedTier(
+      deviceId,
+      planId,
+    )
+    return { data }
   }
 
-  @ApiOperation({ summary: 'Switch device to new plan with auto-tier placement' })
+  @ApiOperation({
+    summary: 'Switch device to new plan with auto-tier placement',
+  })
   @UseGuards(AuthGuard, CanModifyDevice)
   @Post('/devices/:id/switch-plan')
   async switchDevicePlan(
     @Param('id') deviceId: string,
     @Body() body: { newPlanId: string },
   ) {
-    const data = await this.planSwitchingService.switchDevicePlan(deviceId, body.newPlanId);
-    return { data };
+    const data = await this.planSwitchingService.switchDevicePlan(
+      deviceId,
+      body.newPlanId,
+    )
+    return { data }
   }
 
   @ApiOperation({ summary: 'Batch switch multiple devices to a new plan' })
@@ -303,17 +365,21 @@ export class GatewayController {
   ) {
     const data = await this.planSwitchingService.batchSwitchDevices(
       body.deviceIds,
-      body.newPlanId
-    );
-    return { data };
+      body.newPlanId,
+    )
+    return { data }
   }
 
-  @ApiOperation({ summary: 'Advance device to highest eligible tier based on historical limits' })
+  @ApiOperation({
+    summary:
+      'Advance device to highest eligible tier based on historical limits',
+  })
   @UseGuards(AuthGuard, CanModifyDevice)
   @Post('/devices/:id/advance-tier')
   async advanceDeviceToHighestTier(@Param('id') deviceId: string) {
-    const data = await this.planSwitchingService.advanceDeviceToHighestTier(deviceId);
-    return { data };
+    const data =
+      await this.planSwitchingService.advanceDeviceToHighestTier(deviceId)
+    return { data }
   }
 
   @ApiOperation({ summary: 'Reset device historical performance data' })
@@ -321,7 +387,7 @@ export class GatewayController {
   @Post('/devices/:id/reset-history')
   @HttpCode(HttpStatus.NO_CONTENT)
   async resetDeviceHistory(@Param('id') deviceId: string) {
-    await this.planSwitchingService.resetDeviceHistory(deviceId);
-    return { message: 'Device history reset successfully' };
+    await this.planSwitchingService.resetDeviceHistory(deviceId)
+    return { message: 'Device history reset successfully' }
   }
 }
