@@ -6,6 +6,7 @@ public class SMSDTO {
     private String sender;
     private String message = "";
     private long receivedAtInMillis;
+    private int deviceTimezoneOffsetMinutes;
 
     private String smsId;
     private String smsBatchId;
@@ -115,5 +116,13 @@ public class SMSDTO {
 
     public void setSenderPhoneNumber(String senderPhoneNumber) {
         this.senderPhoneNumber = senderPhoneNumber;
+    }
+
+    public int getDeviceTimezoneOffsetMinutes() {
+        return deviceTimezoneOffsetMinutes;
+    }
+
+    public void setDeviceTimezoneOffsetMinutes(int deviceTimezoneOffsetMinutes) {
+        this.deviceTimezoneOffsetMinutes = deviceTimezoneOffsetMinutes;
     }
 }

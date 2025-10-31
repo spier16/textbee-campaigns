@@ -689,9 +689,14 @@ export class GatewayService {
       1,
     )
 
-    const receivedAt = dto.receivedAtInMillis
-      ? new Date(dto.receivedAtInMillis)
-      : dto.receivedAt
+    // Android now sends System.currentTimeMillis() which is already in UTC
+    // No timezone conversion needed - the timestamp is already correct
+    let receivedAt: Date
+    if (dto.receivedAtInMillis) {
+      receivedAt = new Date(dto.receivedAtInMillis)
+    } else {
+      receivedAt = dto.receivedAt
+    }
 
     const sms = await this.smsModel.create({
       device: device._id,

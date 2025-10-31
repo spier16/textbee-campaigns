@@ -13,6 +13,7 @@ import com.vernu.sms.helpers.SharedPreferenceHelper;
 import com.vernu.sms.workers.SMSReceivedWorker;
 
 import java.util.Objects;
+import java.util.TimeZone;
 
 
 public class SMSBroadcastReceiver extends BroadcastReceiver {
@@ -55,10 +56,19 @@ public class SMSBroadcastReceiver extends BroadcastReceiver {
 
         SMSDTO receivedSMSDTO = new SMSDTO();
 
+        // Use device's current time in UTC (System.currentTimeMillis() returns UTC)
+        // This is more reliable than SMSC timestamps which vary by carrier
+        long receivedAtMillis = System.currentTimeMillis();
+
+        // Get device timezone offset in minutes (kept for backward compatibility)
+        TimeZone tz = TimeZone.getDefault();
+        int offsetMinutes = tz.getOffset(System.currentTimeMillis()) / (1000 * 60);
+
         for (SmsMessage message : messages) {
             receivedSMSDTO.setMessage(receivedSMSDTO.getMessage() + message.getMessageBody());
             receivedSMSDTO.setSender(message.getOriginatingAddress());
-            receivedSMSDTO.setReceivedAtInMillis(message.getTimestampMillis());
+            receivedSMSDTO.setReceivedAtInMillis(receivedAtMillis);
+            receivedSMSDTO.setDeviceTimezoneOffsetMinutes(offsetMinutes);
         }
 //        receivedSMSDTO.setSender(receivedSMS.getSender());
 //        receivedSMSDTO.setMessage(receivedSMS.getMessage());

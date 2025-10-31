@@ -128,6 +128,13 @@ export class ReceivedSMSDTO {
     description: 'The time the message was created',
   })
   receivedAtInMillis?: number
+
+  @ApiProperty({
+    type: Number,
+    required: false,
+    description: 'Device timezone offset in minutes from UTC',
+  })
+  deviceTimezoneOffsetMinutes?: number
 }
 
 export class DeviceDTO {

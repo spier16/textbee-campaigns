@@ -2138,8 +2138,10 @@ function NewMessageSidebar({
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
   const [hasSelectedRecipient, setHasSelectedRecipient] = useState(false)
   const [selectedContactChip, setSelectedContactChip] = useState<any>(null)
+  const [highlightedIndex, setHighlightedIndex] = useState(0)
   const { toast } = useToast()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const contactRefs = useRef<(HTMLDivElement | null)[]>([])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -2190,6 +2192,21 @@ function NewMessageSidebar({
     setFilteredContacts(filtered)
     setShowSuggestions(true)
   }, [searchInput, contacts])
+
+  // Reset highlighted index when filtered contacts change
+  useEffect(() => {
+    setHighlightedIndex(0)
+  }, [filteredContacts])
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (contactRefs.current[highlightedIndex]) {
+      contactRefs.current[highlightedIndex]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      })
+    }
+  }, [highlightedIndex])
 
   // Handle contact selection
   const handleContactSelect = (contact: any) => {
@@ -2252,15 +2269,34 @@ function NewMessageSidebar({
     }
   }
 
-  // Handle key presses for Tab selection, Enter confirmation, and backspace
+  // Handle key presses for keyboard navigation and selection
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Tab' && filteredContacts.length > 0) {
-      e.preventDefault()
-      handleContactSelect(filteredContacts[0])
+    if (filteredContacts.length > 0) {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        handleContactSelect(filteredContacts[highlightedIndex])
+      } else if (e.key === 'Tab') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          // Navigate up with Shift+Tab
+          setHighlightedIndex(prev => prev > 0 ? prev - 1 : filteredContacts.length - 1)
+        } else {
+          // Navigate down with Tab
+          setHighlightedIndex(prev => prev < filteredContacts.length - 1 ? prev + 1 : 0)
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setHighlightedIndex(prev => prev < filteredContacts.length - 1 ? prev + 1 : 0)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setHighlightedIndex(prev => prev > 0 ? prev - 1 : filteredContacts.length - 1)
+      }
     } else if (e.key === 'Enter') {
       e.preventDefault()
       confirmPhoneNumberInput()
-    } else if (e.key === 'Backspace' && searchInput === '' && selectedContactChip) {
+    }
+
+    if (e.key === 'Backspace' && searchInput === '' && selectedContactChip) {
       // Delete the selected contact chip
       setSelectedContactChip(null)
       setSelectedContact(null)
@@ -2403,9 +2439,9 @@ function NewMessageSidebar({
           <label className="text-sm font-medium mb-2 block">To:</label>
 
           {/* Selected Contact Chip or Input */}
-          <div className="flex flex-wrap gap-2 min-h-[40px] items-center border border-gray-200 rounded-md p-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+          <div className="flex flex-wrap gap-2 min-h-[40px] items-center border border-gray-200 dark:border-gray-700 rounded-md p-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
             {selectedContactChip && (
-              <div className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm border border-blue-200">
+              <div className="inline-flex items-center gap-1 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full text-sm border border-blue-200 dark:border-blue-700">
                 <span>
                   {selectedContactChip.firstName || selectedContactChip.lastName
                     ? `${selectedContactChip.firstName || ''} ${selectedContactChip.lastName || ''}`.trim()
@@ -2422,7 +2458,7 @@ function NewMessageSidebar({
             )}
 
             {phoneNumber && !selectedContactChip && (
-              <div className="inline-flex items-center gap-1 bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-sm border border-gray-200">
+              <div className="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-2 py-1 rounded-full text-sm border border-gray-200 dark:border-gray-600">
                 <span>{phoneNumber}</span>
                 <button
                   onClick={clearSelection}
@@ -2448,13 +2484,14 @@ function NewMessageSidebar({
 
           {/* Contact Suggestions */}
           {showSuggestions && filteredContacts.length > 0 && !selectedContactChip && (
-            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+            <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg max-h-48 overflow-y-auto">
               {filteredContacts.map((contact, index) => (
                 <div
                   key={contact.id}
+                  ref={(el) => (contactRefs.current[index] = el)}
                   className={cn(
-                    "p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0",
-                    index === 0 && "bg-blue-50"
+                    "p-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer border-b last:border-b-0",
+                    index === highlightedIndex && "bg-blue-50 dark:bg-blue-900/20"
                   )}
                   onClick={() => handleContactSelect(contact)}
                 >
@@ -2464,9 +2501,9 @@ function NewMessageSidebar({
                       : contact.phone
                     }
                   </div>
-                  <div className="text-sm text-gray-500">{contact.phone}</div>
-                  {index === 0 && (
-                    <div className="text-xs text-blue-600 mt-1">Press Tab to select</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">{contact.phone}</div>
+                  {index === highlightedIndex && (
+                    <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">Press Enter to select</div>
                   )}
                 </div>
               ))}

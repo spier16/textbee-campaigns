@@ -411,6 +411,7 @@ function StatusDetailsDialog({ message, showSeconds }: { message: any; showSecon
       day: 'numeric',
       month: 'short',
       year: 'numeric',
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
   };
   
@@ -546,6 +547,7 @@ function MessageCard({ message, type, device, showSeconds }) {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   })
 
   const shouldShowStatus = device?.appVersionCode >= 14 &&  new Date(message?.createdAt) > new Date('2025-06-05')
