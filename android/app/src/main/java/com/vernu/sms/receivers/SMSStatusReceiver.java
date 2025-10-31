@@ -10,6 +10,7 @@ import android.util.Log;
 import com.vernu.sms.AppConstants;
 import com.vernu.sms.TextBeeUtils;
 import com.vernu.sms.dtos.SMSDTO;
+import com.vernu.sms.helpers.PhoneNumberTracker;
 import com.vernu.sms.helpers.SharedPreferenceHelper;
 import com.vernu.sms.workers.SMSStatusUpdateWorker;
 
@@ -32,13 +33,33 @@ public class SMSStatusReceiver extends BroadcastReceiver {
         smsDTO.setSmsBatchId(smsBatchId);
 
         // Get phone number for the subscription ID if available
+        String phoneNumber = null;
         if (subscriptionId != -1) {
-            String phoneNumber = TextBeeUtils.getPhoneNumberForSubscription(context, subscriptionId);
+            phoneNumber = TextBeeUtils.getPhoneNumberForSubscription(context, subscriptionId);
             if (phoneNumber != null && !phoneNumber.isEmpty()) {
                 smsDTO.setSenderPhoneNumber(phoneNumber);
                 Log.d(TAG, "Setting sender phone number: " + phoneNumber + " for subscription ID: " + subscriptionId);
             }
+        } else {
+            // Fallback: Try to get phone number from default/primary SIM
+            Log.d(TAG, "No subscription ID provided, attempting to get phone number from default SIM");
+            String[] phoneNumbers = TextBeeUtils.getPhoneNumbers(context);
+            // Use the first available phone number
+            if (phoneNumbers[0] != null && !phoneNumbers[0].isEmpty()) {
+                phoneNumber = phoneNumbers[0];
+                smsDTO.setSenderPhoneNumber(phoneNumber);
+                Log.d(TAG, "Using phone number from SIM slot 0: " + phoneNumber);
+            } else if (phoneNumbers[1] != null && !phoneNumbers[1].isEmpty()) {
+                phoneNumber = phoneNumbers[1];
+                smsDTO.setSenderPhoneNumber(phoneNumber);
+                Log.d(TAG, "Using phone number from SIM slot 1: " + phoneNumber);
+            } else {
+                Log.w(TAG, "Could not determine phone number for sent SMS");
+            }
         }
+
+        // Sync phone numbers with backend if they have changed
+        PhoneNumberTracker.syncPhoneNumbersWithBackend(context);
 
         if (SMS_SENT.equals(action)) {
             handleSentStatus(context, getResultCode(), smsDTO);

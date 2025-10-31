@@ -104,14 +104,20 @@ export interface MessageWithDate {
   date: Date
   isIncoming: boolean
   status?: MessageStatus
+  deviceId?: string
+  senderPhoneNumber?: string
   [key: string]: any
 }
 
 export interface MessageGroup {
-  type: 'date' | 'message'
+  type: 'date' | 'message' | 'metadata-change'
   date?: Date
   dateLabel?: string
   message?: MessageWithDate
+  changeInfo?: {
+    deviceId: string
+    phoneNumber: string
+  }
 }
 
 export function groupMessagesWithDateSeparators(messages: MessageWithDate[]): MessageGroup[] {
@@ -138,6 +144,71 @@ export function groupMessagesWithDateSeparators(messages: MessageWithDate[]): Me
       type: 'message',
       message
     })
+  }
+
+  return groups
+}
+
+export function groupMessagesWithMetadataChanges(messages: MessageWithDate[]): MessageGroup[] {
+  if (!messages || messages.length === 0) return []
+
+  // Normalize empty values to null for consistent comparison
+  // Also handle the string "undefined" which sometimes comes from the backend
+  const normalizeValue = (val: string | undefined) => {
+    if (!val || val.trim() === '' || val === 'undefined') {
+      return null
+    }
+    return val
+  }
+
+  const groups: MessageGroup[] = []
+  let lastDate: Date | null = null
+  let lastDeviceId: string | null = null
+  let lastPhoneNumber: string | null = null
+
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]
+    const messageDate = message.date
+
+    // Add date separator if this is the first message or if the date has changed
+    if (!lastDate || !isSameDay(lastDate, messageDate)) {
+      groups.push({
+        type: 'date',
+        date: messageDate,
+        dateLabel: formatDateSeparator(messageDate)
+      })
+      lastDate = messageDate
+    }
+
+    // Normalize current message values
+    const currentDeviceId = normalizeValue(message.deviceId)
+    const currentPhoneNumber = normalizeValue(message.senderPhoneNumber)
+
+    // Check if device ID or phone number changed from previous message
+    // Skip only the very first message (i === 0)
+    const isFirstMessage = i === 0
+    const deviceChanged = !isFirstMessage && lastDeviceId !== currentDeviceId
+    const phoneChanged = !isFirstMessage && lastPhoneNumber !== currentPhoneNumber
+
+    if ((deviceChanged || phoneChanged) && (currentDeviceId || currentPhoneNumber)) {
+      groups.push({
+        type: 'metadata-change',
+        changeInfo: {
+          deviceId: currentDeviceId || '',
+          phoneNumber: currentPhoneNumber || ''
+        }
+      })
+    }
+
+    // Add the message
+    groups.push({
+      type: 'message',
+      message
+    })
+
+    // Update tracking variables with normalized values
+    lastDeviceId = currentDeviceId
+    lastPhoneNumber = currentPhoneNumber
   }
 
   return groups

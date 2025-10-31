@@ -705,6 +705,7 @@ export class GatewayService {
       status: 'received',
       sender: dto.sender,
       receivedAt,
+      senderPhoneNumber: dto.senderPhoneNumber,
     })
 
     this.deviceModel
@@ -772,7 +773,7 @@ export class GatewayService {
       )
       .populate({
         path: 'device',
-        select: '_id brand model buildId enabled',
+        select: '_id brand model buildId enabled appVersionCode',
       })
       .lean() // Use lean() to return plain JavaScript objects instead of Mongoose documents
 
@@ -833,7 +834,7 @@ export class GatewayService {
       })
       .populate({
         path: 'device',
-        select: '_id brand model buildId enabled',
+        select: '_id brand model buildId enabled appVersionCode',
       })
       .lean() // Use lean() to return plain JavaScript objects instead of Mongoose documents
 

@@ -913,7 +913,7 @@ export default function MessageHistory() {
             key={message._id}
             message={message}
             type={message.sender ? 'received' : 'sent'}
-            device={devices?.data?.find((device) => device._id === currentDevice)}
+            device={message.device}
             showSeconds={showSeconds}
           />
         ))}

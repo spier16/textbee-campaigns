@@ -4,6 +4,7 @@ import android.content.Context;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Telephony;
@@ -11,7 +12,9 @@ import android.util.Log;
 import android.widget.Toast;
 
 import com.vernu.sms.AppConstants;
+import com.vernu.sms.TextBeeUtils;
 import com.vernu.sms.dtos.SMSDTO;
+import com.vernu.sms.helpers.PhoneNumberTracker;
 import com.vernu.sms.helpers.SharedPreferenceHelper;
 import com.vernu.sms.helpers.SmsDebugHelper;
 import com.vernu.sms.workers.SMSReceivedWorker;
@@ -63,7 +66,8 @@ public class SmsObserver extends ContentObserver {
             Telephony.Sms.BODY,
             Telephony.Sms.DATE,
             Telephony.Sms.TYPE,
-            Telephony.Sms.PROTOCOL
+            Telephony.Sms.PROTOCOL,
+            Telephony.Sms.SUBSCRIPTION_ID  // Add subscription ID to determine which SIM received the message
         };
 
         Cursor cursor = context.getContentResolver().query(
@@ -84,7 +88,20 @@ public class SmsObserver extends ContentObserver {
                     int type = cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.TYPE));
                     String protocol = cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.PROTOCOL));
 
-                    Log.d(TAG, "Message found - ID: " + messageId + ", From: " + sender + ", Type: " + type + ", Protocol: " + protocol + ", Body: " + (body != null ? body.substring(0, Math.min(50, body.length())) : "null"));
+                    // Get subscription ID if available
+                    int subscriptionId = -1;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                        try {
+                            int subIdIndex = cursor.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID);
+                            if (subIdIndex != -1) {
+                                subscriptionId = cursor.getInt(subIdIndex);
+                            }
+                        } catch (Exception e) {
+                            Log.w(TAG, "Could not get subscription ID from SMS database: " + e.getMessage());
+                        }
+                    }
+
+                    Log.d(TAG, "Message found - ID: " + messageId + ", From: " + sender + ", Type: " + type + ", Protocol: " + protocol + ", SubID: " + subscriptionId + ", Body: " + (body != null ? body.substring(0, Math.min(50, body.length())) : "null"));
 
                     // Only process new messages that we haven't seen before
                     if (!messageId.equals(lastMessageId) && type == Telephony.Sms.MESSAGE_TYPE_INBOX) {
@@ -100,6 +117,34 @@ public class SmsObserver extends ContentObserver {
                             receivedSMSDTO.setMessage(body);
                             receivedSMSDTO.setSender(sender);
                             receivedSMSDTO.setReceivedAtInMillis(timestamp);
+
+                            // Set the phone number of the SIM that received the message
+                            String phoneNumber = null;
+                            if (subscriptionId != -1) {
+                                phoneNumber = TextBeeUtils.getPhoneNumberForSubscription(context, subscriptionId);
+                                if (phoneNumber != null && !phoneNumber.isEmpty()) {
+                                    receivedSMSDTO.setSenderPhoneNumber(phoneNumber);
+                                    Log.d(TAG, "Setting receiver phone number: " + phoneNumber + " for subscription ID: " + subscriptionId);
+                                }
+                            }
+
+                            // Fallback: If we couldn't get phone number from subscription ID, try default SIMs
+                            if (phoneNumber == null || phoneNumber.isEmpty()) {
+                                Log.d(TAG, "Could not determine phone number from subscription ID, trying default SIM");
+                                String[] phoneNumbers = TextBeeUtils.getPhoneNumbers(context);
+                                if (phoneNumbers[0] != null && !phoneNumbers[0].isEmpty()) {
+                                    receivedSMSDTO.setSenderPhoneNumber(phoneNumbers[0]);
+                                    Log.d(TAG, "Using phone number from SIM slot 0: " + phoneNumbers[0]);
+                                } else if (phoneNumbers[1] != null && !phoneNumbers[1].isEmpty()) {
+                                    receivedSMSDTO.setSenderPhoneNumber(phoneNumbers[1]);
+                                    Log.d(TAG, "Using phone number from SIM slot 1: " + phoneNumbers[1]);
+                                } else {
+                                    Log.w(TAG, "Could not determine phone number for received RCS message");
+                                }
+                            }
+
+                            // Sync phone numbers with backend if they have changed
+                            PhoneNumberTracker.syncPhoneNumbersWithBackend(context);
 
                             Toast.makeText(context, "RCS message received from " + sender + " - forwarding to server", Toast.LENGTH_LONG).show();
                             SMSReceivedWorker.enqueueWork(context, deviceId, apiKey, receivedSMSDTO);

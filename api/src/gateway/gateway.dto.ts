@@ -135,6 +135,14 @@ export class ReceivedSMSDTO {
     description: 'Device timezone offset in minutes from UTC',
   })
   deviceTimezoneOffsetMinutes?: number
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    description:
+      'The phone number of the device that received the SMS (useful for dual-SIM)',
+  })
+  senderPhoneNumber?: string
 }
 
 export class DeviceDTO {

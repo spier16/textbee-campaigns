@@ -3,10 +3,12 @@ package com.vernu.sms.activities;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Build;
 import android.os.Bundle;
 import android.telephony.SubscriptionInfo;
@@ -60,6 +62,22 @@ public class MainActivity extends AppCompatActivity {
     private static final int PERMISSION_REQUEST_CODE = 0;
     private String deviceId = null;
     private static final String TAG = "MainActivity";
+
+    // Track last displayed phone numbers to detect changes
+    private String lastDisplayedPhoneNumber1 = null;
+    private String lastDisplayedPhoneNumber2 = null;
+
+    // Broadcast receiver for phone number changes
+    private BroadcastReceiver phoneNumberChangeReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Log.d(TAG, "Received phone number change broadcast");
+            // Run on UI thread to update UI elements
+            runOnUiThread(() -> {
+                checkAndHandlePhoneNumberChange();
+            });
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -260,6 +278,44 @@ public class MainActivity extends AppCompatActivity {
             Intent browserIntent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(downloadUrl));
             startActivity(browserIntent);
         });
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        // Register broadcast receiver for phone number changes
+        IntentFilter filter = new IntentFilter("com.vernu.sms.PHONE_NUMBER_CHANGED");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(phoneNumberChangeReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(phoneNumberChangeReceiver, filter);
+        }
+        Log.d(TAG, "Phone number change receiver registered");
+
+        // Check if permissions are granted before checking phone number changes
+        String[] missingPermissions = Arrays.stream(AppConstants.requiredPermissions)
+                .filter(permission -> !TextBeeUtils.isPermissionGranted(mContext, permission))
+                .toArray(String[]::new);
+
+        if (missingPermissions.length == 0) {
+            // Only check for phone number changes if we have permissions
+            checkAndHandlePhoneNumberChange();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+
+        // Unregister broadcast receiver to prevent memory leaks
+        try {
+            unregisterReceiver(phoneNumberChangeReceiver);
+            Log.d(TAG, "Phone number change receiver unregistered");
+        } catch (IllegalArgumentException e) {
+            // Receiver was not registered, ignore
+            Log.d(TAG, "Receiver was not registered, nothing to unregister");
+        }
     }
 
     private void renderAvailableSimOptions() {
@@ -656,6 +712,10 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
+            // Store the currently displayed phone numbers for change detection
+            lastDisplayedPhoneNumber1 = phoneNumbers[0];
+            lastDisplayedPhoneNumber2 = phoneNumbers[1];
+
             Log.d(TAG, "Phone number display updated - Phone 1: " + (phoneNumbers[0] != null ? phoneNumbers[0] : "Not detected") +
                     ", Phone 2: " + (phoneNumbers[1] != null ? phoneNumbers[1] : "Not detected"));
         } catch (Exception e) {
@@ -689,6 +749,74 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {
                 Log.e(TAG, "Failed to unregister SMS Observer", e);
             }
+        }
+    }
+
+    /**
+     * Checks if phone numbers have changed and handles UI update, toast notification, and backend sync
+     * This method should be called in onResume() and when SMS events occur
+     */
+    private void checkAndHandlePhoneNumberChange() {
+        try {
+            // Get current phone numbers
+            String[] currentPhoneNumbers = TextBeeUtils.getPhoneNumbers(mContext);
+            String currentPhone1 = currentPhoneNumbers[0];
+            String currentPhone2 = currentPhoneNumbers[1];
+
+            boolean phone1Changed = false;
+            boolean phone2Changed = false;
+
+            // Check if phone number 1 changed
+            if (currentPhone1 != null && !currentPhone1.isEmpty()) {
+                if (lastDisplayedPhoneNumber1 == null || !lastDisplayedPhoneNumber1.equals(currentPhone1)) {
+                    phone1Changed = true;
+                }
+            } else if (lastDisplayedPhoneNumber1 != null && !lastDisplayedPhoneNumber1.isEmpty()) {
+                // Phone number was removed
+                phone1Changed = true;
+            }
+
+            // Check if phone number 2 changed
+            if (currentPhone2 != null && !currentPhone2.isEmpty()) {
+                if (lastDisplayedPhoneNumber2 == null || !lastDisplayedPhoneNumber2.equals(currentPhone2)) {
+                    phone2Changed = true;
+                }
+            } else if (lastDisplayedPhoneNumber2 != null && !lastDisplayedPhoneNumber2.isEmpty()) {
+                // Phone number was removed
+                phone2Changed = true;
+            }
+
+            // If any phone number changed, update UI, show toast, and sync to backend
+            if (phone1Changed || phone2Changed) {
+                Log.d(TAG, "Phone number change detected - Phone1: " + phone1Changed + ", Phone2: " + phone2Changed);
+
+                // Update the display
+                updatePhoneNumberDisplay();
+
+                // Show toast for SIM 1 if it changed
+                if (phone1Changed) {
+                    String message = "Detected phone number updated to " +
+                        (currentPhone1 != null && !currentPhone1.isEmpty() ? currentPhone1 : "Not detected") +
+                        " (SIM 1)";
+                    Toast.makeText(mContext, message, Toast.LENGTH_LONG).show();
+                    Log.d(TAG, "SIM 1 phone number changed: " + lastDisplayedPhoneNumber1 + " -> " + currentPhone1);
+                }
+
+                // Show toast for SIM 2 if it changed
+                if (phone2Changed) {
+                    String message = "Detected phone number updated to " +
+                        (currentPhone2 != null && !currentPhone2.isEmpty() ? currentPhone2 : "Not detected") +
+                        " (SIM 2)";
+                    Toast.makeText(mContext, message, Toast.LENGTH_LONG).show();
+                    Log.d(TAG, "SIM 2 phone number changed: " + lastDisplayedPhoneNumber2 + " -> " + currentPhone2);
+                }
+
+                // Trigger immediate backend sync
+                com.vernu.sms.helpers.PhoneNumberTracker.syncPhoneNumbersWithBackend(mContext);
+                Log.d(TAG, "Triggered backend sync for phone number change");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking phone number change", e);
         }
     }
 

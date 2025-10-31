@@ -43,7 +43,7 @@ import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { contactsApi } from '@/lib/api/contacts'
 import { campaignsApi } from '@/lib/api/campaigns'
-import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus, formatPhoneNumberDisplay } from '@/lib/utils'
+import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, groupMessagesWithMetadataChanges, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus, formatPhoneNumberDisplay } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import { ConversationSummary, ConversationsResponse } from '@/lib/types'
 
@@ -60,6 +60,7 @@ interface Message {
   type: string
   status: string
   device: string | { _id: string }
+  senderPhoneNumber?: string
 }
 
 function DateSeparator({ dateLabel }: { dateLabel: string }) {
@@ -67,6 +68,20 @@ function DateSeparator({ dateLabel }: { dateLabel: string }) {
     <div className="flex items-center justify-center my-4">
       <div className="bg-muted/80 text-muted-foreground text-xs px-3 py-1 rounded-full">
         {dateLabel}
+      </div>
+    </div>
+  )
+}
+
+function MetadataChangeSeparator({ deviceId, phoneNumber }: { deviceId: string; phoneNumber: string }) {
+  const deviceDisplay = deviceId || 'Device unknown'
+  const phoneDisplay = phoneNumber ? formatPhoneNumberDisplay(phoneNumber) : 'Phone unknown'
+  const displayText = `${deviceDisplay} - ${phoneDisplay}`
+
+  return (
+    <div className="flex items-center justify-center my-4">
+      <div className="bg-yellow-50 text-yellow-800 text-xs px-3 py-1 rounded-full">
+        {displayText}
       </div>
     </div>
   )
@@ -907,16 +922,26 @@ function MessengerInterface({
                     date: new Date(message.receivedAt || message.requestedAt || 0),
                     isIncoming: !!message.sender,
                     status: message.status as MessageStatus,
+                    deviceId: typeof message.device === 'string' ? message.device : message.device?._id,
+                    senderPhoneNumber: message.senderPhoneNumber,
                     originalMessage: message
                   }))
 
-                  // Group messages with date separators
-                  const messageGroups = groupMessagesWithDateSeparators(formattedMessages)
+                  // Group messages with date and metadata change separators
+                  const messageGroups = groupMessagesWithMetadataChanges(formattedMessages)
 
                   return messageGroups.map((group, index) => {
                     if (group.type === 'date') {
                       return (
                         <DateSeparator key={`date-${index}`} dateLabel={group.dateLabel!} />
+                      )
+                    } else if (group.type === 'metadata-change') {
+                      return (
+                        <MetadataChangeSeparator
+                          key={`metadata-${index}`}
+                          deviceId={group.changeInfo!.deviceId}
+                          phoneNumber={group.changeInfo!.phoneNumber}
+                        />
                       )
                     } else {
                       const msg = group.message!
@@ -935,7 +960,7 @@ function MessengerInterface({
                               "max-w-[80%] rounded-lg px-3 py-2 text-sm",
                               msg.isIncoming
                                 ? "bg-background border text-foreground"
-                                : "bg-primary text-primary-foreground"
+                                : "bg-primary text-white"
                             )}>
                               <p>{msg.message}</p>
                             </div>
@@ -2528,11 +2553,13 @@ function NewMessageSidebar({
                 date: new Date(message.receivedAt || message.requestedAt || 0),
                 isIncoming: !!message.sender,
                 status: message.status as MessageStatus,
+                deviceId: typeof message.device === 'string' ? message.device : message.device?._id,
+                senderPhoneNumber: message.senderPhoneNumber,
                 originalMessage: message
               })) || []
 
-              // Group messages with date separators
-              const messageGroups = groupMessagesWithDateSeparators(formattedMessages)
+              // Group messages with date and metadata change separators
+              const messageGroups = groupMessagesWithMetadataChanges(formattedMessages)
 
               return (
                 <>
@@ -2540,6 +2567,14 @@ function NewMessageSidebar({
                     if (group.type === 'date') {
                       return (
                         <DateSeparator key={`date-${index}`} dateLabel={group.dateLabel!} />
+                      )
+                    } else if (group.type === 'metadata-change') {
+                      return (
+                        <MetadataChangeSeparator
+                          key={`metadata-${index}`}
+                          deviceId={group.changeInfo!.deviceId}
+                          phoneNumber={group.changeInfo!.phoneNumber}
+                        />
                       )
                     } else {
                       const msg = group.message!
@@ -2558,7 +2593,7 @@ function NewMessageSidebar({
                               "max-w-[80%] rounded-lg px-3 py-2 text-sm",
                               msg.isIncoming
                                 ? "bg-background border text-foreground"
-                                : "bg-primary text-primary-foreground"
+                                : "bg-primary text-white"
                             )}>
                               <p>{msg.message}</p>
                             </div>

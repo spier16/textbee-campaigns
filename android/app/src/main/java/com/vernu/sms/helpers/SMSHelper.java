@@ -50,9 +50,21 @@ public class SMSHelper {
         try {
             SmsManager smsManager = SmsManager.getDefault();
 
-            // Create pending intents for status tracking (no specific subscription ID for default)
-            PendingIntent sentIntent = createSentPendingIntent(context, smsId, smsBatchId, -1);
-            PendingIntent deliveredIntent = createDeliveredPendingIntent(context, smsId, smsBatchId, -1);
+            // Try to get the default subscription ID
+            int subscriptionId = -1;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 &&
+                TextBeeUtils.isPermissionGranted(context, Manifest.permission.READ_PHONE_STATE)) {
+                try {
+                    subscriptionId = SubscriptionManager.getDefaultSmsSubscriptionId();
+                    Log.d(TAG, "Using default SMS subscription ID: " + subscriptionId);
+                } catch (Exception e) {
+                    Log.w(TAG, "Could not get default SMS subscription ID: " + e.getMessage());
+                }
+            }
+
+            // Create pending intents for status tracking
+            PendingIntent sentIntent = createSentPendingIntent(context, smsId, smsBatchId, subscriptionId);
+            PendingIntent deliveredIntent = createDeliveredPendingIntent(context, smsId, smsBatchId, subscriptionId);
 
             // For SMS with more than 160 chars
             ArrayList<String> parts = smsManager.divideMessage(message);
