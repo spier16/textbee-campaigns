@@ -228,6 +228,25 @@ export class UsagePlanService {
     device.current_tier = 1
     device.last_tier_upgrade = new Date()
 
+    // Update historical limits based on tier 1 of the new plan
+    // This ensures limits increase if the new plan has better limits than the old plan
+    const tier1Config = plan.tiers.find(t => t.tier === 1)
+    if (tier1Config) {
+      // Only update historical limits if using standard 24-hour window (1440 minutes)
+      const usageWindowMinutes = (plan as any).usageWindowMinutes || 1440
+      if (usageWindowMinutes === 1440) {
+        // Update best_min_wait_seconds if tier 1's limit is better (lower)
+        if (!device.best_min_wait_seconds || tier1Config.min_wait_seconds < device.best_min_wait_seconds) {
+          device.best_min_wait_seconds = tier1Config.min_wait_seconds
+        }
+
+        // Update max_messages_per_cycle if tier 1's limit is better (higher)
+        if (!device.max_messages_per_cycle || tier1Config.messages_per_cycle > device.max_messages_per_cycle) {
+          device.max_messages_per_cycle = tier1Config.messages_per_cycle
+        }
+      }
+    }
+
     // Reset cooldown status when switching plans
     device.is_on_cooldown = false
     device.cooldown_end_time = undefined
