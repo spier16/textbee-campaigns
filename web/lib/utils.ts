@@ -185,12 +185,13 @@ export function groupMessagesWithMetadataChanges(messages: MessageWithDate[]): M
     const currentPhoneNumber = normalizeValue(message.senderPhoneNumber)
 
     // Check if device ID or phone number changed from previous message
-    // Skip only the very first message (i === 0)
+    // For the first message, show bubble if device/phone info exists
+    // For subsequent messages, show bubble only if changed
     const isFirstMessage = i === 0
-    const deviceChanged = !isFirstMessage && lastDeviceId !== currentDeviceId
-    const phoneChanged = !isFirstMessage && lastPhoneNumber !== currentPhoneNumber
+    const deviceChanged = lastDeviceId !== currentDeviceId
+    const phoneChanged = lastPhoneNumber !== currentPhoneNumber
 
-    if ((deviceChanged || phoneChanged) && (currentDeviceId || currentPhoneNumber)) {
+    if ((isFirstMessage || deviceChanged || phoneChanged) && (currentDeviceId || currentPhoneNumber)) {
       groups.push({
         type: 'metadata-change',
         changeInfo: {
