@@ -30,7 +30,8 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED 1
 
 
-# Build the application
+# Build the application with increased memory
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN pnpm build
 
 # Stage 3: Production runner
