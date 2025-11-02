@@ -122,7 +122,7 @@ function ConversationRow({
 }) {
   const displayName = conversation.contact?.firstName || conversation.contact?.lastName
     ? `${conversation.contact.firstName || ''} ${conversation.contact.lastName || ''}`.trim()
-    : conversation.normalizedPhoneNumber
+    : formatPhoneNumberDisplay(conversation.normalizedPhoneNumber)
 
   const formatDate = (date: Date | string) => {
     const dateObj = date instanceof Date ? date : new Date(date)
@@ -304,7 +304,7 @@ function ConversationList({
       filtered = filtered.filter(conv => {
         const displayName = conv.contact?.firstName || conv.contact?.lastName
           ? `${conv.contact.firstName || ''} ${conv.contact.lastName || ''}`.trim()
-          : conv.normalizedPhoneNumber
+          : formatPhoneNumberDisplay(conv.normalizedPhoneNumber)
         return displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                conv.normalizedPhoneNumber.includes(searchQuery) ||
                conv.phoneNumber.includes(searchQuery)
@@ -744,7 +744,7 @@ function MessengerInterface({
 
   const displayName = conversation.contact?.firstName || conversation.contact?.lastName
     ? `${conversation.contact.firstName || ''} ${conversation.contact.lastName || ''}`.trim()
-    : conversation.normalizedPhoneNumber
+    : formatPhoneNumberDisplay(conversation.normalizedPhoneNumber)
 
   // Filter messages for this conversation
   const conversationMessages = useMemo(() => {
@@ -815,7 +815,7 @@ function MessengerInterface({
           <div>
             <h2 className="text-lg font-semibold">{displayName}</h2>
             {conversation.contact?.firstName && (
-              <p className="text-sm text-muted-foreground">{conversation.normalizedPhoneNumber}</p>
+              <p className="text-sm text-muted-foreground">{formatPhoneNumberDisplay(conversation.normalizedPhoneNumber)}</p>
             )}
           </div>
           {onClose && (
@@ -2438,7 +2438,7 @@ function NewMessageSidebar({
 
   const displayName = currentConversation?.contact?.firstName || currentConversation?.contact?.lastName
     ? `${currentConversation.contact.firstName || ''} ${currentConversation.contact.lastName || ''}`.trim()
-    : currentConversation?.normalizedPhoneNumber || 'New Message'
+    : currentConversation?.normalizedPhoneNumber ? formatPhoneNumberDisplay(currentConversation.normalizedPhoneNumber) : 'New Message'
 
 
   const enabledDevice = devices.find(d => d.enabled)
@@ -2450,7 +2450,7 @@ function NewMessageSidebar({
         <div>
           <h2 className="text-lg font-semibold">{displayName}</h2>
           {currentConversation?.contact?.firstName && (
-            <p className="text-sm text-muted-foreground">{currentConversation.normalizedPhoneNumber}</p>
+            <p className="text-sm text-muted-foreground">{formatPhoneNumberDisplay(currentConversation.normalizedPhoneNumber)}</p>
           )}
         </div>
         <Button variant="ghost" size="sm" onClick={onClose}>
@@ -2484,7 +2484,7 @@ function NewMessageSidebar({
 
             {phoneNumber && !selectedContactChip && (
               <div className="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-2 py-1 rounded-full text-sm border border-gray-200 dark:border-gray-600">
-                <span>{phoneNumber}</span>
+                <span>{formatPhoneNumberDisplay(phoneNumber)}</span>
                 <button
                   onClick={clearSelection}
                   className="ml-1 hover:bg-gray-200 rounded-full p-0.5"

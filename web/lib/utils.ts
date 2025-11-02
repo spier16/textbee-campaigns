@@ -170,16 +170,6 @@ export function groupMessagesWithMetadataChanges(messages: MessageWithDate[]): M
     const message = messages[i]
     const messageDate = message.date
 
-    // Add date separator if this is the first message or if the date has changed
-    if (!lastDate || !isSameDay(lastDate, messageDate)) {
-      groups.push({
-        type: 'date',
-        date: messageDate,
-        dateLabel: formatDateSeparator(messageDate)
-      })
-      lastDate = messageDate
-    }
-
     // Normalize current message values
     const currentDeviceId = normalizeValue(message.deviceId)
     const currentPhoneNumber = normalizeValue(message.senderPhoneNumber)
@@ -199,6 +189,16 @@ export function groupMessagesWithMetadataChanges(messages: MessageWithDate[]): M
           phoneNumber: currentPhoneNumber || ''
         }
       })
+    }
+
+    // Add date separator if this is the first message or if the date has changed
+    if (!lastDate || !isSameDay(lastDate, messageDate)) {
+      groups.push({
+        type: 'date',
+        date: messageDate,
+        dateLabel: formatDateSeparator(messageDate)
+      })
+      lastDate = messageDate
     }
 
     // Add the message

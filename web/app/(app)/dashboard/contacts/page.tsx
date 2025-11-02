@@ -359,7 +359,7 @@ function ContactSidebar({
 
   const displayName = contact.firstName || contact.lastName
     ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
-    : contact.phone
+    : formatPhoneNumberDisplay(contact.phone)
 
   return (
     <div className="flex flex-col h-full border-l overflow-hidden">
@@ -370,7 +370,7 @@ function ContactSidebar({
           <div>
             <h2 className="text-lg font-semibold">{displayName}</h2>
             {contact.firstName && (
-              <p className="text-sm text-muted-foreground">{contact.phone}</p>
+              <p className="text-sm text-muted-foreground">{formatPhoneNumberDisplay(contact.phone)}</p>
             )}
           </div>
           <Button variant="ghost" size="sm" onClick={onClose}>
@@ -2057,7 +2057,7 @@ export default function ContactsPage() {
                                   {availableContacts.map((contact) => {
                                     const displayName = contact.firstName || contact.lastName
                                       ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
-                                      : contact.phone
+                                      : formatPhoneNumberDisplay(contact.phone)
 
                                     return (
                                       <div key={contact.id} className='flex items-center space-x-3 p-3 hover:bg-muted/50'>
