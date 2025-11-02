@@ -45,8 +45,6 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
   // Convert Schedule Send settings to calendar events
   const calendarEvents = useMemo(() => {
     const events: CalendarEvent[] = []
-    const now = new Date()
-
 
     if (campaignData.scheduleType === 'now') {
       // Shade all time from now through campaign end date
@@ -150,21 +148,51 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
       }
     } else if (campaignData.scheduleType === 'windows' && campaignData.sendingWindows.length > 0) {
       // Show sending windows as background events, but not before current time
+      // Get current time in the campaign timezone for comparison
+      const nowUTC = new Date()
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      })
+
+      const parts = formatter.formatToParts(nowUTC)
+      const nowYear = parts.find(p => p.type === 'year')?.value
+      const nowMonth = parts.find(p => p.type === 'month')?.value
+      const nowDay = parts.find(p => p.type === 'day')?.value
+      const nowHour = parts.find(p => p.type === 'hour')?.value
+      const nowMinute = parts.find(p => p.type === 'minute')?.value
+      const nowSecond = parts.find(p => p.type === 'second')?.value
+      const currentTimeString = `${nowYear}-${nowMonth}-${nowDay}T${nowHour}:${nowMinute}:${nowSecond}`
+
       campaignData.sendingWindows.forEach((window, index) => {
         if (window.startDate && window.startTime && window.endDate && window.endTime) {
-          const windowStart = new Date(`${window.startDate}T${window.startTime}`)
-          const windowEnd = new Date(`${window.endDate}T${window.endTime}`)
+          // Construct datetime strings in the campaign timezone
+          // These times are already in the campaign timezone since user entered them there
+          // FullCalendar's timeZone prop will interpret these plain ISO strings as being in the calendar's timezone
+          const windowStartStr = `${window.startDate}T${window.startTime}:00`
+          const windowEndStr = `${window.endDate}T${window.endTime}:00`
 
-          // Use the later of window start time or current time
-          const effectiveStart = windowStart > now ? windowStart : now
+          // Compare with current time to determine effective start
+          let effectiveStart = windowStartStr
+          if (windowStartStr < currentTimeString) {
+            // Normalize to :00 seconds format to match windowEndStr
+            // This prevents FullCalendar parsing inconsistencies with mixed seconds precision
+            effectiveStart = currentTimeString.substring(0, 16) + ':00'
+          }
 
           // Only create event if there's still time remaining after current time
-          if (effectiveStart < windowEnd) {
+          if (effectiveStart < windowEndStr) {
             events.push({
               id: `window-${index}`,
               title: '',
-              start: effectiveStart.toISOString(),
-              end: windowEnd.toISOString(),
+              start: effectiveStart,
+              end: windowEndStr,
               display: 'background' as const,
               backgroundColor: '#3b82f6', // blue
               className: 'sending-window-available'
