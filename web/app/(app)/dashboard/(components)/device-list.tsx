@@ -4,12 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Smartphone, Battery, Signal, Copy, Clock, Pause, Phone, MessageSquare, Timer, RotateCcw, ArrowUp } from 'lucide-react'
+import { Smartphone, Battery, Signal, Copy, Clock, Pause, Play, Phone, MessageSquare, Timer, RotateCcw, ArrowUp } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
 import { formatPhoneNumberDisplay } from '@/lib/utils'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Progress } from '@/components/ui/progress'
 import { useState, useEffect } from 'react'
@@ -72,12 +72,14 @@ interface Device {
 
 export default function DeviceList() {
   const { toast } = useToast()
+  const queryClient = useQueryClient()
   const [currentTime, setCurrentTime] = useState(new Date())
   const [advanceTierDialogOpen, setAdvanceTierDialogOpen] = useState(false)
   const [resetHistoryDialogOpen, setResetHistoryDialogOpen] = useState(false)
   const [changePlanDialogOpen, setChangePlanDialogOpen] = useState(false)
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
+  const [togglingDeviceId, setTogglingDeviceId] = useState<string | null>(null)
 
   // Update current time every minute for live countdown
   useEffect(() => {
@@ -120,6 +122,40 @@ export default function DeviceList() {
   })
 
   console.log('🔧 DeviceList: Usage plans query state:', { data: usagePlans })
+
+  const toggleDeviceMutation = useMutation({
+    mutationFn: async ({ deviceId, enabled }: { deviceId: string; enabled: boolean }) => {
+      return httpBrowserClient.patch(
+        ApiEndpoints.gateway.updateDevice(deviceId),
+        { enabled }
+      )
+    },
+    onMutate: async ({ deviceId }) => {
+      setTogglingDeviceId(deviceId)
+    },
+    onSuccess: (_, { deviceId, enabled }) => {
+      queryClient.invalidateQueries({ queryKey: ['devices'] })
+      toast({
+        title: enabled ? 'Device enabled' : 'Device paused',
+        description: enabled
+          ? 'Device is now active and can send messages'
+          : 'Device has been paused and will not send messages',
+      })
+      setTogglingDeviceId(null)
+    },
+    onError: (error: any, { deviceId }) => {
+      toast({
+        title: 'Error updating device status',
+        description: error.response?.data?.message || error.message,
+        variant: 'destructive',
+      })
+      setTogglingDeviceId(null)
+    },
+  })
+
+  const handleToggleDevice = (deviceId: string, currentEnabled: boolean) => {
+    toggleDeviceMutation.mutate({ deviceId, enabled: !currentEnabled })
+  }
 
   const handleCopyId = (id: string) => {
     navigator.clipboard.writeText(id)
@@ -493,6 +529,30 @@ export default function DeviceList() {
                           )}
                         </div>
                       </div>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant='ghost'
+                              size='icon'
+                              className='h-8 w-8'
+                              onClick={() => handleToggleDevice(device._id, device.enabled)}
+                              disabled={togglingDeviceId === device._id}
+                            >
+                              {togglingDeviceId === device._id ? (
+                                <div className='h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
+                              ) : device.enabled ? (
+                                <Pause className='h-4 w-4' />
+                              ) : (
+                                <Play className='h-4 w-4' />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{device.enabled ? 'Pause device' : 'Enable device'}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
 
                     {/* Usage Plan Info */}
