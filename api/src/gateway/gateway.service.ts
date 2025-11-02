@@ -1099,7 +1099,10 @@ export class GatewayService {
       totalDeviceCount,
       totalApiKeyCount,
       smsDeliveryRate: Number(smsDeliveryRate.toFixed(1)),
-      campaignResponseRate: Number(campaignResponseRate.toFixed(1)),
+      campaignResponseRate:
+        campaignRecipients.length > 0
+          ? Number(campaignResponseRate.toFixed(1))
+          : undefined,
     }
   }
 
