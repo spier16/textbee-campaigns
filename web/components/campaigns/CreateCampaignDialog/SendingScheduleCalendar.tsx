@@ -92,12 +92,13 @@ export function SendingScheduleCalendar({ campaignData }: SendingScheduleCalenda
       // Shade all time from campaign start date through campaign end date, but not before current time
       if (campaignData.campaignStartDate && campaignData.campaignEndDate) {
         // Check if campaign start date is today in the selected timezone
+        const nowUTC = new Date()
         const todayInTimezone = new Intl.DateTimeFormat('en-CA', {
           timeZone: timezone,
           year: 'numeric',
           month: '2-digit',
           day: '2-digit'
-        }).format(now)
+        }).format(nowUTC)
         const isStartDateToday = campaignData.campaignStartDate === todayInTimezone
 
 
