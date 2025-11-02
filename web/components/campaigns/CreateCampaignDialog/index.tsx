@@ -237,17 +237,12 @@ export function CreateCampaignDialog({
     if (!currentTier) {
       return {
         hourlyInfo: 'No usage plan',
-        dailyInfo: 'No usage plan'
+        dailyInfo: ''
       }
     }
 
-    // Convert time delay to hourly rate for display
-    const messagesPerHour = currentTier.min_wait_seconds > 0
-      ? Math.floor(3600 / currentTier.min_wait_seconds)
-      : 0
-
     return {
-      hourlyInfo: `~${messagesPerHour}/hr (${formatTimeDelay(currentTier.min_wait_seconds)} delay)`,
+      hourlyInfo: `${formatTimeDelay(currentTier.min_wait_seconds)} send delay`,
       dailyInfo: `${currentTier.messages_per_cycle}/day`
     }
   }
@@ -763,11 +758,6 @@ export function CreateCampaignDialog({
                                     <Badge variant={device.enabled ? 'default' : 'secondary'} className='text-xs'>
                                       {device.enabled ? 'Enabled' : 'Disabled'}
                                     </Badge>
-                                    {currentTier && (
-                                      <Badge variant='outline' className='text-xs'>
-                                        Tier {device.current_tier || 1}
-                                      </Badge>
-                                    )}
                                   </div>
                                   <div className='text-xs text-muted-foreground mt-1'>
                                     <code className='bg-muted px-1 py-0.5 rounded text-xs'>
@@ -882,7 +872,7 @@ export function CreateCampaignDialog({
 
                     {campaignData.scheduleType === 'windows' && (
                       <div className='ml-6 space-y-4 border-l-2 border-muted pl-4'>
-                        <div className='text-xs text-muted-foreground bg-blue-50 p-2 rounded border border-blue-200'>
+                        <div className='text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950 p-2 rounded border border-blue-200 dark:border-blue-800'>
                           <strong>Note:</strong> Define specific days and time windows when messages can be sent.
                           Messages will only be sent during these windows.
                         </div>
@@ -1010,7 +1000,7 @@ export function CreateCampaignDialog({
                     )}
                     {campaignData.scheduleType === 'weekday' && (
                       <div className='ml-6 space-y-4 border-l-2 border-muted pl-4'>
-                        <div className='text-xs text-muted-foreground bg-blue-50 p-2 rounded border border-blue-200'>
+                        <div className='text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950 p-2 rounded border border-blue-200 dark:border-blue-800'>
                           <strong>Note:</strong> Define time windows for each day of the week when messages can be sent.
                           Messages will only be sent during these time windows on the respective days.
                         </div>
