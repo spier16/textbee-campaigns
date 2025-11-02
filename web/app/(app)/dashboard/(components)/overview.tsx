@@ -29,7 +29,7 @@ interface Device {
   current_tier?: number
 }
 
-export const StatCard = ({ title, value, icon: Icon, description }) => {
+export const StatCard = ({ title, value, icon: Icon, description, isLoading }) => {
   return (
     <Card className="overflow-hidden transition-all hover:shadow-md">
       <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
@@ -40,7 +40,7 @@ export const StatCard = ({ title, value, icon: Icon, description }) => {
       </CardHeader>
       <CardContent>
         <div className='text-2xl font-bold'>
-          {value !== undefined ? value : <Skeleton className='h-6 w-16' />}
+          {isLoading ? <Skeleton className='h-6 w-16' /> : (value ?? 'N/A')}
         </div>
         <p className='text-xs text-muted-foreground mt-1'>
           {description}
@@ -83,7 +83,7 @@ export default function Overview() {
   }, [devices, selectedDeviceIds.length])
 
   // Fetch stats with filters
-  const { data: stats } = useQuery({
+  const { data: stats, isLoading: isLoadingStats } = useQuery({
     queryKey: ['stats', dateRange, selectedDeviceIds],
     queryFn: () => {
       const params = new URLSearchParams()
@@ -101,7 +101,7 @@ export default function Overview() {
       const url = `${ApiEndpoints.gateway.getStats()}?${params.toString()}`
       return httpBrowserClient.get(url).then((res) => res.data?.data)
     },
-    enabled: selectedDeviceIds.length > 0,
+    enabled: true,
   })
 
   const formatDateRange = () => {
@@ -262,39 +262,45 @@ export default function Overview() {
       <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-6'>
         <StatCard
           title='SMS Sent'
-          value={stats?.totalSentSMSCount?.toLocaleString()}
+          value={stats?.totalSentSMSCount !== undefined && stats?.totalSentSMSCount !== null ? stats.totalSentSMSCount.toLocaleString() : null}
           icon={MessageSquare}
           description={dateRangeDescription}
+          isLoading={isLoadingStats}
         />
         <StatCard
           title='SMS Received'
-          value={stats?.totalReceivedSMSCount?.toLocaleString()}
+          value={stats?.totalReceivedSMSCount !== undefined && stats?.totalReceivedSMSCount !== null ? stats.totalReceivedSMSCount.toLocaleString() : null}
           icon={BarChart3}
           description={dateRangeDescription}
+          isLoading={isLoadingStats}
         />
         <StatCard
           title='SMS Delivery Rate'
-          value={stats?.smsDeliveryRate !== undefined ? `${stats.smsDeliveryRate}%` : undefined}
+          value={stats?.smsDeliveryRate !== undefined && stats?.smsDeliveryRate !== null ? `${stats.smsDeliveryRate}%` : null}
           icon={TrendingUp}
           description='Of sent messages'
+          isLoading={isLoadingStats}
         />
         <StatCard
           title='Campaign Response Rate'
-          value={stats?.campaignResponseRate !== undefined ? `${stats.campaignResponseRate}%` : undefined}
+          value={stats?.campaignResponseRate !== undefined && stats?.campaignResponseRate !== null ? `${stats.campaignResponseRate}%` : null}
           icon={Megaphone}
           description='Contacts who replied'
+          isLoading={isLoadingStats}
         />
         <StatCard
           title='Active Devices'
-          value={stats?.totalDeviceCount}
+          value={stats?.totalDeviceCount !== undefined && stats?.totalDeviceCount !== null ? stats.totalDeviceCount : null}
           icon={Smartphone}
           description='Connected now'
+          isLoading={isLoadingStats}
         />
         <StatCard
           title='API Keys'
-          value={stats?.totalApiKeyCount}
+          value={stats?.totalApiKeyCount !== undefined && stats?.totalApiKeyCount !== null ? stats.totalApiKeyCount : null}
           icon={Key}
           description='Active keys'
+          isLoading={isLoadingStats}
         />
       </div>
     </div>

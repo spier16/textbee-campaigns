@@ -496,112 +496,110 @@ export default function DeviceList() {
                     </div>
 
                     {/* Usage Plan Info */}
-                    {device.usagePlan && currentTier && (
-                      <div className='mt-3 space-y-2'>
-                        <div className='flex items-center justify-between text-xs'>
-                          <div className='flex items-center gap-2'>
-                            <span className='text-muted-foreground'>Plan:</span>
-                            <Select
-                              value={device.usagePlan}
-                              onValueChange={(planId) => {
-                                if (planId !== device.usagePlan) {
-                                  setSelectedDeviceId(device._id)
-                                  setSelectedPlanId(planId)
-                                  setChangePlanDialogOpen(true)
-                                }
-                              }}
-                            >
-                              <SelectTrigger className='h-6 w-auto text-xs border-0 bg-transparent hover:bg-muted'>
-                                <SelectValue>
-                                  {usagePlans?.data?.find(p => p._id === device.usagePlan)?.name || 'Unknown Plan'}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                {usagePlans?.data?.map((plan) => (
-                                  <SelectItem key={plan._id} value={plan._id} className='text-xs'>
-                                    {plan.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <span className='text-muted-foreground'>•</span>
-                            <span className='text-muted-foreground'>Tier {device.current_tier}</span>
-                            <span className='text-muted-foreground'>•</span>
-                            <div className='flex items-center gap-1'>
-                              <Clock className='h-3 w-3' />
-                              {formatTimeDelay(currentTier.min_wait_seconds)}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Hide usage bar during tier progression cooldown */}
-                        {!(device.cooldown_reason === 'tier_promotion') && (
-                          <div className='space-y-1'>
-                            <div className='flex items-center justify-between text-xs'>
-                              <span className='text-muted-foreground'>
-                                Usage (Last {device.usage_window_minutes ? formatUsageWindow(device.usage_window_minutes) : '24h'}) ({device.messages_sent_today}/{currentTier.messages_per_cycle})
-                              </span>
-                              <span className='text-muted-foreground'>
-                                {Math.round(usagePercentage)}%
-                              </span>
-                            </div>
-                            <Progress
-                              value={usagePercentage}
-                              className='h-2'
-                              indicatorClassName={
-                                usagePercentage >= 100
-                                  ? 'bg-destructive'
-                                  : usagePercentage >= 80
-                                  ? 'bg-yellow-500'
-                                  : 'bg-primary'
+                    <div className='mt-3 space-y-2'>
+                      <div className='flex items-center justify-between text-xs'>
+                        <div className='flex items-center gap-2'>
+                          <span className='text-muted-foreground'>Plan:</span>
+                          <Select
+                            value={device.usagePlan || ''}
+                            onValueChange={(planId) => {
+                              if (planId !== device.usagePlan) {
+                                setSelectedDeviceId(device._id)
+                                setSelectedPlanId(planId)
+                                setChangePlanDialogOpen(true)
                               }
-                            />
-                          </div>
-                        )}
+                            }}
+                          >
+                            <SelectTrigger className='h-6 w-auto text-xs border-0 bg-transparent hover:bg-muted'>
+                              <SelectValue placeholder='Select a plan'>
+                                {device.usagePlan
+                                  ? usagePlans?.data?.find(p => p._id === device.usagePlan)?.name || 'Unknown Plan'
+                                  : 'Select a plan'}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {usagePlans?.data?.map((plan) => (
+                                <SelectItem key={plan._id} value={plan._id} className='text-xs'>
+                                  {plan.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {device.usagePlan && currentTier && (
+                            <>
+                              <span className='text-muted-foreground'>•</span>
+                              <span className='text-muted-foreground'>Tier {device.current_tier}</span>
+                              <span className='text-muted-foreground'>•</span>
+                              <div className='flex items-center gap-1'>
+                                <Clock className='h-3 w-3' />
+                                {formatTimeDelay(currentTier.min_wait_seconds)}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
 
-                        {/* Show "Warming up to Tier X" message during tier progression cooldown */}
-                        {device.cooldown_reason === 'tier_promotion' && cooldownInfo && (
-                          <div className='flex items-center gap-3 text-xs'>
-                            <Badge
-                              variant='secondary'
-                              className='text-xs gap-1'
-                            >
-                              <Pause className='h-3 w-3' />
-                              {cooldownInfo.message}
-                            </Badge>
-                            <div className='flex items-center gap-1 text-muted-foreground'>
-                              <Clock className='h-3 w-3' />
-                              <span className='font-medium text-foreground'>
-                                {formatTimeRemaining(device.cooldown_end_time || device.estimated_cooldown_end || '')}
-                              </span>
-                              <span>remaining</span>
-                            </div>
-                          </div>
-                        )}
-
-                        {onCooldown && cooldownInfo && cooldownInfo.timeDisplay && device.cooldown_reason !== 'tier_promotion' && (
-                          <div className='flex items-center gap-2 text-xs'>
-                            <div className='flex items-center gap-1 text-muted-foreground'>
-                              <Clock className='h-3 w-3' />
-                              <span className='font-medium text-foreground'>
-                                {formatTimeRemaining(device.cooldown_end_time || device.estimated_cooldown_end || '')}
-                              </span>
-                              <span>remaining</span>
-                            </div>
-                            <span className='text-muted-foreground'>•</span>
+                      {/* Hide usage bar during tier progression cooldown */}
+                      {device.usagePlan && currentTier && !(device.cooldown_reason === 'tier_promotion') && (
+                        <div className='space-y-1'>
+                          <div className='flex items-center justify-between text-xs'>
                             <span className='text-muted-foreground'>
-                              Cooldown ends ~{cooldownInfo.timeDisplay}
+                              Usage (Last {device.usage_window_minutes ? formatUsageWindow(device.usage_window_minutes) : '24h'}) ({device.messages_sent_today}/{currentTier.messages_per_cycle})
+                            </span>
+                            <span className='text-muted-foreground'>
+                              {Math.round(usagePercentage)}%
                             </span>
                           </div>
-                        )}
-                      </div>
-                    )}
+                          <Progress
+                            value={usagePercentage}
+                            className='h-2'
+                            indicatorClassName={
+                              usagePercentage >= 100
+                                ? 'bg-destructive'
+                                : usagePercentage >= 80
+                                ? 'bg-yellow-500'
+                                : 'bg-primary'
+                            }
+                          />
+                        </div>
+                      )}
 
-                    {!device.usagePlan && (
-                      <div className='mt-3 text-xs text-muted-foreground'>
-                        No usage plan assigned
-                      </div>
-                    )}
+                      {/* Show "Warming up to Tier X" message during tier progression cooldown */}
+                      {device.usagePlan && device.cooldown_reason === 'tier_promotion' && cooldownInfo && (
+                        <div className='flex items-center gap-3 text-xs'>
+                          <Badge
+                            variant='secondary'
+                            className='text-xs gap-1'
+                          >
+                            <Pause className='h-3 w-3' />
+                            {cooldownInfo.message}
+                          </Badge>
+                          <div className='flex items-center gap-1 text-muted-foreground'>
+                            <Clock className='h-3 w-3' />
+                            <span className='font-medium text-foreground'>
+                              {formatTimeRemaining(device.cooldown_end_time || device.estimated_cooldown_end || '')}
+                            </span>
+                            <span>remaining</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {device.usagePlan && onCooldown && cooldownInfo && cooldownInfo.timeDisplay && device.cooldown_reason !== 'tier_promotion' && (
+                        <div className='flex items-center gap-2 text-xs'>
+                          <div className='flex items-center gap-1 text-muted-foreground'>
+                            <Clock className='h-3 w-3' />
+                            <span className='font-medium text-foreground'>
+                              {formatTimeRemaining(device.cooldown_end_time || device.estimated_cooldown_end || '')}
+                            </span>
+                            <span>remaining</span>
+                          </div>
+                          <span className='text-muted-foreground'>•</span>
+                          <span className='text-muted-foreground'>
+                            Cooldown ends ~{cooldownInfo.timeDisplay}
+                          </span>
+                        </div>
+                      )}
+                    </div>
 
                     <div className='flex items-center mt-3 space-x-3 text-xs text-muted-foreground'>
                       <div className='flex items-center'>
