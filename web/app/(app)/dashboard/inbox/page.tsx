@@ -962,7 +962,7 @@ function MessengerInterface({
                                 ? "bg-background border text-foreground"
                                 : "bg-primary text-white"
                             )}>
-                              <p>{msg.message}</p>
+                              <p className="break-words whitespace-pre-wrap">{msg.message}</p>
                             </div>
                             {msg.isIncoming && (
                               <div className="text-xs text-muted-foreground">
@@ -1666,6 +1666,7 @@ export default function InboxPage() {
       [conversation.normalizedPhoneNumber]: now
     }))
     setSelectedConversation(conversation)
+    setShowNewMessageSidebar(false)
 
     // Save to database
     try {
@@ -1958,65 +1959,9 @@ export default function InboxPage() {
             >
               <div className="flex items-center">
                 <Users className='mr-2 h-4 w-4' />
-                Engaged Leads
+                Two-Way
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.engaged})</span>
-            </Button>
-            <Button
-              variant={selectedInboxFilter === 'unread' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-between text-sm'
-              onClick={() => {
-                setSelectedInboxFilter('unread')
-                setSelectedOtherFilter(null)
-              }}
-            >
-              <div className="flex items-center">
-                <MailOpen className='mr-2 h-4 w-4' />
-                Unread
-              </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.unread})</span>
-            </Button>
-            <Button
-              variant={selectedInboxFilter === 'unreplied' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-between text-sm'
-              onClick={() => {
-                setSelectedInboxFilter('unreplied')
-                setSelectedOtherFilter(null)
-              }}
-            >
-              <div className="flex items-center">
-                <MessageCircle className='mr-2 h-4 w-4' />
-                Unreplied
-              </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.unreplied})</span>
-            </Button>
-            <Button
-              variant={selectedInboxFilter === 'awaiting-reply' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-between text-sm'
-              onClick={() => {
-                setSelectedInboxFilter('awaiting-reply')
-                setSelectedOtherFilter(null)
-              }}
-            >
-              <div className="flex items-center">
-                <Clock className='mr-2 h-4 w-4' />
-                Awaiting reply
-              </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.awaitingReply})</span>
-            </Button>
-            <Button
-              variant={selectedInboxFilter === 'starred' && !selectedOtherFilter ? 'default' : 'ghost'}
-              className='w-full justify-between text-sm'
-              onClick={() => {
-                setSelectedInboxFilter('starred')
-                setSelectedOtherFilter(null)
-              }}
-            >
-              <div className="flex items-center">
-                <Star className='mr-2 h-4 w-4' />
-                Starred
-              </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.starred})</span>
+              <span className="text-xs opacity-70">({conversationCounts.engaged})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'all' && !selectedOtherFilter ? 'default' : 'ghost'}
@@ -2030,7 +1975,63 @@ export default function InboxPage() {
                 <Mail className='mr-2 h-4 w-4' />
                 All
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.all})</span>
+              <span className="text-xs opacity-70">({conversationCounts.all})</span>
+            </Button>
+            <Button
+              variant={selectedInboxFilter === 'unread' && !selectedOtherFilter ? 'default' : 'ghost'}
+              className='w-full justify-between text-sm'
+              onClick={() => {
+                setSelectedInboxFilter('unread')
+                setSelectedOtherFilter(null)
+              }}
+            >
+              <div className="flex items-center">
+                <MailOpen className='mr-2 h-4 w-4' />
+                Unread
+              </div>
+              <span className="text-xs opacity-70">({conversationCounts.unread})</span>
+            </Button>
+            <Button
+              variant={selectedInboxFilter === 'unreplied' && !selectedOtherFilter ? 'default' : 'ghost'}
+              className='w-full justify-between text-sm'
+              onClick={() => {
+                setSelectedInboxFilter('unreplied')
+                setSelectedOtherFilter(null)
+              }}
+            >
+              <div className="flex items-center">
+                <MessageCircle className='mr-2 h-4 w-4' />
+                Unreplied
+              </div>
+              <span className="text-xs opacity-70">({conversationCounts.unreplied})</span>
+            </Button>
+            <Button
+              variant={selectedInboxFilter === 'awaiting-reply' && !selectedOtherFilter ? 'default' : 'ghost'}
+              className='w-full justify-between text-sm'
+              onClick={() => {
+                setSelectedInboxFilter('awaiting-reply')
+                setSelectedOtherFilter(null)
+              }}
+            >
+              <div className="flex items-center">
+                <Clock className='mr-2 h-4 w-4' />
+                Awaiting reply
+              </div>
+              <span className="text-xs opacity-70">({conversationCounts.awaitingReply})</span>
+            </Button>
+            <Button
+              variant={selectedInboxFilter === 'starred' && !selectedOtherFilter ? 'default' : 'ghost'}
+              className='w-full justify-between text-sm'
+              onClick={() => {
+                setSelectedInboxFilter('starred')
+                setSelectedOtherFilter(null)
+              }}
+            >
+              <div className="flex items-center">
+                <Star className='mr-2 h-4 w-4' />
+                Starred
+              </div>
+              <span className="text-xs opacity-70">({conversationCounts.starred})</span>
             </Button>
           </div>
 
@@ -2053,7 +2054,7 @@ export default function InboxPage() {
                 <Archive className='mr-2 h-4 w-4' />
                 Archived
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.archived})</span>
+              <span className="text-xs opacity-70">({conversationCounts.archived})</span>
             </Button>
             <Button
               variant={selectedOtherFilter === 'spam' ? 'default' : 'ghost'}
@@ -2067,7 +2068,7 @@ export default function InboxPage() {
                 <Trash2 className='mr-2 h-4 w-4' />
                 Spam
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.spam})</span>
+              <span className="text-xs opacity-70">({conversationCounts.spam})</span>
             </Button>
           </div>
           </div>
@@ -2164,9 +2165,22 @@ function NewMessageSidebar({
   const [hasSelectedRecipient, setHasSelectedRecipient] = useState(false)
   const [selectedContactChip, setSelectedContactChip] = useState<any>(null)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
+  const [showDeviceChangeDialog, setShowDeviceChangeDialog] = useState(false)
+  const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null)
   const { toast } = useToast()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const contactRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  // Initialize device selection with first enabled device
+  useEffect(() => {
+    if (devices && devices.length > 0) {
+      const enabledDevice = devices.find(d => d.enabled)
+      if (enabledDevice && !selectedDeviceId) {
+        setSelectedDeviceId(enabledDevice._id)
+      }
+    }
+  }, [devices, selectedDeviceId])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -2381,10 +2395,31 @@ function NewMessageSidebar({
     }
   }
 
+  // Device change handlers
+  const handleDeviceChange = (newDeviceId: string) => {
+    if (newDeviceId === selectedDeviceId) return
+
+    setPendingDeviceId(newDeviceId)
+    setShowDeviceChangeDialog(true)
+  }
+
+  const confirmDeviceChange = () => {
+    if (pendingDeviceId) {
+      setSelectedDeviceId(pendingDeviceId)
+      setShowDeviceChangeDialog(false)
+      setPendingDeviceId(null)
+    }
+  }
+
+  const cancelDeviceChange = () => {
+    setShowDeviceChangeDialog(false)
+    setPendingDeviceId(null)
+  }
+
   // Send message mutation
   const sendMessageMutation = useMutation({
     mutationFn: async ({ phone, messageText }: { phone: string, messageText: string }) => {
-      const enabledDevice = devices.find(d => d.enabled)
+      const enabledDevice = devices.find(d => d._id === selectedDeviceId && d.enabled)
       if (!enabledDevice) {
         throw new Error('No enabled device available to send message')
       }
@@ -2441,7 +2476,7 @@ function NewMessageSidebar({
     : currentConversation?.normalizedPhoneNumber ? formatPhoneNumberDisplay(currentConversation.normalizedPhoneNumber) : 'New Message'
 
 
-  const enabledDevice = devices.find(d => d.enabled)
+  const enabledDevice = devices.find(d => d._id === selectedDeviceId && d.enabled)
 
   return (
     <div className="flex flex-col h-full border-l overflow-hidden">
@@ -2461,10 +2496,11 @@ function NewMessageSidebar({
       {/* Recipient Selection */}
       <div className="p-4 border-b">
         <div className="relative">
-          <label className="text-sm font-medium mb-2 block">To:</label>
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium whitespace-nowrap">To:</label>
 
-          {/* Selected Contact Chip or Input */}
-          <div className="flex flex-wrap gap-2 min-h-[40px] items-center border border-gray-200 dark:border-gray-700 rounded-md p-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+            {/* Selected Contact Chip or Input */}
+            <div className="flex flex-wrap gap-2 min-h-[40px] flex-1 items-center border border-gray-200 dark:border-gray-700 rounded-md p-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
             {selectedContactChip && (
               <div className="inline-flex items-center gap-1 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full text-sm border border-blue-200 dark:border-blue-700">
                 <span>
@@ -2505,6 +2541,7 @@ function NewMessageSidebar({
                 className="border-0 focus:ring-0 flex-1 pl-2 pr-2 py-1 min-w-0"
               />
             )}
+            </div>
           </div>
 
           {/* Contact Suggestions */}
@@ -2534,6 +2571,43 @@ function NewMessageSidebar({
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Device Selector */}
+      <div className="p-4 border-b">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Sending from:</label>
+          <Select
+            value={selectedDeviceId || ''}
+            onValueChange={handleDeviceChange}
+            disabled={!devices?.length}
+          >
+            <SelectTrigger className="w-full h-10">
+              <SelectValue placeholder="Select a device" />
+            </SelectTrigger>
+            <SelectContent>
+              {devices?.map((device: any) => (
+                <SelectItem
+                  key={device._id}
+                  value={device._id}
+                  disabled={!device.enabled}
+                  className="py-2"
+                >
+                  <div className={cn("flex flex-col", !device.enabled && "opacity-50")}>
+                    <div className="flex items-center gap-2 font-medium">
+                      <Smartphone className="h-4 w-4" />
+                      <span>{device.brand} {device.model}</span>
+                      {!device.enabled && <span className="text-xs">(disabled)</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground ml-6 mt-0.5">
+                      {formatPhoneNumberDisplay(device.phoneNumber)} • ID: {device._id}
+                    </div>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -2595,7 +2669,7 @@ function NewMessageSidebar({
                                 ? "bg-background border text-foreground"
                                 : "bg-primary text-white"
                             )}>
-                              <p>{msg.message}</p>
+                              <p className="break-words whitespace-pre-wrap">{msg.message}</p>
                             </div>
                             {msg.isIncoming && (
                               <div className="text-xs text-muted-foreground">
@@ -2661,6 +2735,22 @@ function NewMessageSidebar({
           </Button>
         </div>
       </div>
+
+      {/* Device Change Confirmation Dialog */}
+      <AlertDialog open={showDeviceChangeDialog} onOpenChange={setShowDeviceChangeDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change sending device?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will change the device used to send messages in this conversation.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelDeviceChange}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeviceChange}>Confirm</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

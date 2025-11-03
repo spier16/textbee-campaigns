@@ -512,7 +512,7 @@ function ContactSidebar({
                                     ? "bg-background border text-foreground"
                                     : "bg-primary text-white"
                                 )}>
-                                  <p>{msg.message}</p>
+                                  <p className="break-words whitespace-pre-wrap">{msg.message}</p>
                                 </div>
                                 {msg.isIncoming && (
                                   <div className="text-xs text-muted-foreground">
@@ -2293,7 +2293,7 @@ export default function ContactsPage() {
               </div>
             ) : (
               <table className='w-full'>
-                <thead className='sticky top-0 z-10 border-b bg-muted'>
+                <thead className='sticky top-0 z-10 border-b bg-background'>
                   <tr>
                     <th className='w-12 p-4'>
                       <Checkbox
@@ -2369,7 +2369,7 @@ export default function ContactsPage() {
               </div>
             ) : (
               <table className='w-full'>
-                <thead className='sticky top-0 z-10 border-b bg-muted'>
+                <thead className='sticky top-0 z-10 border-b bg-background'>
                   <tr>
                     <th className='w-12 p-4'>
                       <Checkbox

@@ -28,6 +28,7 @@ import {
 } from './schemas/campaign-message.schema'
 import { SMS, SMSDocument } from '../gateway/schemas/sms.schema'
 import { SMSType } from '../gateway/sms-type.enum'
+import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
 import {
   CreateMessageTemplateGroupDto,
   UpdateMessageTemplateGroupDto,
@@ -70,6 +71,8 @@ export class CampaignsService {
     private campaignMessageModel: Model<CampaignMessageDocument>,
     @InjectModel(SMS.name)
     private smsModel: Model<SMSDocument>,
+    @InjectModel(Device.name)
+    private deviceModel: Model<DeviceDocument>,
     @InjectQueue('campaign-queue')
     private campaignQueue: Queue,
     private contactsService: ContactsService,
@@ -634,6 +637,12 @@ export class CampaignsService {
         status: campaign.status, // Keep the current status (which might be PAUSED if it was running)
       },
     })
+
+    // Mark all campaign messages as deleted for efficient filtering
+    await this.campaignMessageModel.updateMany(
+      { campaign: campaign._id },
+      { $set: { campaignIsDeleted: true } },
+    )
   }
 
   async restoreCampaign(
@@ -649,6 +658,36 @@ export class CampaignsService {
     if (!campaign) {
       throw new NotFoundException('Deleted campaign not found')
     }
+
+    // Check if campaign should exclude previously messaged contacts
+    if (!campaign.includePreviouslyMessaged) {
+      // Get list of contacts that have been messaged (excluding this campaign)
+      const messagedPhones = await this.getMessagedContacts(
+        user._id.toString(),
+        campaign._id.toString(),
+      )
+
+      // Delete queued/pending messages for contacts who have been messaged since campaign was deleted
+      if (messagedPhones.length > 0) {
+        await this.campaignMessageModel.deleteMany({
+          campaign: campaign._id,
+          recipient: { $in: messagedPhones },
+          status: {
+            $in: [
+              MessageStatus.PENDING,
+              MessageStatus.QUEUED,
+              MessageStatus.SCHEDULED,
+            ],
+          },
+        })
+      }
+    }
+
+    // Unmark remaining messages as deleted
+    await this.campaignMessageModel.updateMany(
+      { campaign: campaign._id },
+      { $set: { campaignIsDeleted: false } },
+    )
 
     // Restore the campaign with its original status
     const restoredStatus = campaign.statusBeforeDelete || campaign.status
@@ -1041,5 +1080,70 @@ export class CampaignsService {
     }
 
     return response
+  }
+
+  /**
+   * Helper method to get list of previously messaged phone numbers for a user
+   * @param userId - The user ID
+   * @param excludeCampaignId - Optional campaign ID to exclude from the check (for restoration)
+   * @returns Array of phone numbers that have been messaged
+   */
+  async getMessagedContacts(
+    userId: string,
+    excludeCampaignId?: string,
+  ): Promise<string[]> {
+    // Get user's device IDs
+    const userDevices = await this.deviceModel
+      .find({
+        user: new Types.ObjectId(userId),
+      })
+      .select('_id')
+    const userDeviceIds = userDevices.map((device) => device._id)
+
+    // Get previously messaged phones from SMS records
+    const smsQuery: any = {
+      device: { $in: userDeviceIds },
+      type: SMSType.SENT,
+      status: { $in: ['pending', 'sent', 'delivered', 'unknown', 'failed'] },
+    }
+
+    const previouslyMessagedPhones = await this.smsModel.distinct(
+      'recipient',
+      smsQuery,
+    )
+
+    // Get messaged phones from CampaignMessage records
+    const campaignMessageQuery: any = {
+      user: new Types.ObjectId(userId),
+      campaignIsDeleted: { $ne: true },
+      status: {
+        $in: [
+          MessageStatus.QUEUED,
+          MessageStatus.CLAIMED,
+          MessageStatus.SENDING,
+          MessageStatus.SENT,
+          MessageStatus.FAILED,
+        ],
+      },
+    }
+
+    // Exclude specific campaign if provided (for restoration scenario)
+    if (excludeCampaignId) {
+      campaignMessageQuery.campaign = {
+        $ne: new Types.ObjectId(excludeCampaignId),
+      }
+    }
+
+    const campaignMessagePhones = await this.campaignMessageModel.distinct(
+      'recipient',
+      campaignMessageQuery,
+    )
+
+    // Combine and deduplicate
+    const allMessagedPhones = [
+      ...new Set([...previouslyMessagedPhones, ...campaignMessagePhones]),
+    ]
+
+    return allMessagedPhones
   }
 }

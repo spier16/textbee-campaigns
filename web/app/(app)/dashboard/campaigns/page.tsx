@@ -655,7 +655,7 @@ export default function CampaignsPage() {
     }
   }
 
-  const handleCreateCampaign = async () => {
+  const handleCreateCampaign = async (): Promise<string | undefined> => {
     if (!createCampaignData.name.trim()) {
       toast({
         title: "Campaign name required",
@@ -722,8 +722,9 @@ export default function CampaignsPage() {
       includePreviouslyMessaged: createCampaignData.includePreviouslyMessaged,
     }
 
-    // Create the campaign via API
-    await createCampaignMutation.mutateAsync(campaignDto)
+    // Create the campaign via API and return the campaign ID
+    const campaign = await createCampaignMutation.mutateAsync(campaignDto)
+    return campaign._id
   }
 
   const handleDeleteSelectedCampaigns = async () => {
@@ -1028,6 +1029,7 @@ export default function CampaignsPage() {
                 onManageTemplatesOpen={() => setManageTemplatesOpen(true)}
                 onTemplateSelectionOpen={() => setTemplateSelectionOpen(true)}
                 onCreateCampaign={handleCreateCampaign}
+                onLaunchCampaign={handleRunCampaign}
               />
 
               <Button className='gap-1 md:gap-2 text-xs md:text-sm' onClick={() => setCreateCampaignOpen(true)}>
@@ -1146,7 +1148,7 @@ export default function CampaignsPage() {
           ) : (
             <TooltipProvider>
               <table className='w-full'>
-              <thead className='sticky top-0 z-10 border-b bg-muted'>
+              <thead className='sticky top-0 z-10 border-b bg-background'>
                 <tr>
                   <th className='w-8 md:w-12 p-2 md:p-4'>
                     <Checkbox

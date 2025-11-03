@@ -17,6 +17,10 @@ import {
 } from './schemas/contact-group-membership.schema'
 import { SMS, SMSSchema } from '../gateway/schemas/sms.schema'
 import { Device, DeviceSchema } from '../gateway/schemas/device.schema'
+import {
+  CampaignMessage,
+  CampaignMessageSchema,
+} from '../campaigns/schemas/campaign-message.schema'
 
 @Module({
   imports: [
@@ -30,6 +34,7 @@ import { Device, DeviceSchema } from '../gateway/schemas/device.schema'
       },
       { name: SMS.name, schema: SMSSchema },
       { name: Device.name, schema: DeviceSchema },
+      { name: CampaignMessage.name, schema: CampaignMessageSchema },
     ]),
   ],
   controllers: [ContactsController],

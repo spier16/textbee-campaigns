@@ -42,43 +42,74 @@ export class RandomizedDelayService {
     const term2 = z * Math.sqrt(1 / (9 * shape))
     const percentile = shape * scale * Math.pow(term1 + term2, 3)
 
+    // Sanity check: For human-like delays, percentile should be reasonable
+    // Expected: for typical minWait of 10-100s, percentile should be < 1000s
+    const expectedMax = shape * scale * 20 // Heuristic: ~20x the mean
+    if (percentile > expectedMax) {
+      this.logger.warn(
+        `Gamma percentile (${percentile.toFixed(2)}s) exceeds sanity bound (${expectedMax.toFixed(2)}s). Using bounded value.`,
+      )
+      return expectedMax
+    }
+
     return percentile
   }
 
   /**
    * Inverse normal CDF approximation (for percentile calculations)
-   * Uses Beasley-Springer-Moro algorithm
+   * Uses Acklam's algorithm for accurate results
    */
   private inverseNormalCDF(p: number): number {
-    const a = [2.50662823884, -18.61500062529, 41.39119773534, -25.44106049637]
-    const b = [-8.4735109309, 23.08336743743, -21.06224101826, 3.13082909833]
-    const c = [
-      0.3374754822726147, 0.9761690190917186, 0.1607979714918209,
-      0.0276438810333863, 0.0038405729373609, 0.0003951896511919,
-      0.0000321767881768, 0.0000002888167364, 0.0000003960315187,
-    ]
-
-    const y = p - 0.5
-
-    if (Math.abs(y) < 0.42) {
-      const r = y * y
-      let x = y
-      for (let i = 0; i < 4; i++) {
-        x = (y * (a[i] + r * x)) / (1 + r * (b[i] + r))
-      }
-      return x
+    if (p <= 0 || p >= 1) {
+      throw new Error('p must be between 0 and 1')
     }
 
-    let r = p
-    if (y > 0) r = 1 - p
+    // Acklam's algorithm coefficients
+    const a1 = -3.969683028665376e1
+    const a2 = 2.209460984245205e2
+    const a3 = -2.759285104469687e2
+    const a4 = 1.383577518672690e2
+    const a5 = -3.066479806614716e1
+    const a6 = 2.506628277459239e0
 
-    r = Math.log(-Math.log(r))
-    let x = c[0]
-    for (let i = 1; i < 9; i++) {
-      x = c[i] + r * x
+    const b1 = -5.447609879822406e1
+    const b2 = 1.615858368580409e2
+    const b3 = -1.556989798598866e2
+    const b4 = 6.680131188771972e1
+    const b5 = -1.328068155288572e1
+
+    const c1 = -7.784894002430293e-3
+    const c2 = -3.223964580411365e-1
+    const c3 = -2.400758277161838e0
+    const c4 = -2.549732539343734e0
+    const c5 = 4.374664141464968e0
+    const c6 = 2.938163982698783e0
+
+    const d1 = 7.784695709041462e-3
+    const d2 = 3.224671290700398e-1
+    const d3 = 2.445134137142996e0
+    const d4 = 3.754408661907416e0
+
+    const pLow = 0.02425
+    const pHigh = 1 - pLow
+
+    let q: number, r: number, x: number
+
+    if (p < pLow) {
+      // Lower tail
+      q = Math.sqrt(-2 * Math.log(p))
+      x = (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1)
+    } else if (p <= pHigh) {
+      // Central region
+      q = p - 0.5
+      r = q * q
+      x = (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1)
+    } else {
+      // Upper tail
+      q = Math.sqrt(-2 * Math.log(1 - p))
+      x = -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1)
     }
 
-    if (y < 0) x = -x
     return x
   }
 

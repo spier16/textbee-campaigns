@@ -20,6 +20,8 @@ import {
   CampaignMessageDocument,
   MessageStatus,
 } from '../../campaigns/schemas/campaign-message.schema'
+import { SMS, SMSDocument } from '../schemas/sms.schema'
+import { SMSType } from '../sms-type.enum'
 import { GatewayService } from '../gateway.service'
 import { UsagePlanService } from '../usage-plan.service'
 import { DeviceUsageCalculatorService } from '../services/device-usage-calculator.service'
@@ -51,6 +53,7 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
     @InjectModel(Campaign.name) private campaignModel: Model<CampaignDocument>,
     @InjectModel(CampaignMessage.name)
     private campaignMessageModel: Model<CampaignMessageDocument>,
+    @InjectModel(SMS.name) private smsModel: Model<SMSDocument>,
     @InjectQueue('sms') private smsQueue: Queue,
     private gatewayService: GatewayService,
     private usagePlanService: UsagePlanService,
@@ -159,7 +162,7 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
         }
 
         if (attempt < maxRetries - 1) {
-          const backoffMs = Math.pow(2, attempt) * 1000 // 1s, 2s, 4s
+          const backoffMs = [3000, 5000, 5000][attempt] // 3s, 5s, 5s = 13s total (exceeds 10s lease TTL)
           this.logger.debug(
             `Could not acquire lease for device ${deviceId} (attempt ${attempt + 1}/${maxRetries}) - ` +
               `retrying in ${backoffMs}ms...`,
@@ -302,6 +305,27 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
     campaign: CampaignDocument,
   ) {
     try {
+      // Redundancy check: Validate contact hasn't been messaged if campaign excludes previously messaged
+      if (!campaign.includePreviouslyMessaged) {
+        const hasBeenMessaged = await this.checkIfContactMessaged(
+          campaign.user.toString(),
+          message.recipient,
+          campaign._id.toString(),
+        )
+
+        if (hasBeenMessaged) {
+          // Contact was messaged since this message was queued - skip sending
+          message.status = MessageStatus.CANCELLED
+          message.lastError = 'Contact was previously messaged'
+          await message.save()
+
+          this.logger.warn(
+            `Skipping message ${message._id} to ${message.recipient} - already messaged (campaign: ${campaign._id})`,
+          )
+          return // Don't send
+        }
+      }
+
       // Update to SENDING
       message.status = MessageStatus.SENDING
       await message.save()
@@ -668,6 +692,56 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
         error,
       )
     }
+  }
+
+  /**
+   * Check if a specific contact has been messaged (for worker-level redundancy check)
+   * @param userId - The user ID
+   * @param phoneNumber - The phone number to check
+   * @param excludeCampaignId - Campaign ID to exclude from check
+   * @returns true if contact has been messaged, false otherwise
+   */
+  private async checkIfContactMessaged(
+    userId: string,
+    phoneNumber: string,
+    excludeCampaignId: string,
+  ): Promise<boolean> {
+    // Get user's device IDs
+    const userDevices = await this.deviceModel
+      .find({
+        user: new Types.ObjectId(userId),
+      })
+      .select('_id')
+    const userDeviceIds = userDevices.map((device) => device._id)
+
+    // Check SMS records for this specific phone number
+    const smsExists = await this.smsModel.exists({
+      device: { $in: userDeviceIds },
+      type: SMSType.SENT,
+      recipient: phoneNumber,
+      status: { $in: ['pending', 'sent', 'delivered', 'unknown', 'failed'] },
+    })
+
+    if (smsExists) return true
+
+    // Check CampaignMessage records (excluding current campaign and deleted campaigns)
+    const messageExists = await this.campaignMessageModel.exists({
+      user: new Types.ObjectId(userId),
+      campaign: { $ne: new Types.ObjectId(excludeCampaignId) },
+      recipient: phoneNumber,
+      campaignIsDeleted: { $ne: true },
+      status: {
+        $in: [
+          MessageStatus.QUEUED,
+          MessageStatus.CLAIMED,
+          MessageStatus.SENDING,
+          MessageStatus.SENT,
+          MessageStatus.FAILED,
+        ],
+      },
+    })
+
+    return !!messageExists
   }
 
   /**

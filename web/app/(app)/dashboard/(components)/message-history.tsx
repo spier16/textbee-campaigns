@@ -588,7 +588,7 @@ function MessageCard({ message, type, device, showSeconds }) {
           </div>
 
           <div className='flex gap-2'>
-            <p className='text-sm max-w-sm md:max-w-none'>{message.message}</p>
+            <p className='text-sm max-w-sm md:max-w-none break-words whitespace-pre-wrap'>{message.message}</p>
           </div>
 
           <div className='flex justify-between items-center'>

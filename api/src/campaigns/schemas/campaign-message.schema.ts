@@ -80,6 +80,9 @@ export class CampaignMessage {
   })
   campaignStatus: CampaignStatus // Denormalized from Campaign for efficient filtering
 
+  @Prop({ type: Boolean, default: false })
+  campaignIsDeleted: boolean // Denormalized from Campaign.isDeleted for efficient filtering
+
   // Delivery tracking
   @Prop({ type: Date })
   sentAt?: Date
@@ -118,6 +121,7 @@ CampaignMessageSchema.index({ campaign: 1, status: 1 })
 CampaignMessageSchema.index({
   status: 1,
   campaignStatus: 1, // Enables filtering by campaign status without join
+  campaignIsDeleted: 1, // Enables filtering by campaign deletion status
   not_before: 1,
   queuedAt: 1, // Tie-breaker for FIFO order
 })

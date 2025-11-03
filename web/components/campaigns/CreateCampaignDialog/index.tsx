@@ -101,7 +101,8 @@ interface CreateCampaignDialogProps {
   onTemplateSelectionOpen: () => void
 
   // Callback functions
-  onCreateCampaign: () => void
+  onCreateCampaign: () => Promise<string | undefined>
+  onLaunchCampaign?: (campaignId: string) => Promise<void>
 }
 
 export function CreateCampaignDialog({
@@ -118,7 +119,8 @@ export function CreateCampaignDialog({
   onDateValidationChange,
   onManageTemplatesOpen,
   onTemplateSelectionOpen,
-  onCreateCampaign
+  onCreateCampaign,
+  onLaunchCampaign
 }: CreateCampaignDialogProps) {
   const [activeTab, setActiveTab] = useState('details')
   const [messagePreview, setMessagePreview] = useState<CampaignMessagePreview[]>([])
@@ -127,6 +129,7 @@ export function CreateCampaignDialog({
   const [viewportHeight, setViewportHeight] = useState(0)
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
   const [showValidationWarningDialog, setShowValidationWarningDialog] = useState(false)
+  const [isLaunching, setIsLaunching] = useState(false)
 
   const { toast } = useToast()
 
@@ -311,6 +314,55 @@ export function CreateCampaignDialog({
       setShowValidationWarningDialog(true)
     } else {
       onCreateCampaign()
+    }
+  }
+
+  // Helper function to handle campaign launch with validation check
+  const handleLaunchCampaign = async () => {
+    const errorCount = getValidationErrorCount()
+    if (errorCount > 0) {
+      setShowValidationWarningDialog(true)
+      return
+    }
+
+    if (!onLaunchCampaign) {
+      toast({
+        title: 'Launch Campaign',
+        description: 'Campaign launch functionality is not available.',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    setIsLaunching(true)
+    try {
+      // First, create the campaign as a draft
+      const campaignId = await onCreateCampaign()
+
+      if (!campaignId) {
+        throw new Error('Failed to create campaign')
+      }
+
+      // Then, launch it immediately
+      await onLaunchCampaign(campaignId)
+
+      toast({
+        title: 'Campaign Launched',
+        description: 'Your campaign has been created and launched successfully.',
+        variant: 'default'
+      })
+
+      // Close the dialog
+      onOpenChange(false)
+    } catch (error) {
+      console.error('Error launching campaign:', error)
+      toast({
+        title: 'Launch Failed',
+        description: error instanceof Error ? error.message : 'Failed to launch campaign. Please try again.',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsLaunching(false)
     }
   }
 
@@ -1353,24 +1405,10 @@ export function CreateCampaignDialog({
                   Save Campaign as Draft
                 </Button>
                 <Button
-                  onClick={() => {
-                    // Check for validation errors before launching
-                    const errorCount = getValidationErrorCount()
-                    if (errorCount > 0) {
-                      setShowValidationWarningDialog(true)
-                    } else {
-                      // TODO: Launch campaign functionality will be added later
-                      toast({
-                        title: 'Launch Campaign',
-                        description: 'Campaign launch functionality will be available soon.',
-                        variant: 'default'
-                      })
-                    }
-                  }}
-                  disabled={true} // Disabled as requested
-                  className='opacity-50 cursor-not-allowed'
+                  onClick={handleLaunchCampaign}
+                  disabled={!campaignData.name.trim() || campaignData.selectedContacts.length === 0 || isLaunching}
                 >
-                  Launch Campaign
+                  {isLaunching ? 'Launching...' : 'Launch Campaign'}
                 </Button>
               </div>
             )}

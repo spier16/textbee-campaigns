@@ -25,6 +25,11 @@ import { SMS, SMSDocument } from '../gateway/schemas/sms.schema'
 import { SMSType } from '../gateway/sms-type.enum'
 import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
 import {
+  CampaignMessage,
+  CampaignMessageDocument,
+  MessageStatus,
+} from '../campaigns/schemas/campaign-message.schema'
+import {
   UploadSpreadsheetDto,
   GetSpreadsheetsDto,
   ContactSpreadsheetResponseDto,
@@ -56,6 +61,8 @@ export class ContactsService {
     private smsModel: Model<SMSDocument>,
     @InjectModel(Device.name)
     private deviceModel: Model<DeviceDocument>,
+    @InjectModel(CampaignMessage.name)
+    private campaignMessageModel: Model<CampaignMessageDocument>,
   ) {}
 
   async uploadSpreadsheet(
@@ -1157,10 +1164,12 @@ export class ContactsService {
 
       if (userDeviceIds.length > 0) {
         // Get list of previously messaged phone numbers from user's devices
+        // Include all statuses: pending (in progress), sent, delivered, unknown, and failed
+        // This prevents repeatedly attempting to message contacts with failed/invalid numbers
         const smsQuery = {
           device: { $in: userDeviceIds },
           type: SMSType.SENT,
-          status: { $in: ['sent', 'delivered'] },
+          status: { $in: ['pending', 'sent', 'delivered', 'unknown', 'failed'] },
         }
 
         const previouslyMessagedPhones = await this.smsModel.distinct(
@@ -1168,10 +1177,35 @@ export class ContactsService {
           smsQuery,
         )
 
-        if (previouslyMessagedPhones.length > 0) {
+        // Also check CampaignMessage records for messages in any active or completed state
+        // This catches messages that are queued, in progress, sent, or failed
+        // Exclude messages from deleted campaigns (campaignIsDeleted: true)
+        const campaignMessagePhones = await this.campaignMessageModel.distinct(
+          'recipient',
+          {
+            user: new Types.ObjectId(userId),
+            campaignIsDeleted: { $ne: true },
+            status: {
+              $in: [
+                MessageStatus.QUEUED,
+                MessageStatus.CLAIMED,
+                MessageStatus.SENDING,
+                MessageStatus.SENT,
+                MessageStatus.FAILED,
+              ],
+            },
+          },
+        )
+
+        // Combine both lists to get all previously messaged phones
+        const allMessagedPhones = [
+          ...new Set([...previouslyMessagedPhones, ...campaignMessagePhones]),
+        ]
+
+        if (allMessagedPhones.length > 0) {
           const matchStage = {
             $match: {
-              'contact.phone': { $nin: previouslyMessagedPhones },
+              'contact.phone': { $nin: allMessagedPhones },
             },
           }
           pipeline.push(matchStage)
@@ -1267,10 +1301,12 @@ export class ContactsService {
 
       if (userDeviceIds.length > 0) {
         // Get list of previously messaged phone numbers from user's devices
+        // Include all statuses: pending (in progress), sent, delivered, unknown, and failed
+        // This prevents repeatedly attempting to message contacts with failed/invalid numbers
         const smsQuery = {
           device: { $in: userDeviceIds },
           type: SMSType.SENT,
-          status: { $in: ['sent', 'delivered'] },
+          status: { $in: ['pending', 'sent', 'delivered', 'unknown', 'failed'] },
         }
 
         const previouslyMessagedPhones = await this.smsModel.distinct(
@@ -1278,10 +1314,35 @@ export class ContactsService {
           smsQuery,
         )
 
-        if (previouslyMessagedPhones.length > 0) {
+        // Also check CampaignMessage records for messages in any active or completed state
+        // This catches messages that are queued, in progress, sent, or failed
+        // Exclude messages from deleted campaigns (campaignIsDeleted: true)
+        const campaignMessagePhones = await this.campaignMessageModel.distinct(
+          'recipient',
+          {
+            user: new Types.ObjectId(userId),
+            campaignIsDeleted: { $ne: true },
+            status: {
+              $in: [
+                MessageStatus.QUEUED,
+                MessageStatus.CLAIMED,
+                MessageStatus.SENDING,
+                MessageStatus.SENT,
+                MessageStatus.FAILED,
+              ],
+            },
+          },
+        )
+
+        // Combine both lists to get all previously messaged phones
+        const allMessagedPhones = [
+          ...new Set([...previouslyMessagedPhones, ...campaignMessagePhones]),
+        ]
+
+        if (allMessagedPhones.length > 0) {
           const matchStage = {
             $match: {
-              'contact.phone': { $nin: previouslyMessagedPhones },
+              'contact.phone': { $nin: allMessagedPhones },
             },
           }
           pipeline.push(matchStage)
