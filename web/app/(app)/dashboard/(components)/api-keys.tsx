@@ -91,11 +91,17 @@ export default function ApiKeys() {
       })
       refetchApiKeys()
     },
-    onError: () => {
+    onError: (error: any) => {
+      const errorMessage =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'An unknown error occurred'
+
       toast({
         variant: 'destructive',
         title: 'Error deleting API key',
-        description: deleteApiKeyError?.message,
+        description: errorMessage,
       })
     },
   })

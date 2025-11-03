@@ -17,6 +17,10 @@ local.properties
 
 *.apk
 
+# Keystore files (NEVER commit these!)
+*.keystore
+*.jks
+
 # Firebase configuration files
 /app/src/dev/google-services.json
 /app/src/prod/google-services.json

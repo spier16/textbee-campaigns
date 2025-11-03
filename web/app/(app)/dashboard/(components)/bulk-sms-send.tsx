@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { useDropzone } from 'react-dropzone'
 import Papa from 'papaparse'
-import { Upload, Send, AlertCircle, CheckCircle } from 'lucide-react'
+import { Upload, Send, AlertCircle, CheckCircle, Smartphone } from 'lucide-react'
 import {
   Card,
   CardContent,
@@ -27,6 +27,7 @@ import { ApiEndpoints } from '@/config/api'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Spinner } from '@/components/ui/spinner'
 import httpBrowserClient from '@/lib/httpBrowserClient'
+import { formatPhoneNumberDisplay, cn } from '@/lib/utils'
 
 const DEFAULT_MAX_FILE_SIZE = 1024 * 1024 // 1 MB
 const DEFAULT_MAX_ROWS = 50
@@ -206,7 +207,7 @@ export default function BulkSMSSend() {
                 onValueChange={setSelectedDeviceId}
                 value={selectedDeviceId}
               >
-                <SelectTrigger id='device-select'>
+                <SelectTrigger id='device-select' className="h-10">
                   <SelectValue placeholder='Select a device' />
                 </SelectTrigger>
                 <SelectContent>
@@ -215,9 +216,18 @@ export default function BulkSMSSend() {
                       key={device._id}
                       value={device._id}
                       disabled={!device.enabled}
+                      className="py-2"
                     >
-                      {device.brand} - {device.model}{' '}
-                      {device.enabled ? '' : ' (disabled)'}
+                      <div className={cn("flex flex-col", !device.enabled && "opacity-50")}>
+                        <div className="flex items-center gap-2 font-medium">
+                          <Smartphone className="h-4 w-4" />
+                          <span>{device.brand} {device.model}</span>
+                          {!device.enabled && <span className="text-xs">(disabled)</span>}
+                        </div>
+                        <div className="text-xs text-muted-foreground ml-6 mt-0.5">
+                          {formatPhoneNumberDisplay(device.phoneNumber)} • ID: {device._id}
+                        </div>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>

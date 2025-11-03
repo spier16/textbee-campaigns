@@ -2,7 +2,7 @@ export function normalizePhoneNumber(phoneNumber: string): string {
   if (!phoneNumber) return phoneNumber
 
   // Remove all non-digit characters
-  let cleaned = phoneNumber.replace(/\D/g, '')
+  const cleaned = phoneNumber.replace(/\D/g, '')
 
   // If it's a US number (10 digits) or US number with country code (11 digits starting with 1)
   if (cleaned.length === 10) {

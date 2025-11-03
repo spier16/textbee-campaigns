@@ -40,19 +40,31 @@ public class SMSHelper {
         // Check if we have permission to send SMS
         if (!TextBeeUtils.isPermissionGranted(context, Manifest.permission.SEND_SMS)) {
             Log.e(TAG, "SMS permission not granted. Unable to send SMS.");
-            
+
             // Report failure to API
             reportPermissionError(context, smsId, smsBatchId);
-            
+
             return false;
         }
-        
+
         try {
             SmsManager smsManager = SmsManager.getDefault();
 
+            // Try to get the default subscription ID
+            int subscriptionId = -1;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 &&
+                TextBeeUtils.isPermissionGranted(context, Manifest.permission.READ_PHONE_STATE)) {
+                try {
+                    subscriptionId = SubscriptionManager.getDefaultSmsSubscriptionId();
+                    Log.d(TAG, "Using default SMS subscription ID: " + subscriptionId);
+                } catch (Exception e) {
+                    Log.w(TAG, "Could not get default SMS subscription ID: " + e.getMessage());
+                }
+            }
+
             // Create pending intents for status tracking
-            PendingIntent sentIntent = createSentPendingIntent(context, smsId, smsBatchId);
-            PendingIntent deliveredIntent = createDeliveredPendingIntent(context, smsId, smsBatchId);
+            PendingIntent sentIntent = createSentPendingIntent(context, smsId, smsBatchId, subscriptionId);
+            PendingIntent deliveredIntent = createDeliveredPendingIntent(context, smsId, smsBatchId, subscriptionId);
 
             // For SMS with more than 160 chars
             ArrayList<String> parts = smsManager.divideMessage(message);
@@ -116,9 +128,9 @@ public class SMSHelper {
                 Log.w(TAG, "Using default SIM as specific SIM selection not supported on this Android version");
             }
 
-            // Create pending intents for status tracking
-            PendingIntent sentIntent = createSentPendingIntent(context, smsId, smsBatchId);
-            PendingIntent deliveredIntent = createDeliveredPendingIntent(context, smsId, smsBatchId);
+            // Create pending intents for status tracking with the subscription ID
+            PendingIntent sentIntent = createSentPendingIntent(context, smsId, smsBatchId, simSubscriptionId);
+            PendingIntent deliveredIntent = createDeliveredPendingIntent(context, smsId, smsBatchId, simSubscriptionId);
 
             // For SMS with more than 160 chars
             ArrayList<String> parts = smsManager.divideMessage(message);
@@ -200,35 +212,37 @@ public class SMSHelper {
         });
     }
     
-    private static PendingIntent createSentPendingIntent(Context context, String smsId, String smsBatchId) {
+    private static PendingIntent createSentPendingIntent(Context context, String smsId, String smsBatchId, int subscriptionId) {
         // Create explicit intent (specify the component)
         Intent intent = new Intent(context, SMSStatusReceiver.class);
         intent.setAction(SMSStatusReceiver.SMS_SENT);
         intent.putExtra("sms_id", smsId);
         intent.putExtra("sms_batch_id", smsBatchId);
-        
+        intent.putExtra("subscription_id", subscriptionId);
+
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             flags |= PendingIntent.FLAG_MUTABLE;
         }
-        
+
         // Use a unique request code to avoid PendingIntent collisions
         int requestCode = (smsId + "_sent").hashCode();
         return PendingIntent.getBroadcast(context, requestCode, intent, flags);
     }
-    
-    private static PendingIntent createDeliveredPendingIntent(Context context, String smsId, String smsBatchId) {
+
+    private static PendingIntent createDeliveredPendingIntent(Context context, String smsId, String smsBatchId, int subscriptionId) {
         // Create explicit intent (specify the component)
         Intent intent = new Intent(context, SMSStatusReceiver.class);
         intent.setAction(SMSStatusReceiver.SMS_DELIVERED);
         intent.putExtra("sms_id", smsId);
         intent.putExtra("sms_batch_id", smsBatchId);
-        
+        intent.putExtra("subscription_id", subscriptionId);
+
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             flags |= PendingIntent.FLAG_MUTABLE;
         }
-        
+
         // Use a unique request code to avoid PendingIntent collisions
         int requestCode = (smsId + "_delivered").hashCode();
         return PendingIntent.getBroadcast(context, requestCode, intent, flags);

@@ -62,8 +62,8 @@ interface Device {
 // Usage plan interfaces
 interface UsagePlanTier {
   tier: number
-  timeDelayBetweenMessages: number // in seconds
-  dailyLimit: number
+  min_wait_seconds: number // in seconds
+  messages_per_cycle: number
 }
 
 interface UsagePlan {
@@ -101,7 +101,8 @@ interface CreateCampaignDialogProps {
   onTemplateSelectionOpen: () => void
 
   // Callback functions
-  onCreateCampaign: () => void
+  onCreateCampaign: () => Promise<string | undefined>
+  onLaunchCampaign?: (campaignId: string) => Promise<void>
 }
 
 export function CreateCampaignDialog({
@@ -118,7 +119,8 @@ export function CreateCampaignDialog({
   onDateValidationChange,
   onManageTemplatesOpen,
   onTemplateSelectionOpen,
-  onCreateCampaign
+  onCreateCampaign,
+  onLaunchCampaign
 }: CreateCampaignDialogProps) {
   const [activeTab, setActiveTab] = useState('details')
   const [messagePreview, setMessagePreview] = useState<CampaignMessagePreview[]>([])
@@ -126,6 +128,8 @@ export function CreateCampaignDialog({
   const [previewLoading, setPreviewLoading] = useState(false)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
+  const [showValidationWarningDialog, setShowValidationWarningDialog] = useState(false)
+  const [isLaunching, setIsLaunching] = useState(false)
 
   const { toast } = useToast()
 
@@ -236,18 +240,13 @@ export function CreateCampaignDialog({
     if (!currentTier) {
       return {
         hourlyInfo: 'No usage plan',
-        dailyInfo: 'No usage plan'
+        dailyInfo: ''
       }
     }
 
-    // Convert time delay to hourly rate for display
-    const messagesPerHour = currentTier.timeDelayBetweenMessages > 0
-      ? Math.floor(3600 / currentTier.timeDelayBetweenMessages)
-      : 0
-
     return {
-      hourlyInfo: `~${messagesPerHour}/hr (${formatTimeDelay(currentTier.timeDelayBetweenMessages)} delay)`,
-      dailyInfo: `${currentTier.dailyLimit}/day`
+      hourlyInfo: `${formatTimeDelay(currentTier.min_wait_seconds)} send delay`,
+      dailyInfo: `${currentTier.messages_per_cycle}/day`
     }
   }
 
@@ -278,7 +277,16 @@ export function CreateCampaignDialog({
       // Call backend API to process template variables
       const response = await campaignsApi.processTemplatePreview(processPreviewData)
 
-      setMessagePreview(response.previews)
+      // Sort previews to show messages with validation errors first
+      const sortedPreviews = [...response.previews].sort((a, b) => {
+        const aHasErrors = (a.highlightedContent?.validationErrors?.length ?? 0) > 0
+        const bHasErrors = (b.highlightedContent?.validationErrors?.length ?? 0) > 0
+        if (aHasErrors && !bHasErrors) return -1
+        if (!aHasErrors && bHasErrors) return 1
+        return 0
+      })
+
+      setMessagePreview(sortedPreviews)
       setCurrentPreviewIndex(0)
     } catch (error) {
       console.error('Error generating message preview:', error)
@@ -289,6 +297,72 @@ export function CreateCampaignDialog({
       })
     } finally {
       setPreviewLoading(false)
+    }
+  }
+
+  // Helper function to count messages with validation errors
+  const getValidationErrorCount = () => {
+    return messagePreview.filter(msg =>
+      (msg.highlightedContent?.validationErrors?.length ?? 0) > 0
+    ).length
+  }
+
+  // Helper function to handle campaign save with validation check
+  const handleSaveWithValidation = () => {
+    const errorCount = getValidationErrorCount()
+    if (errorCount > 0) {
+      setShowValidationWarningDialog(true)
+    } else {
+      onCreateCampaign()
+    }
+  }
+
+  // Helper function to handle campaign launch with validation check
+  const handleLaunchCampaign = async () => {
+    const errorCount = getValidationErrorCount()
+    if (errorCount > 0) {
+      setShowValidationWarningDialog(true)
+      return
+    }
+
+    if (!onLaunchCampaign) {
+      toast({
+        title: 'Launch Campaign',
+        description: 'Campaign launch functionality is not available.',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    setIsLaunching(true)
+    try {
+      // First, create the campaign as a draft
+      const campaignId = await onCreateCampaign()
+
+      if (!campaignId) {
+        throw new Error('Failed to create campaign')
+      }
+
+      // Then, launch it immediately
+      await onLaunchCampaign(campaignId)
+
+      toast({
+        title: 'Campaign Launched',
+        description: 'Your campaign has been created and launched successfully.',
+        variant: 'default'
+      })
+
+      // Close the dialog
+      onOpenChange(false)
+    } catch (error) {
+      console.error('Error launching campaign:', error)
+      toast({
+        title: 'Launch Failed',
+        description: error instanceof Error ? error.message : 'Failed to launch campaign. Please try again.',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsLaunching(false)
     }
   }
 
@@ -483,6 +557,7 @@ export function CreateCampaignDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='w-[90vw] max-w-6xl h-[90vh] overflow-hidden flex flex-col p-4'>
         <DialogHeader className='flex-shrink-0 border-b p-2 pb-1'>
@@ -735,11 +810,6 @@ export function CreateCampaignDialog({
                                     <Badge variant={device.enabled ? 'default' : 'secondary'} className='text-xs'>
                                       {device.enabled ? 'Enabled' : 'Disabled'}
                                     </Badge>
-                                    {currentTier && (
-                                      <Badge variant='outline' className='text-xs'>
-                                        Tier {device.current_tier || 1}
-                                      </Badge>
-                                    )}
                                   </div>
                                   <div className='text-xs text-muted-foreground mt-1'>
                                     <code className='bg-muted px-1 py-0.5 rounded text-xs'>
@@ -764,7 +834,9 @@ export function CreateCampaignDialog({
                   <Label className='text-sm font-medium'>Schedule Send</Label>
                   <Select
                     value={campaignData.scheduleType}
-                    onValueChange={(value) => onCampaignDataChange({ ...campaignData, scheduleType: value as any })}
+                    onValueChange={(value) => {
+                      onCampaignDataChange({ ...campaignData, scheduleType: value as any })
+                    }}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select scheduling option" />
@@ -852,7 +924,7 @@ export function CreateCampaignDialog({
 
                     {campaignData.scheduleType === 'windows' && (
                       <div className='ml-6 space-y-4 border-l-2 border-muted pl-4'>
-                        <div className='text-xs text-muted-foreground bg-blue-50 p-2 rounded border border-blue-200'>
+                        <div className='text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950 p-2 rounded border border-blue-200 dark:border-blue-800'>
                           <strong>Note:</strong> Define specific days and time windows when messages can be sent.
                           Messages will only be sent during these windows.
                         </div>
@@ -980,7 +1052,7 @@ export function CreateCampaignDialog({
                     )}
                     {campaignData.scheduleType === 'weekday' && (
                       <div className='ml-6 space-y-4 border-l-2 border-muted pl-4'>
-                        <div className='text-xs text-muted-foreground bg-blue-50 p-2 rounded border border-blue-200'>
+                        <div className='text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950 p-2 rounded border border-blue-200 dark:border-blue-800'>
                           <strong>Note:</strong> Define time windows for each day of the week when messages can be sent.
                           Messages will only be sent during these time windows on the respective days.
                         </div>
@@ -1038,11 +1110,12 @@ export function CreateCampaignDialog({
                                       variant='outline'
                                       className='gap-1 text-xs h-7'
                                       onClick={() => {
+                                        const newWindowsForDay = [...campaignData.weekdayWindows[day as keyof typeof campaignData.weekdayWindows], { startTime: '', endTime: '' }]
                                         onCampaignDataChange({
                                           ...campaignData,
                                           weekdayWindows: {
                                             ...campaignData.weekdayWindows,
-                                            [day]: [...campaignData.weekdayWindows[day as keyof typeof campaignData.weekdayWindows], { startTime: '', endTime: '' }]
+                                            [day]: newWindowsForDay
                                           }
                                         })
                                       }}
@@ -1183,7 +1256,7 @@ export function CreateCampaignDialog({
                     <div className='flex-1 flex flex-col items-center px-2 sm:px-0 min-h-0'>
                       {/* Message Card - Responsive sizing with overlap prevention */}
                       <div className={`w-full max-w-lg flex-1 flex flex-col min-h-0 ${spacing.isTiny ? 'mb-2' : 'mb-3'}`}>
-                        <div className={`bg-white border border-border rounded-lg ${spacing.isTiny ? 'p-1' : 'p-2 sm:p-3'} shadow-sm flex-1 flex flex-col`} style={{
+                        <div className={`bg-card border border-border rounded-lg ${spacing.isTiny ? 'p-1' : 'p-2 sm:p-3'} shadow-sm flex-1 flex flex-col`} style={{
                           minHeight: spacing.isTiny ? '120px' : spacing.isCompact ? '160px' : '200px',
                           maxHeight: `calc(100vh - ${spacing.isTiny ? '320px' : spacing.isCompact ? '360px' : '400px'})`
                         }}>
@@ -1326,24 +1399,16 @@ export function CreateCampaignDialog({
               <div className='flex gap-2'>
                 <Button
                   variant='outline'
-                  onClick={onCreateCampaign}
+                  onClick={handleSaveWithValidation}
                   disabled={!campaignData.name.trim() || campaignData.selectedContacts.length === 0}
                 >
                   Save Campaign as Draft
                 </Button>
                 <Button
-                  onClick={() => {
-                    // TODO: Launch campaign functionality will be added later
-                    toast({
-                      title: 'Launch Campaign',
-                      description: 'Campaign launch functionality will be available soon.',
-                      variant: 'default'
-                    })
-                  }}
-                  disabled={true} // Disabled as requested
-                  className='opacity-50 cursor-not-allowed'
+                  onClick={handleLaunchCampaign}
+                  disabled={!campaignData.name.trim() || campaignData.selectedContacts.length === 0 || isLaunching}
                 >
-                  Launch Campaign
+                  {isLaunching ? 'Launching...' : 'Launch Campaign'}
                 </Button>
               </div>
             )}
@@ -1351,5 +1416,37 @@ export function CreateCampaignDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Validation Warning Dialog */}
+    <Dialog open={showValidationWarningDialog} onOpenChange={setShowValidationWarningDialog}>
+      <DialogContent className='sm:max-w-md'>
+        <DialogHeader>
+          <DialogTitle>Template Validation Errors Detected</DialogTitle>
+          <DialogDescription>
+            {getValidationErrorCount()} out of {messagePreview.length} message{messagePreview.length !== 1 ? 's' : ''} {getValidationErrorCount() !== 1 ? 'have' : 'has'} template validation errors.
+            These messages will be sent with blank fields where variables cannot be substituted.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className='flex-col sm:flex-row gap-2'>
+          <Button
+            variant='outline'
+            onClick={() => setShowValidationWarningDialog(false)}
+            className='w-full sm:w-auto'
+          >
+            Go Back
+          </Button>
+          <Button
+            onClick={() => {
+              setShowValidationWarningDialog(false)
+              onCreateCampaign()
+            }}
+            className='w-full sm:w-auto'
+          >
+            Continue Anyway
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

@@ -4,90 +4,31 @@ import { Model, Types } from 'mongoose'
 import { UsagePlan, UsagePlanDocument } from './schemas/usage-plan.schema'
 import { Device, DeviceDocument } from './schemas/device.schema'
 import { User } from '../users/schemas/user.schema'
-import { CreateUsagePlanDTO, UpdateUsagePlanDTO, AssignUsagePlanDTO } from './usage-plan.dto'
-
-// Pre-defined plan templates
-const PREDEFINED_PLANS = [
-  {
-    _id: 'template_verizon_business',
-    name: 'Verizon Business SIM',
-    description: 'Best for high-volume sending',
-    tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 70 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 140 }, // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 280 }, // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 420 }, // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 560 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 700 },  // 100%
-    ],
-    isDefault: false,
-    isActive: true,
-    isTemplate: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    _id: 'template_verizon_prepaid',
-    name: 'Verizon Prepaid SIM',
-    description: 'Reliable mid-volume option',
-    tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 20 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 40 },  // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 80 },  // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 120 }, // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 160 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 200 },  // 100%
-    ],
-    isDefault: false,
-    isActive: true,
-    isTemplate: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    _id: 'template_total_wireless',
-    name: 'Total Wireless SIM',
-    description: "Reliable mid-volume option on Verizon's network",
-    tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },  // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },  // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },  // 100%
-    ],
-    isDefault: false,
-    isActive: true,
-    isTemplate: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    _id: 'template_tracfone',
-    name: 'Tracfone SIM',
-    description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
-    tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },  // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },  // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },  // 100%
-    ],
-    isDefault: false,
-    isActive: true,
-    isTemplate: true,
-    createdAt: new Date().toISOString(),
-  },
-]
+import {
+  CreateUsagePlanDTO,
+  UpdateUsagePlanDTO,
+  AssignUsagePlanDTO,
+} from './usage-plan.dto'
+import { PlanSwitchingService } from './services/plan-switching.service'
+import { PREDEFINED_PLANS } from './constants/usage-plan-templates'
 
 @Injectable()
 export class UsagePlanService {
   constructor(
-    @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
+    @InjectModel(UsagePlan.name)
+    private usagePlanModel: Model<UsagePlanDocument>,
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
+    private planSwitchingService: PlanSwitchingService,
   ) {}
 
-  async createUsagePlan(createUsagePlanDto: CreateUsagePlanDTO, user: User): Promise<UsagePlan> {
+  async createUsagePlan(
+    createUsagePlanDto: CreateUsagePlanDTO,
+    user: User,
+  ): Promise<UsagePlan> {
     // Validate tiers are sequential starting from 1
-    const sortedTiers = [...createUsagePlanDto.tiers].sort((a, b) => a.tier - b.tier)
+    const sortedTiers = [...createUsagePlanDto.tiers].sort(
+      (a, b) => a.tier - b.tier,
+    )
 
     for (let i = 0; i < sortedTiers.length; i++) {
       if (sortedTiers[i].tier !== i + 1) {
@@ -107,7 +48,9 @@ export class UsagePlanService {
 
     // Also check against predefined template names
     const templateNameExists = PREDEFINED_PLANS.some(
-      template => template.name.toLowerCase() === createUsagePlanDto.name.trim().toLowerCase()
+      (template) =>
+        template.name.toLowerCase() ===
+        createUsagePlanDto.name.trim().toLowerCase(),
     )
 
     if (existingPlan || templateNameExists) {
@@ -121,7 +64,7 @@ export class UsagePlanService {
     if (createUsagePlanDto.isDefault) {
       await this.usagePlanModel.updateMany(
         { user: user._id, isDefault: true },
-        { $set: { isDefault: false } }
+        { $set: { isDefault: false } },
       )
     }
 
@@ -142,8 +85,8 @@ export class UsagePlanService {
 
     // Combine with predefined template plans
     const allPlans = [
-      ...userPlans.map(plan => plan.toObject()),
-      ...PREDEFINED_PLANS
+      ...userPlans.map((plan) => plan.toObject()),
+      ...PREDEFINED_PLANS,
     ]
 
     // Sort by default status first, then by creation date (templates last)
@@ -162,7 +105,9 @@ export class UsagePlanService {
   async getUserUsagePlan(user: User, planId: string): Promise<UsagePlan> {
     // Check if this is a template plan first
     if (planId.startsWith('template_')) {
-      const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
+      const templatePlan = PREDEFINED_PLANS.find(
+        (template) => template._id === planId,
+      )
       if (templatePlan) {
         return templatePlan as unknown as UsagePlan
       }
@@ -189,17 +134,26 @@ export class UsagePlanService {
     return plan
   }
 
-  async updateUsagePlan(user: User, planId: string, updateUsagePlanDto: UpdateUsagePlanDTO): Promise<UsagePlan> {
+  async updateUsagePlan(
+    user: User,
+    planId: string,
+    updateUsagePlanDto: UpdateUsagePlanDTO,
+  ): Promise<UsagePlan> {
     // Template plans cannot be updated
     if (planId.startsWith('template_')) {
-      throw new HttpException('Template plans cannot be updated', HttpStatus.BAD_REQUEST)
+      throw new HttpException(
+        'Template plans cannot be updated',
+        HttpStatus.BAD_REQUEST,
+      )
     }
 
     const plan = await this.getUserUsagePlan(user, planId)
 
     // Validate tiers if provided
     if (updateUsagePlanDto.tiers) {
-      const sortedTiers = [...updateUsagePlanDto.tiers].sort((a, b) => a.tier - b.tier)
+      const sortedTiers = [...updateUsagePlanDto.tiers].sort(
+        (a, b) => a.tier - b.tier,
+      )
 
       for (let i = 0; i < sortedTiers.length; i++) {
         if (sortedTiers[i].tier !== i + 1) {
@@ -215,14 +169,18 @@ export class UsagePlanService {
     if (updateUsagePlanDto.name) {
       const existingPlan = await this.usagePlanModel.findOne({
         user: user._id,
-        name: { $regex: new RegExp(`^${updateUsagePlanDto.name.trim()}$`, 'i') },
+        name: {
+          $regex: new RegExp(`^${updateUsagePlanDto.name.trim()}$`, 'i'),
+        },
         isActive: true,
         _id: { $ne: planId }, // Exclude current plan
       })
 
       // Also check against predefined template names
       const templateNameExists = PREDEFINED_PLANS.some(
-        template => template.name.toLowerCase() === updateUsagePlanDto.name.trim().toLowerCase()
+        (template) =>
+          template.name.toLowerCase() ===
+          updateUsagePlanDto.name.trim().toLowerCase(),
       )
 
       if (existingPlan || templateNameExists) {
@@ -237,14 +195,14 @@ export class UsagePlanService {
     if (updateUsagePlanDto.isDefault) {
       await this.usagePlanModel.updateMany(
         { user: user._id, isDefault: true, _id: { $ne: planId } },
-        { $set: { isDefault: false } }
+        { $set: { isDefault: false } },
       )
     }
 
     const updatedPlan = await this.usagePlanModel.findByIdAndUpdate(
       planId,
       { $set: updateUsagePlanDto },
-      { new: true }
+      { new: true },
     )
 
     return updatedPlan
@@ -253,7 +211,10 @@ export class UsagePlanService {
   async deleteUsagePlan(user: User, planId: string): Promise<void> {
     // Template plans cannot be deleted
     if (planId.startsWith('template_')) {
-      throw new HttpException('Template plans cannot be deleted', HttpStatus.BAD_REQUEST)
+      throw new HttpException(
+        'Template plans cannot be deleted',
+        HttpStatus.BAD_REQUEST,
+      )
     }
 
     const plan = await this.getUserUsagePlan(user, planId)
@@ -273,13 +234,20 @@ export class UsagePlanService {
 
     // Soft delete
     await this.usagePlanModel.findByIdAndUpdate(planId, {
-      $set: { isActive: false }
+      $set: { isActive: false },
     })
   }
 
-  async assignUsagePlanToDevice(user: User, deviceId: string, assignUsagePlanDto: AssignUsagePlanDTO): Promise<Device> {
+  async assignUsagePlanToDevice(
+    user: User,
+    deviceId: string,
+    assignUsagePlanDto: AssignUsagePlanDTO,
+  ): Promise<Device> {
     // Verify the usage plan belongs to the user
-    await this.getUserUsagePlan(user, assignUsagePlanDto.usagePlanId)
+    const plan = await this.getUserUsagePlan(
+      user,
+      assignUsagePlanDto.usagePlanId,
+    )
 
     // Find the device
     const device = await this.deviceModel.findOne({
@@ -291,19 +259,55 @@ export class UsagePlanService {
       throw new HttpException('Device not found', HttpStatus.NOT_FOUND)
     }
 
-    // Assign the plan and reset tier to 1
+    // Assign the plan and start at tier 1 (no auto-tier placement)
+    // Users can manually advance to highest tier using the "Advance to highest tier" button
     device.usagePlan = assignUsagePlanDto.usagePlanId as any
     device.current_tier = 1
-    device.is_on_cooldown = false
-    device.cooldown_until = undefined
+    device.last_tier_upgrade = new Date()
 
-    return await device.save()
+    // Update historical limits based on tier 1 of the new plan
+    // This ensures limits increase if the new plan has better limits than the old plan
+    const tier1Config = plan.tiers.find((t) => t.tier === 1)
+    if (tier1Config) {
+      // Only update historical limits if using standard 24-hour window (1440 minutes)
+      const usageWindowMinutes = (plan as any).usageWindowMinutes || 1440
+      if (usageWindowMinutes === 1440) {
+        // Update best_min_wait_seconds if tier 1's limit is better (lower)
+        if (
+          !device.best_min_wait_seconds ||
+          tier1Config.min_wait_seconds < device.best_min_wait_seconds
+        ) {
+          device.best_min_wait_seconds = tier1Config.min_wait_seconds
+        }
+
+        // Update max_messages_per_cycle if tier 1's limit is better (higher)
+        if (
+          !device.max_messages_per_cycle ||
+          tier1Config.messages_per_cycle > device.max_messages_per_cycle
+        ) {
+          device.max_messages_per_cycle = tier1Config.messages_per_cycle
+        }
+      }
+    }
+
+    // Reset cooldown status when switching plans
+    device.is_on_cooldown = false
+    device.cooldown_end_time = undefined
+    device.cooldown_reason = undefined
+
+    await device.save()
+
+    return device
   }
 
-  async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
+  async getUsagePlanById(
+    planId: string | Types.ObjectId,
+  ): Promise<UsagePlan | null> {
     if (typeof planId === 'string' && planId.startsWith('template_')) {
-      const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
-      return templatePlan ? templatePlan as unknown as UsagePlan : null
+      const templatePlan = PREDEFINED_PLANS.find(
+        (template) => template._id === planId,
+      )
+      return templatePlan ? (templatePlan as unknown as UsagePlan) : null
     }
 
     if (Types.ObjectId.isValid(planId as string)) {
@@ -328,10 +332,11 @@ export class UsagePlanService {
     const defaultPlanData: CreateUsagePlanDTO = {
       name: 'Default Plan',
       description: 'Automatically created default usage plan',
+      usageWindowMinutes: 1440, // 24 hours rolling window
       tiers: [
-        { tier: 1, timeDelayBetweenMessages: 2, dailyLimit: 50 },
-        { tier: 2, timeDelayBetweenMessages: 1, dailyLimit: 100 },
-        { tier: 3, timeDelayBetweenMessages: 0, dailyLimit: 200 },
+        { tier: 1, min_wait_seconds: 2, messages_per_cycle: 50 },
+        { tier: 2, min_wait_seconds: 1, messages_per_cycle: 100 },
+        { tier: 3, min_wait_seconds: 0, messages_per_cycle: 200 },
       ],
       isDefault: true,
     }
@@ -339,7 +344,11 @@ export class UsagePlanService {
     return await this.createUsagePlan(defaultPlanData, user)
   }
 
-  async getCurrentTierForDevice(device: DeviceDocument): Promise<{ tier: number; timeDelayBetweenMessages: number; dailyLimit: number } | null> {
+  async getCurrentTierForDevice(device: DeviceDocument): Promise<{
+    tier: number
+    min_wait_seconds: number
+    messages_per_cycle: number
+  } | null> {
     if (!device.usagePlan) {
       return null
     }
@@ -349,69 +358,9 @@ export class UsagePlanService {
       return null
     }
 
-    const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
+    const currentTier = usagePlan.tiers.find(
+      (t) => t.tier === device.current_tier,
+    )
     return currentTier || null
-  }
-
-  async checkAndProgressTier(device: DeviceDocument): Promise<boolean> {
-    if (!device.usagePlan) {
-      return false
-    }
-
-    const usagePlan = await this.getUsagePlanById(device.usagePlan)
-    if (!usagePlan) {
-      return false
-    }
-
-    const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
-    if (!currentTier) {
-      return false
-    }
-
-    // Check if daily limit exceeded
-    if (device.messages_sent_today >= currentTier.dailyLimit) {
-      // Find next tier
-      const nextTier = usagePlan.tiers.find(t => t.tier === device.current_tier + 1)
-
-      if (nextTier) {
-        // Upgrade tier
-        device.current_tier = nextTier.tier
-        device.last_tier_upgrade = new Date()
-        await device.save()
-        return true
-      } else {
-        // No next tier available, put on cooldown
-        device.is_on_cooldown = true
-        device.cooldown_until = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-        await device.save()
-      }
-    }
-
-    return false
-  }
-
-  async checkAndResetCooldown(device: DeviceDocument): Promise<boolean> {
-    if (!device.is_on_cooldown || !device.cooldown_until) {
-      return false
-    }
-
-    const now = new Date()
-
-    // Check if cooldown period has passed
-    if (now >= device.cooldown_until) {
-      // Reset cooldown and check if we can move to next tier
-      device.is_on_cooldown = false
-      device.cooldown_until = undefined
-
-      // If messages sent in last 24 hours is now 0, we can progress
-      if (device.messages_sent_today === 0) {
-        await this.checkAndProgressTier(device)
-      }
-
-      await device.save()
-      return true
-    }
-
-    return false
   }
 }

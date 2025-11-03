@@ -26,4 +26,5 @@ export class ContactTemplate {
   createdAt: Date
 }
 
-export const ContactTemplateSchema = SchemaFactory.createForClass(ContactTemplate)
+export const ContactTemplateSchema =
+  SchemaFactory.createForClass(ContactTemplate)

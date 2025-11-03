@@ -37,26 +37,115 @@ export default function LoginForm() {
   })
 
   const onSubmit = async (data: LoginFormValues) => {
+    // Store original fetch to restore later
+    const originalFetch = window.fetch
+
     try {
+      console.log('=== STARTING LOGIN ===')
+      console.log('Calling signIn with email:', data.email)
+      console.log('Window location:', window.location.href)
+      console.log('Window origin:', window.location.origin)
+
+      // Intercept fetch to see what NextAuth is doing
+      window.fetch = async (input, init?) => {
+        const url = typeof input === 'string'
+          ? input
+          : input instanceof Request
+            ? input.url
+            : input.href
+        console.log('=== NEXTAUTH FETCH INTERCEPTED ===')
+        console.log('URL:', url)
+        console.log('Method:', init?.method || 'GET')
+        console.log('Headers:', init?.headers)
+        console.log('Body preview:', typeof init?.body === 'string' ? init.body.substring(0, 200) : init?.body)
+
+        try {
+          const response = await originalFetch(input, init)
+          console.log('Response status:', response.status)
+          console.log('Response statusText:', response.statusText)
+          console.log('Response content-type:', response.headers.get('content-type'))
+          console.log('Response headers:', Array.from(response.headers.entries()))
+
+          // Clone so we can read it without consuming the body
+          const clonedResponse = response.clone()
+          const text = await clonedResponse.text()
+          console.log('Response length:', text.length, 'characters')
+          console.log('Response preview (first 500 chars):', text.substring(0, 500))
+
+          if (text.trim().startsWith('<!')) {
+            console.error('!!!!! RESPONSE IS HTML, NOT JSON !!!!!')
+            console.error('HTML Title:', text.match(/<title>(.*?)<\/title>/i)?.[1] || 'No title')
+          }
+          console.log('=== END FETCH INTERCEPT ===')
+
+          return response
+        } catch (fetchError) {
+          console.error('=== FETCH FAILED ===')
+          console.error('Error:', fetchError)
+          console.error('=== END FETCH FAILED ===')
+          throw fetchError
+        }
+      }
+
       const result = await signIn('email-password-login', {
-        redirect: true,
+        redirect: false, // Changed to false to see result
         callbackUrl: Routes.dashboard,
         email: data.email,
         password: data.password,
       })
+
+      // Restore original fetch
+      window.fetch = originalFetch
+
+      console.log('=== SIGNIN RESULT ===')
+      console.log('Result:', result)
+      console.log('Result error:', result?.error)
+      console.log('Result status:', result?.status)
+      console.log('Result ok:', result?.ok)
+      console.log('Result url:', result?.url)
+      console.log('=== END SIGNIN RESULT ===')
 
       if (result?.error) {
         form.setError('root', {
           type: 'manual',
           message: 'Invalid email or password',
         })
+      } else if (result?.ok) {
+        // Manually redirect on success
+        router.push(Routes.dashboard)
       }
     } catch (error) {
-      console.error('login error:', error)
+      console.error('=== LOGIN ERROR DEBUG ===')
+      console.error('Full error object:', error)
+      console.error('Error type:', typeof error)
+      console.error('Error message:', error?.message)
+      console.error('Error stack:', error?.stack)
+
+      // Log axios-specific error details if available
+      if (error?.response) {
+        console.error('Response status:', error.response.status)
+        console.error('Response headers:', error.response.headers)
+        console.error('Response data:', error.response.data)
+      }
+
+      if (error?.config) {
+        console.error('Request URL:', error.config.url)
+        console.error('Request method:', error.config.method)
+        console.error('Request headers:', error.config.headers)
+        console.error('Request data:', error.config.data)
+      }
+
+      console.error('User agent:', navigator.userAgent)
+      console.error('Current URL:', window.location.href)
+      console.error('=== END LOGIN ERROR DEBUG ===')
+
       form.setError('root', {
         type: 'manual',
         message: 'An unexpected error occurred. Please try again.',
       })
+    } finally {
+      // Always restore original fetch
+      window.fetch = originalFetch
     }
   }
 

@@ -1,5 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsString, IsOptional, IsNotEmpty, IsMongoId, IsArray, IsEnum, IsObject, ValidateNested, IsBoolean, IsNumber } from 'class-validator'
+import {
+  IsString,
+  IsOptional,
+  IsNotEmpty,
+  IsMongoId,
+  IsArray,
+  IsEnum,
+  IsObject,
+  ValidateNested,
+  IsBoolean,
+  IsNumber,
+} from 'class-validator'
 import { Type } from 'class-transformer'
 import { CampaignStatus, ScheduleType } from './schemas/campaign.schema'
 
@@ -146,7 +157,10 @@ export class CreateCampaignDto {
   @IsString({ each: true })
   selectedContacts: string[]
 
-  @ApiProperty({ description: 'Template IDs (will be rotated through)', type: [String] })
+  @ApiProperty({
+    description: 'Template IDs (will be rotated through)',
+    type: [String],
+  })
   @IsArray()
   @IsString({ each: true })
   selectedTemplates: string[]
@@ -159,16 +173,6 @@ export class CreateCampaignDto {
   @ApiProperty({ enum: ScheduleType, description: 'Schedule type' })
   @IsEnum(ScheduleType)
   scheduleType: ScheduleType
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  scheduledDate?: string
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  scheduledTime?: string
 
   @ApiProperty({ description: 'Campaign start date (YYYY-MM-DD)' })
   @IsString()
@@ -197,17 +201,20 @@ export class CreateCampaignDto {
   @IsObject()
   weekdayWindows?: any
 
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsObject()
-  weekdayEnabled?: any
-
-  @ApiProperty({ description: 'Exclude DNC contacts', required: false, default: true })
+  @ApiProperty({
+    description: 'Exclude DNC contacts',
+    required: false,
+    default: true,
+  })
   @IsOptional()
   @IsBoolean()
   excludeDnc?: boolean
 
-  @ApiProperty({ description: 'Include previously messaged contacts', required: false, default: false })
+  @ApiProperty({
+    description: 'Include previously messaged contacts',
+    required: false,
+    default: false,
+  })
   @IsOptional()
   @IsBoolean()
   includePreviouslyMessaged?: boolean
@@ -294,6 +301,19 @@ export class CampaignResponseDto {
 
   @ApiProperty({ required: false })
   includePreviouslyMessaged?: boolean
+
+  @ApiProperty({
+    required: false,
+    description: 'Percentage of sent messages that were delivered',
+  })
+  deliveryRate?: number
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Percentage of recipients who replied after receiving campaign message',
+  })
+  responseRate?: number
 }
 
 // Template Preview Processing DTOs
@@ -308,22 +328,38 @@ export class ProcessTemplatePreviewDto {
   @IsString({ each: true })
   contactSpreadsheetIds: string[]
 
-  @ApiProperty({ description: 'Exclude DNC contacts', required: false, default: true })
+  @ApiProperty({
+    description: 'Exclude DNC contacts',
+    required: false,
+    default: true,
+  })
   @IsOptional()
   @IsBoolean()
   excludeDnc?: boolean
 
-  @ApiProperty({ description: 'Include previously messaged contacts', required: false, default: false })
+  @ApiProperty({
+    description: 'Include previously messaged contacts',
+    required: false,
+    default: false,
+  })
   @IsOptional()
   @IsBoolean()
   includePreviouslyMessaged?: boolean
 
-  @ApiProperty({ description: 'Maximum number of previews to return', required: false, default: 100 })
+  @ApiProperty({
+    description: 'Maximum number of previews to return',
+    required: false,
+    default: 100,
+  })
   @IsOptional()
   @IsNumber()
   maxPreviewCount?: number
 
-  @ApiProperty({ description: 'Enable variable highlighting in processed content', required: false, default: false })
+  @ApiProperty({
+    description: 'Enable variable highlighting in processed content',
+    required: false,
+    default: false,
+  })
   @IsOptional()
   @IsBoolean()
   highlightVariables?: boolean
@@ -385,7 +421,9 @@ export class ValidationErrorDto {
   @ApiProperty()
   variableName: string
 
-  @ApiProperty({ enum: ['missing_field', 'empty_value', 'unsupported_variable'] })
+  @ApiProperty({
+    enum: ['missing_field', 'empty_value', 'unsupported_variable'],
+  })
   errorType: 'missing_field' | 'empty_value' | 'unsupported_variable'
 
   @ApiProperty()

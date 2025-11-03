@@ -15,6 +15,16 @@ import {
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -36,11 +46,12 @@ import {
   RefreshCw,
   Eye,
   UserPlus,
+  Smartphone,
 } from 'lucide-react'
 import { contactsApi, ContactSpreadsheet, Contact, downloadBlob, CreateGroupData } from '@/lib/api/contacts'
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
-import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus } from '@/lib/utils'
+import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, groupMessagesWithMetadataChanges, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus, formatPhoneNumberDisplay } from '@/lib/utils'
 import CsvPreviewDialog from './(components)/csv-preview-dialog'
 import ProcessingDetailsDialog from './(components)/processing-details-dialog'
 
@@ -54,6 +65,7 @@ interface Message {
   type: string
   status: string
   device: string | { _id: string }
+  senderPhoneNumber?: string
 }
 
 function DateSeparator({ dateLabel }: { dateLabel: string }) {
@@ -61,6 +73,20 @@ function DateSeparator({ dateLabel }: { dateLabel: string }) {
     <div className="flex items-center justify-center my-4">
       <div className="bg-muted/80 text-muted-foreground text-xs px-3 py-1 rounded-full">
         {dateLabel}
+      </div>
+    </div>
+  )
+}
+
+function MetadataChangeSeparator({ deviceId, phoneNumber }: { deviceId: string; phoneNumber: string }) {
+  const deviceDisplay = deviceId || 'Device unknown'
+  const phoneDisplay = phoneNumber ? formatPhoneNumberDisplay(phoneNumber) : 'Phone unknown'
+  const displayText = `${deviceDisplay} - ${phoneDisplay}`
+
+  return (
+    <div className="flex items-center justify-center my-4">
+      <div className="bg-yellow-50 text-yellow-800 text-xs px-3 py-1 rounded-full">
+        {displayText}
       </div>
     </div>
   )
@@ -93,6 +119,9 @@ function ContactSidebar({
 }) {
   const [activeTab, setActiveTab] = useState('info')
   const [newMessage, setNewMessage] = useState('')
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
+  const [showDeviceChangeDialog, setShowDeviceChangeDialog] = useState(false)
+  const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null)
   const [autoRefreshInterval] = useState(15) // Default to 15 seconds
   const refreshTimerRef = useRef(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -106,6 +135,15 @@ function ContactSidebar({
     enabled: !!contact.id,
   })
 
+  // Fetch conversation metadata to get preferred device
+  const { data: conversationMetadata } = useQuery({
+    queryKey: ['conversation-metadata'],
+    queryFn: () =>
+      httpBrowserClient
+        .get(ApiEndpoints.users.getConversationMetadata())
+        .then((res) => res.data),
+  })
+
   const { data: devices } = useQuery({
     queryKey: ['devices'],
     queryFn: () =>
@@ -113,6 +151,23 @@ function ContactSidebar({
         .get(ApiEndpoints.gateway.listDevices())
         .then((res) => res.data),
   })
+
+  // Initialize selected device from metadata or default to first enabled device
+  useEffect(() => {
+    if (devices?.data?.length) {
+      const normalizedPhone = normalizePhoneNumber(contact.phone)
+      const metadata = conversationMetadata?.[normalizedPhone]
+
+      if (metadata?.preferredDeviceId) {
+        setSelectedDeviceId(metadata.preferredDeviceId)
+      } else if (!selectedDeviceId) {
+        const enabledDevice = devices.data.find((d: any) => d.enabled)
+        if (enabledDevice) {
+          setSelectedDeviceId(enabledDevice._id)
+        }
+      }
+    }
+  }, [devices, conversationMetadata, contact.phone, selectedDeviceId])
 
   const { data: messagesData, refetch } = useQuery({
     queryKey: ['contact-messages', contact.phone],
@@ -204,17 +259,43 @@ function ContactSidebar({
     }
   }, [activeTab, messagesData, markConversationAsRead])
 
+  const updateDeviceMutation = useMutation({
+    mutationFn: async (deviceId: string) => {
+      const response = await httpBrowserClient.patch(
+        ApiEndpoints.users.updateConversationDevice(),
+        {
+          phoneNumber: normalizePhoneNumber(contact.phone),
+          deviceId: deviceId
+        }
+      )
+      return response.data
+    },
+    onSuccess: () => {
+      toast({
+        title: "Device updated",
+        description: "Future messages will be sent from the selected device."
+      })
+      queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update device",
+        description: error.response?.data?.message || error.message || "An error occurred.",
+        variant: "destructive"
+      })
+    }
+  })
+
   const sendSmsMutation = useMutation({
     mutationFn: async (messageText: string) => {
-      const enabledDevice = devices?.data?.find(d => d.enabled)
-      if (!enabledDevice) {
-        throw new Error('No enabled device available to send message')
+      if (!selectedDeviceId) {
+        throw new Error('No device available to send message')
       }
 
       const response = await httpBrowserClient.post(
-        ApiEndpoints.gateway.sendSMS(enabledDevice._id),
+        ApiEndpoints.gateway.sendSMS(selectedDeviceId),
         {
-          deviceId: enabledDevice._id,
+          deviceId: selectedDeviceId,
           recipients: [contact.phone],
           message: messageText
         }
@@ -249,24 +330,88 @@ function ContactSidebar({
     setNewMessage('')
   }
 
+  const handleDeviceChange = (newDeviceId: string) => {
+    if (newDeviceId === selectedDeviceId) return
+
+    setPendingDeviceId(newDeviceId)
+    setShowDeviceChangeDialog(true)
+  }
+
+  const confirmDeviceChange = () => {
+    if (pendingDeviceId) {
+      setSelectedDeviceId(pendingDeviceId)
+      updateDeviceMutation.mutate(pendingDeviceId)
+      setShowDeviceChangeDialog(false)
+      setPendingDeviceId(null)
+    }
+  }
+
+  const cancelDeviceChange = () => {
+    setShowDeviceChangeDialog(false)
+    setPendingDeviceId(null)
+  }
+
+  const selectedDevice = devices?.data?.find((d: any) => d._id === selectedDeviceId)
+  const pendingDevice = devices?.data?.find((d: any) => d._id === pendingDeviceId)
+  const selectedDevicePhone = selectedDevice?.phoneNumber || selectedDevice?.phoneNumber2
+  const pendingDevicePhone = pendingDevice?.phoneNumber || pendingDevice?.phoneNumber2
+  const enabledDevice = devices?.data?.find((d: any) => d._id === selectedDeviceId && d.enabled)
+
   const displayName = contact.firstName || contact.lastName
     ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
-    : contact.phone
-
-  const enabledDevice = devices?.data?.find(d => d.enabled)
+    : formatPhoneNumberDisplay(contact.phone)
 
   return (
     <div className="flex flex-col h-full border-l overflow-hidden">
-      <div className="p-4 border-b flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">{displayName}</h2>
-          {contact.firstName && (
-            <p className="text-sm text-muted-foreground">{contact.phone}</p>
-          )}
+      {/* Header with Device Selector */}
+      <div className="p-4 border-b">
+        {/* Contact name and close button */}
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <h2 className="text-lg font-semibold">{displayName}</h2>
+            {contact.firstName && (
+              <p className="text-sm text-muted-foreground">{formatPhoneNumberDisplay(contact.phone)}</p>
+            )}
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
+
+        {/* Device Selector */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Sending from:</label>
+          <Select
+            value={selectedDeviceId || ''}
+            onValueChange={handleDeviceChange}
+            disabled={!devices?.data?.length}
+          >
+            <SelectTrigger className="w-full h-10">
+              <SelectValue placeholder="Select a device" />
+            </SelectTrigger>
+            <SelectContent>
+              {devices?.data?.map((device: any) => (
+                <SelectItem
+                  key={device._id}
+                  value={device._id}
+                  disabled={!device.enabled}
+                  className="py-2"
+                >
+                  <div className={cn("flex flex-col", !device.enabled && "opacity-50")}>
+                    <div className="flex items-center gap-2 font-medium">
+                      <Smartphone className="h-4 w-4" />
+                      <span>{device.brand} {device.model}</span>
+                      {!device.enabled && <span className="text-xs">(disabled)</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground ml-6 mt-0.5">
+                      {formatPhoneNumberDisplay(device.phoneNumber)} • ID: {device._id}
+                    </div>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="border-b">
@@ -325,11 +470,13 @@ function ContactSidebar({
                     date: new Date(message.receivedAt || message.requestedAt || 0),
                     isIncoming: !!message.sender,
                     status: message.status as MessageStatus,
+                    deviceId: typeof message.device === 'string' ? message.device : message.device?._id,
+                    senderPhoneNumber: message.senderPhoneNumber,
                     originalMessage: message
                   })) || []
 
-                  // Group messages with date separators
-                  const messageGroups = groupMessagesWithDateSeparators(formattedMessages)
+                  // Group messages with date and metadata change separators
+                  const messageGroups = groupMessagesWithMetadataChanges(formattedMessages)
 
                   return (
                     <>
@@ -337,6 +484,14 @@ function ContactSidebar({
                         if (group.type === 'date') {
                           return (
                             <DateSeparator key={`date-${index}`} dateLabel={group.dateLabel!} />
+                          )
+                        } else if (group.type === 'metadata-change') {
+                          return (
+                            <MetadataChangeSeparator
+                              key={`metadata-${index}`}
+                              deviceId={group.changeInfo!.deviceId}
+                              phoneNumber={group.changeInfo!.phoneNumber}
+                            />
                           )
                         } else {
                           const msg = group.message!
@@ -355,9 +510,9 @@ function ContactSidebar({
                                   "max-w-[80%] rounded-lg px-3 py-2 text-sm",
                                   msg.isIncoming
                                     ? "bg-background border text-foreground"
-                                    : "bg-primary text-primary-foreground"
+                                    : "bg-primary text-white"
                                 )}>
-                                  <p>{msg.message}</p>
+                                  <p className="break-words whitespace-pre-wrap">{msg.message}</p>
                                 </div>
                                 {msg.isIncoming && (
                                   <div className="text-xs text-muted-foreground">
@@ -386,7 +541,7 @@ function ContactSidebar({
 
             <div className="flex-shrink-0 p-4 border-t bg-background">
               {!enabledDevice && (
-                <div className="mb-2 text-sm text-yellow-600 bg-yellow-50 p-2 rounded">
+                <div className="text-sm text-yellow-600 bg-yellow-50 p-2 rounded mb-2">
                   No enabled device available to send messages
                 </div>
               )}
@@ -439,6 +594,30 @@ function ContactSidebar({
           </div>
         )}
       </div>
+
+      {/* Device Change Confirmation Dialog */}
+      <AlertDialog open={showDeviceChangeDialog} onOpenChange={setShowDeviceChangeDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change Sending Device?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Messages to <strong>{displayName}</strong> will now be sent from a different phone number.
+              {selectedDevicePhone && pendingDevicePhone && (
+                <>
+                  {' '}You're switching from <strong>{formatPhoneNumberDisplay(selectedDevicePhone)}</strong> to <strong>{formatPhoneNumberDisplay(pendingDevicePhone)}</strong>.
+                </>
+              )}
+              {' '}This could be confusing to your client who has been receiving messages from your current number. Are you sure you want to make this change?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelDeviceChange}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeviceChange}>
+              Yes, Change Device
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -733,7 +912,7 @@ export default function ContactsPage() {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [displayCount, setDisplayCount] = useState(25)
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a' | 'status'>('newest')
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a'>('newest')
   const [spreadsheetSortBy, setSpreadsheetSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a' | 'status'>('newest')
   const [spreadsheetSortOrder, setSpreadsheetSortOrder] = useState<'asc' | 'desc'>('desc')
   const [contactSortBy, setContactSortBy] = useState<'firstName' | 'lastName' | 'phone' | 'email'>('firstName')
@@ -828,7 +1007,10 @@ export default function ContactsPage() {
       setLoading(true)
       const response = await contactsApi.getSpreadsheets({
         search: searchQuery || undefined,
-        sortBy,
+        sortBy,  // Error here: Type '"newest" | "oldest" | "a-z" | "z-a" | "status"' is not assignable to type '"newest" | "oldest" | "a-z" | "z-a"'.
+//   Type '"status"' is not assignable to type '"newest" | "oldest" | "a-z" | "z-a"'.ts(2322)
+// contacts.ts(27, 3): The expected type comes from property 'sortBy' which is declared here on type 'GetSpreadsheetsParams'
+// (property) GetSpreadsheetsParams.sortBy?: "newest" | "oldest" | "a-z" | "z-a"
         limit: displayCount,
         page: currentPage,
       })
@@ -1048,13 +1230,20 @@ export default function ContactsPage() {
 
   const createContactMutation = useMutation({
     mutationFn: async (data: typeof createContactData) => {
-      const cleanData = Object.fromEntries(
-        Object.entries(data).map(([key, value]) => [
-          key,
-          value === '' ? undefined : value
-        ])
-      )
-      return contactsApi.createContact(cleanData)
+      const { phone, dnc, ...rest } = data
+      // convert '' -> undefined for optional fields
+      const cleanedRest = Object.fromEntries(
+        Object.entries(rest).map(([k, v]) => [k, v === '' ? undefined : v])
+      ) as Partial<Contact>
+
+      // Build a typed payload with required phone
+      const payload: Partial<Contact> & { phone: string } = {
+        phone: phone.trim(),
+        ...cleanedRest,
+        // normalize null to undefined for boolean field
+        dnc: dnc ?? undefined,
+      }
+      return contactsApi.createContact(payload)
     },
     onSuccess: (newContact) => {
       toast({
@@ -1622,13 +1811,15 @@ export default function ContactsPage() {
     })
   }
 
-  const handleContactSort = (column: 'firstName' | 'lastName' | 'phone' | 'email' | 'groups') => {
+  const handleContactSort = (column: 'firstName' | 'lastName' | 'phone' | 'email') => {
     if (contactSortBy === column) {
       // Toggle sort order if clicking on same column
       setContactSortOrder(contactSortOrder === 'asc' ? 'desc' : 'asc')
     } else {
       // Change to new column, default to ascending
-      setContactSortBy(column)
+      setContactSortBy(column)  // Error here: Argument of type '"firstName" | "lastName" | "phone" | "email" | "groups"' is not assignable to parameter of type 'SetStateAction<"firstName" | "lastName" | "phone" | "email">'.
+//   Type '"groups"' is not assignable to type 'SetStateAction<"firstName" | "lastName" | "phone" | "email">'.ts(2345)
+// (parameter) column: "firstName" | "lastName" | "phone" | "email" | "groups"
       setContactSortOrder('asc')
     }
     setCurrentPage(1) // Reset to first page when sorting changes
@@ -1653,7 +1844,7 @@ export default function ContactsPage() {
       <ChevronDown className="h-4 w-4 ml-1" />
   }
 
-  const renderSortIcon = (column: 'firstName' | 'lastName' | 'phone' | 'email' | 'groups') => {
+  const renderSortIcon = (column: 'firstName' | 'lastName' | 'phone' | 'email') => {
     if (contactSortBy !== column) return null
     return contactSortOrder === 'asc' ?
       <ChevronUp className="h-4 w-4 ml-1" /> :
@@ -1693,7 +1884,7 @@ export default function ContactsPage() {
               <RefreshCw className='h-3 w-3' />
             </Button>
           )}
-          {status === 'processed' && (file.skippedCount || file.processingErrors?.length) && (
+          {status === 'processed' && (
             <Button
               size='sm'
               variant='ghost'
@@ -1758,7 +1949,7 @@ export default function ContactsPage() {
             <div className='relative w-80'>
               <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
               <Input
-                placeholder={selectedMode === 'spreadsheets' ? 'Search contact files...' : 'Search contacts...'}
+                placeholder={selectedMode === 'spreadsheets' ? 'Search contact groups...' : 'Search contacts...'}
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value)
@@ -1866,7 +2057,7 @@ export default function ContactsPage() {
                                   {availableContacts.map((contact) => {
                                     const displayName = contact.firstName || contact.lastName
                                       ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
-                                      : contact.phone
+                                      : formatPhoneNumberDisplay(contact.phone)
 
                                     return (
                                       <div key={contact.id} className='flex items-center space-x-3 p-3 hover:bg-muted/50'>
@@ -1922,7 +2113,6 @@ export default function ContactsPage() {
                     className='hidden'
                   />
                   <div className='flex flex-col gap-1'>
-                    <label className='text-xs text-muted-foreground'>Sort by:</label>
                     <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
                       <SelectTrigger className='w-32'>
                         <SelectValue />
@@ -2103,7 +2293,7 @@ export default function ContactsPage() {
               </div>
             ) : (
               <table className='w-full'>
-                <thead className='sticky top-0 z-10 border-b bg-muted'>
+                <thead className='sticky top-0 z-10 border-b bg-background'>
                   <tr>
                     <th className='w-12 p-4'>
                       <Checkbox
@@ -2139,7 +2329,6 @@ export default function ContactsPage() {
                       </td>
                       <td className='p-4'>
                         <div className='flex items-center gap-2'>
-                          <FileSpreadsheet className='h-4 w-4 text-muted-foreground' />
                           <div>
                             <div className='font-medium'>{file.originalFileName}</div>
                           </div>
@@ -2180,7 +2369,7 @@ export default function ContactsPage() {
               </div>
             ) : (
               <table className='w-full'>
-                <thead className='sticky top-0 z-10 border-b bg-muted'>
+                <thead className='sticky top-0 z-10 border-b bg-background'>
                   <tr>
                     <th className='w-12 p-4'>
                       <Checkbox

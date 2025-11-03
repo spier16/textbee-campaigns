@@ -1,0 +1,396 @@
+import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { InjectModel } from '@nestjs/mongoose'
+import { Model, Types } from 'mongoose'
+import { Device, DeviceDocument } from '../schemas/device.schema'
+import { UsagePlan, UsagePlanDocument } from '../schemas/usage-plan.schema'
+import { PREDEFINED_PLANS } from '../constants/usage-plan-templates'
+
+/**
+ * Service for handling usage plan switching with intelligent tier placement
+ *
+ * When a device switches to a new usage plan, this service automatically
+ * places it at the highest tier it has historically achieved, based on:
+ * - best_min_wait_seconds: Lowest minimum wait time the device has successfully maintained
+ * - max_messages_per_cycle: Highest message volume the device has handled
+ *
+ * This prevents forcing devices to "re-warm-up" when switching plans.
+ */
+@Injectable()
+export class PlanSwitchingService {
+  private readonly logger = new Logger(PlanSwitchingService.name)
+
+  constructor(
+    @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
+    @InjectModel(UsagePlan.name)
+    private usagePlanModel: Model<UsagePlanDocument>,
+  ) {}
+
+  /**
+   * Get usage plan by ID, supporting both template and user-created plans
+   */
+  private async getUsagePlanById(
+    planId: string | Types.ObjectId,
+  ): Promise<UsagePlan | null> {
+    // Handle template plans
+    if (typeof planId === 'string' && planId.startsWith('template_')) {
+      const templatePlan = PREDEFINED_PLANS.find(
+        (template) => template._id === planId,
+      )
+      return templatePlan ? (templatePlan as any) : null
+    }
+
+    // Handle user-created plans
+    if (Types.ObjectId.isValid(planId as string)) {
+      return await this.usagePlanModel.findById(planId).exec()
+    }
+
+    return null
+  }
+
+  /**
+   * Switch a device to a new usage plan and auto-place at highest eligible tier
+   *
+   * @param deviceId - Device to switch
+   * @param newPlanId - ID of the new usage plan
+   * @returns Updated device document
+   *
+   * @example
+   * await planSwitchingService.switchDevicePlan(
+   *   'device123',
+   *   'template_verizon_business'
+   * )
+   */
+  async switchDevicePlan(
+    deviceId: string,
+    newPlanId: string,
+  ): Promise<DeviceDocument> {
+    const device = await this.deviceModel.findById(deviceId).exec()
+    if (!device) {
+      throw new NotFoundException(`Device ${deviceId} not found`)
+    }
+
+    const newPlan = await this.getUsagePlanById(newPlanId)
+    if (!newPlan) {
+      throw new NotFoundException(`Usage plan ${newPlanId} not found`)
+    }
+
+    // Find highest eligible tier
+    const eligibleTier = this.findHighestEligibleTier(device, newPlan)
+
+    const previousPlan = device.usagePlan?.toString()
+    const previousTier = device.current_tier
+
+    // Find the tier configuration for the eligible tier
+    const tierConfig = newPlan.tiers.find((t) => t.tier === eligibleTier)
+    if (!tierConfig) {
+      throw new NotFoundException(
+        `Tier ${eligibleTier} not found in plan ${newPlanId}`,
+      )
+    }
+
+    // Update device
+    device.usagePlan = newPlanId as any
+    device.current_tier = eligibleTier
+    device.last_tier_upgrade = new Date()
+
+    // Initialize/update historical limits based on the tier being placed at
+    const hadHistoricalData = !!(
+      device.best_min_wait_seconds && device.max_messages_per_cycle
+    )
+
+    // Only update historical limits if using standard 24-hour window (1440 minutes)
+    const usageWindowMinutes = (newPlan as any).usageWindowMinutes || 1440
+    if (usageWindowMinutes === 1440) {
+      // Update best_min_wait_seconds
+      if (
+        !device.best_min_wait_seconds ||
+        tierConfig.min_wait_seconds < device.best_min_wait_seconds
+      ) {
+        device.best_min_wait_seconds = tierConfig.min_wait_seconds
+        this.logger.log(
+          `Device ${deviceId} historical best_min_wait_seconds set to ${tierConfig.min_wait_seconds}s (tier ${eligibleTier})`,
+        )
+      }
+
+      // Update max_messages_per_cycle
+      if (
+        !device.max_messages_per_cycle ||
+        tierConfig.messages_per_cycle > device.max_messages_per_cycle
+      ) {
+        device.max_messages_per_cycle = tierConfig.messages_per_cycle
+        this.logger.log(
+          `Device ${deviceId} historical max_messages_per_cycle set to ${tierConfig.messages_per_cycle} (tier ${eligibleTier})`,
+        )
+      }
+    }
+
+    // Reset cooldown status when switching plans
+    device.is_on_cooldown = false
+    device.cooldown_end_time = undefined
+    device.cooldown_reason = undefined
+
+    await device.save()
+
+    const historyStatus = hadHistoricalData
+      ? 'based on history'
+      : 'initialized with tier 1 baseline'
+    this.logger.log(
+      `Device ${deviceId} switched from plan ${previousPlan} tier ${previousTier} ` +
+        `to plan ${newPlanId} tier ${eligibleTier} (auto-placed ${historyStatus})`,
+    )
+
+    return device
+  }
+
+  /**
+   * Find the highest tier in a plan where device meets historical requirements
+   *
+   * Rules:
+   * 1. Device must have maintained min_wait_seconds <= tier requirement
+   * 2. Device must have handled messages_per_cycle >= tier requirement
+   * 3. If no historical data exists, start at tier 1 (safe default)
+   * 4. Walk tiers from highest to lowest, return first match
+   *
+   * @param device - Device with historical performance data
+   * @param plan - Target usage plan
+   * @returns Tier number (1-based)
+   */
+  findHighestEligibleTier(
+    device: DeviceDocument,
+    plan: UsagePlanDocument | UsagePlan,
+  ): number {
+    // If no historical data, start at tier 1 (warm-up required)
+    if (!device.best_min_wait_seconds || !device.max_messages_per_cycle) {
+      this.logger.log(
+        `Device ${device._id} has no historical data, starting at tier 1`,
+      )
+      return 1
+    }
+
+    // Sort tiers from highest to lowest
+    const sortedTiers = [...plan.tiers].sort((a, b) => b.tier - a.tier)
+
+    // Find highest tier where device meets both requirements
+    for (const tier of sortedTiers) {
+      const meetsWaitRequirement =
+        tier.min_wait_seconds >= device.best_min_wait_seconds
+      const meetsCycleRequirement =
+        tier.messages_per_cycle <= device.max_messages_per_cycle
+
+      if (meetsWaitRequirement && meetsCycleRequirement) {
+        this.logger.log(
+          `Device ${device._id} qualifies for tier ${tier.tier}: ` +
+            `historical min_wait=${device.best_min_wait_seconds}s (tier requires ${tier.min_wait_seconds}s), ` +
+            `historical max_cycle=${device.max_messages_per_cycle} (tier allows ${tier.messages_per_cycle})`,
+        )
+        return tier.tier
+      }
+    }
+
+    // If no tier matches (device hasn't performed well enough), start at tier 1
+    this.logger.log(
+      `Device ${device._id} doesn't meet any tier requirements, starting at tier 1`,
+    )
+    return 1
+  }
+
+  /**
+   * Get recommended tier for a device on a specific plan (without actually switching)
+   *
+   * Useful for UI to show users what tier they'll get before switching
+   *
+   * @param deviceId - Device to evaluate
+   * @param planId - Plan to evaluate against
+   * @returns Tier number and explanation
+   */
+  async getRecommendedTier(
+    deviceId: string,
+    planId: string,
+  ): Promise<{
+    tier: number
+    reason: string
+    tierDetails: {
+      min_wait_seconds: number
+      messages_per_cycle: number
+    } | null
+  }> {
+    const device = await this.deviceModel.findById(deviceId).exec()
+    if (!device) {
+      throw new NotFoundException(`Device ${deviceId} not found`)
+    }
+
+    const plan = await this.getUsagePlanById(planId)
+    if (!plan) {
+      throw new NotFoundException(`Usage plan ${planId} not found`)
+    }
+
+    const tier = this.findHighestEligibleTier(device, plan)
+    const tierDetails = plan.tiers.find((t) => t.tier === tier)
+
+    let reason: string
+    if (!device.best_min_wait_seconds || !device.max_messages_per_cycle) {
+      reason = 'No historical performance data available. Starting at tier 1.'
+    } else {
+      reason =
+        `Based on historical performance: ` +
+        `min wait time ${device.best_min_wait_seconds}s, ` +
+        `max ${device.max_messages_per_cycle} messages/cycle`
+    }
+
+    return {
+      tier,
+      reason,
+      tierDetails: tierDetails || null,
+    }
+  }
+
+  /**
+   * Batch switch multiple devices to a new plan
+   *
+   * Useful when user wants to migrate all devices to a new plan at once
+   *
+   * @param deviceIds - Array of device IDs
+   * @param newPlanId - ID of new usage plan
+   * @returns Summary of switches
+   */
+  async batchSwitchDevices(
+    deviceIds: string[],
+    newPlanId: string,
+  ): Promise<{
+    success: number
+    failed: number
+    results: Array<{ deviceId: string; tier: number; error?: string }>
+  }> {
+    const results: Array<{ deviceId: string; tier: number; error?: string }> =
+      []
+    let success = 0
+    let failed = 0
+
+    for (const deviceId of deviceIds) {
+      try {
+        const device = await this.switchDevicePlan(deviceId, newPlanId)
+        results.push({ deviceId, tier: device.current_tier })
+        success++
+      } catch (error) {
+        results.push({ deviceId, tier: 0, error: error.message })
+        failed++
+        this.logger.error(`Failed to switch device ${deviceId}:`, error)
+      }
+    }
+
+    this.logger.log(
+      `Batch plan switch completed: ${success} successful, ${failed} failed`,
+    )
+
+    return { success, failed, results }
+  }
+
+  /**
+   * Advance device to highest eligible tier based on historical limits
+   *
+   * This allows manual tier advancement for devices already on a plan
+   *
+   * @param deviceId - Device to advance
+   * @returns Updated device document
+   */
+  async advanceDeviceToHighestTier(deviceId: string): Promise<DeviceDocument> {
+    const device = await this.deviceModel.findById(deviceId).exec()
+    if (!device) {
+      throw new NotFoundException(`Device ${deviceId} not found`)
+    }
+
+    if (!device.usagePlan) {
+      throw new NotFoundException(
+        `Device ${deviceId} does not have a usage plan assigned`,
+      )
+    }
+
+    const plan = await this.getUsagePlanById(device.usagePlan)
+    if (!plan) {
+      throw new NotFoundException(`Usage plan ${device.usagePlan} not found`)
+    }
+
+    const previousTier = device.current_tier
+    const eligibleTier = this.findHighestEligibleTier(device, plan)
+
+    if (eligibleTier === previousTier) {
+      this.logger.log(
+        `Device ${deviceId} is already at highest eligible tier ${eligibleTier}`,
+      )
+      return device
+    }
+
+    // Find the tier configuration for the eligible tier
+    const tierConfig = plan.tiers.find((t) => t.tier === eligibleTier)
+    if (!tierConfig) {
+      throw new NotFoundException(
+        `Tier ${eligibleTier} not found in plan ${device.usagePlan}`,
+      )
+    }
+
+    // Update device tier
+    device.current_tier = eligibleTier
+    device.last_tier_upgrade = new Date()
+
+    // Reset cooldown status
+    device.is_on_cooldown = false
+    device.cooldown_end_time = undefined
+    device.cooldown_reason = undefined
+
+    await device.save()
+
+    this.logger.log(
+      `Device ${deviceId} manually advanced from tier ${previousTier} to tier ${eligibleTier} based on historical limits`,
+    )
+
+    return device
+  }
+
+  /**
+   * Reset device historical tracking
+   *
+   * If device has a usage plan, set historical limits to current tier values
+   * If device has no usage plan, set both limits to zero
+   *
+   * @param deviceId - Device to reset
+   */
+  async resetDeviceHistory(deviceId: string): Promise<void> {
+    const device = await this.deviceModel.findById(deviceId).exec()
+    if (!device) {
+      throw new NotFoundException(`Device ${deviceId} not found`)
+    }
+
+    if (device.usagePlan) {
+      // Device has a plan - set historical limits to current tier values
+      const plan = await this.getUsagePlanById(device.usagePlan)
+      if (plan) {
+        const currentTierConfig = plan.tiers.find(
+          (t) => t.tier === device.current_tier,
+        )
+        if (currentTierConfig) {
+          device.best_min_wait_seconds = currentTierConfig.min_wait_seconds
+          device.max_messages_per_cycle = currentTierConfig.messages_per_cycle
+
+          await device.save()
+
+          this.logger.log(
+            `Device ${deviceId} historical limits reset to current tier ${device.current_tier} values: ` +
+              `best_min_wait_seconds=${currentTierConfig.min_wait_seconds}s, ` +
+              `max_messages_per_cycle=${currentTierConfig.messages_per_cycle}`,
+          )
+          return
+        }
+      }
+    }
+
+    // Device has no plan or plan not found - set limits to zero
+    device.best_min_wait_seconds = 0
+    device.max_messages_per_cycle = 0
+
+    await device.save()
+
+    this.logger.warn(
+      `Device ${deviceId} historical performance data reset to zero (no usage plan)`,
+    )
+  }
+}

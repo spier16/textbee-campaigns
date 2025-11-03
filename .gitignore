@@ -1,5 +1,6 @@
 .vercel
 .DS_Store
 *-monitor
+.env.production
 
 .cursor

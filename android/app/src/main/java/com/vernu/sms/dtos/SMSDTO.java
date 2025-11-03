@@ -6,6 +6,7 @@ public class SMSDTO {
     private String sender;
     private String message = "";
     private long receivedAtInMillis;
+    private int deviceTimezoneOffsetMinutes;
 
     private String smsId;
     private String smsBatchId;
@@ -15,6 +16,7 @@ public class SMSDTO {
     private long failedAtInMillis;
     private String errorCode;
     private String errorMessage;
+    private String senderPhoneNumber;
 
     public SMSDTO() {
     }
@@ -106,5 +108,21 @@ public class SMSDTO {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public String getSenderPhoneNumber() {
+        return senderPhoneNumber;
+    }
+
+    public void setSenderPhoneNumber(String senderPhoneNumber) {
+        this.senderPhoneNumber = senderPhoneNumber;
+    }
+
+    public int getDeviceTimezoneOffsetMinutes() {
+        return deviceTimezoneOffsetMinutes;
+    }
+
+    public void setDeviceTimezoneOffsetMinutes(int deviceTimezoneOffsetMinutes) {
+        this.deviceTimezoneOffsetMinutes = deviceTimezoneOffsetMinutes;
     }
 }

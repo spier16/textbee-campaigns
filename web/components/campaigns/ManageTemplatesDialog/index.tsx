@@ -412,7 +412,7 @@ export function ManageTemplatesDialog({
                         }
 
                         return templates.map(template => (
-                          <div key={template._id} className='bg-white border rounded-lg p-3 space-y-2 shadow-sm group'>
+                          <div key={template._id} className='bg-card border rounded-lg p-3 space-y-2 shadow-sm group'>
                             <div className='flex items-center justify-between'>
                               <h5 className='font-medium text-sm'>{template.name}</h5>
                               <div className='flex items-center gap-1'>
@@ -552,7 +552,7 @@ export function ManageTemplatesDialog({
                 rows={4}
               />
               {newTemplate.content && (
-                <div className='text-xs bg-gray-50 p-2 rounded border'>
+                <div className='text-xs bg-card p-2 rounded border'>
                   <div className='text-muted-foreground mb-1'>Preview:</div>
                   <SimpleHighlightedText content={newTemplate.content} />
                 </div>
@@ -612,7 +612,7 @@ export function ManageTemplatesDialog({
                 rows={4}
               />
               {editingTemplate?.content && (
-                <div className='text-xs bg-gray-50 p-2 rounded border'>
+                <div className='text-xs bg-card p-2 rounded border'>
                   <div className='text-muted-foreground mb-1'>Preview:</div>
                   <SimpleHighlightedText content={editingTemplate.content} />
                 </div>

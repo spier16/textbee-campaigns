@@ -16,7 +16,17 @@ import { SmsQueueService } from './queue/sms-queue.service'
 import { SmsQueueProcessor } from './queue/sms-queue.processor'
 import { SmsStatusUpdateTask } from './tasks/sms-status-update.task'
 import { UsagePlanService } from './usage-plan.service'
-import { CampaignMessage, CampaignMessageSchema } from '../campaigns/schemas/campaign-message.schema'
+import {
+  CampaignMessage,
+  CampaignMessageSchema,
+} from '../campaigns/schemas/campaign-message.schema'
+import { Campaign, CampaignSchema } from '../campaigns/schemas/campaign.schema'
+import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
+import { DeviceUsageSchedulerService } from './services/device-usage-scheduler.service'
+import { RandomizedDelayService } from './services/randomized-delay.service'
+import { PlanSwitchingService } from './services/plan-switching.service'
+import { DeviceWorkerService } from './queue/device-worker.service'
+import { MessageSweeperService } from './queue/message-sweeper.service'
 
 @Module({
   imports: [
@@ -41,6 +51,10 @@ import { CampaignMessage, CampaignMessageSchema } from '../campaigns/schemas/cam
         name: CampaignMessage.name,
         schema: CampaignMessageSchema,
       },
+      {
+        name: Campaign.name,
+        schema: CampaignSchema,
+      },
     ]),
     BullModule.registerQueue({
       name: 'sms',
@@ -61,7 +75,27 @@ import { CampaignMessage, CampaignMessageSchema } from '../campaigns/schemas/cam
     ConfigModule,
   ],
   controllers: [GatewayController],
-  providers: [GatewayService, UsagePlanService, SmsQueueService, SmsQueueProcessor, SmsStatusUpdateTask],
-  exports: [MongooseModule, GatewayService, SmsQueueService, UsagePlanService],
+  providers: [
+    GatewayService,
+    UsagePlanService,
+    DeviceUsageCalculatorService,
+    DeviceUsageSchedulerService,
+    RandomizedDelayService,
+    PlanSwitchingService,
+    SmsQueueService,
+    SmsQueueProcessor,
+    SmsStatusUpdateTask,
+    DeviceWorkerService,
+    MessageSweeperService,
+  ],
+  exports: [
+    MongooseModule,
+    GatewayService,
+    SmsQueueService,
+    UsagePlanService,
+    DeviceUsageCalculatorService,
+    RandomizedDelayService,
+    PlanSwitchingService,
+  ],
 })
 export class GatewayModule {}

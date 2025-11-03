@@ -49,7 +49,7 @@ export class SMS {
 
   @Prop({ type: Date })
   failedAt: Date
-  
+
   @Prop({ type: String, required: false })
   errorCode: string
 
@@ -66,6 +66,10 @@ export class SMS {
   @Prop({ type: String })
   campaignId?: string
 
+  // Track which phone number sent/received the SMS (useful for dual-SIM)
+  @Prop({ type: String })
+  senderPhoneNumber?: string
+
   // misc metadata for debugging
   @Prop({ type: Object })
   metadata: Record<string, any>
@@ -73,5 +77,8 @@ export class SMS {
 
 export const SMSSchema = SchemaFactory.createForClass(SMS)
 
-
+// Index for efficient received message queries
 SMSSchema.index({ device: 1, type: 1, receivedAt: -1 })
+
+// Index for rolling window usage calculations (campaign messages by device and time)
+SMSSchema.index({ device: 1, campaignId: 1, sentAt: -1 })

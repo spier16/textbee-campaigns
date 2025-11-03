@@ -22,6 +22,7 @@ export const ApiEndpoints = {
   },
   gateway: {
     listDevices: () => '/gateway/devices',
+    updateDevice: (id: string) => `/gateway/devices/${id}`,
     sendSMS: (id: string) => `/gateway/devices/${id}/send-sms`,
     sendBulkSMS: (id: string) => `/gateway/devices/${id}/send-bulk-sms`,
     getReceivedSMS: (id: string) => `/gateway/devices/${id}/get-received-sms`,
@@ -39,6 +40,8 @@ export const ApiEndpoints = {
     updateUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
     deleteUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
     assignUsagePlan: (deviceId: string) => `/gateway/devices/${deviceId}/assign-plan`,
+    advanceDeviceTier: (deviceId: string) => `/gateway/devices/${deviceId}/advance-tier`,
+    resetDeviceHistory: (deviceId: string) => `/gateway/devices/${deviceId}/reset-history`,
   },
   billing: {
     currentSubscription: () => '/billing/current-subscription',
@@ -58,6 +61,7 @@ export const ApiEndpoints = {
     blockContacts: () => '/users/conversations/block',
     unblockContacts: () => '/users/conversations/unblock',
     toggleConversationStar: () => '/users/conversations/star',
+    updateConversationDevice: () => '/users/conversations/device',
     getConversations: () => '/users/conversations',
     getConversationCounts: () => '/users/conversations/counts',
   },

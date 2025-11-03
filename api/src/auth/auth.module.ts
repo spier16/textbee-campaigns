@@ -13,7 +13,10 @@ import {
   PasswordResetSchema,
 } from './schemas/password-reset.schema'
 import { AccessLog, AccessLogSchema } from './schemas/access-log.schema'
-import { EmailVerification, EmailVerificationSchema } from './schemas/email-verification.schema'
+import {
+  EmailVerification,
+  EmailVerificationSchema,
+} from './schemas/email-verification.schema'
 import { AuthGuard } from './guards/auth.guard'
 import { OptionalAuthGuard } from './guards/optional-auth.guard'
 
@@ -46,7 +49,13 @@ import { OptionalAuthGuard } from './guards/optional-auth.guard'
     MailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, AuthGuard, OptionalAuthGuard, MongooseModule],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    AuthGuard,
+    OptionalAuthGuard,
+    MongooseModule,
+  ],
   exports: [AuthService, JwtModule, AuthGuard, OptionalAuthGuard],
 })
 export class AuthModule {}

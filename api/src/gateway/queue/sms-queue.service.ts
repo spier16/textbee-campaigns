@@ -42,7 +42,7 @@ export class SmsQueueService {
       batches.push(fcmMessages.slice(i, i + this.maxSmsBatchSize))
     }
 
-    let delayMultiplier = 1;
+    let delayMultiplier = 1
     for (const batch of batches) {
       await this.smsQueue.add(
         'send-sms',
@@ -77,7 +77,9 @@ export class SmsQueueService {
     priority: number = 1,
     delay: number = 0,
   ) {
-    this.logger.debug(`Adding campaign message job for message ${campaignMessageId}`)
+    this.logger.debug(
+      `Adding campaign message job for message ${campaignMessageId}`,
+    )
 
     await this.smsQueue.add(
       'send-campaign-message',
@@ -110,7 +112,7 @@ export class SmsQueueService {
       campaignMessageId: string
       scheduledTime: Date
       priority: number
-    }>
+    }>,
   ) {
     const now = new Date()
 
@@ -136,5 +138,31 @@ export class SmsQueueService {
         },
       )
     }
+  }
+
+  /**
+   * Schedule a wake-device job for when a device comes off cooldown
+   */
+  async scheduleWakeDevice(deviceId: string, wakeTime: Date) {
+    const delay = Math.max(0, wakeTime.getTime() - Date.now())
+
+    this.logger.debug(
+      `Scheduling wake-device job for device ${deviceId} at ${wakeTime} (delay: ${delay}ms)`,
+    )
+
+    await this.smsQueue.add(
+      'wake-device',
+      { deviceId },
+      {
+        delay,
+        attempts: 2,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: 10,
+        removeOnFail: 50,
+      },
+    )
   }
 }

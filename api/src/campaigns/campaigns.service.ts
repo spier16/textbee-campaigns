@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common'
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { InjectQueue } from '@nestjs/bull'
 import { Model, Types } from 'mongoose'
@@ -21,6 +26,9 @@ import {
   CampaignMessageDocument,
   MessageStatus,
 } from './schemas/campaign-message.schema'
+import { SMS, SMSDocument } from '../gateway/schemas/sms.schema'
+import { SMSType } from '../gateway/sms-type.enum'
+import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
 import {
   CreateMessageTemplateGroupDto,
   UpdateMessageTemplateGroupDto,
@@ -44,7 +52,11 @@ import { ContactsService } from '../contacts/contacts.service'
 import { GetContactsDto } from '../contacts/contacts.dto'
 import { User } from '../users/schemas/user.schema'
 import { CampaignQueueService } from './queue/campaign-queue.service'
-import { processTemplateVariables, processTemplateVariablesWithHighlighting, ContactData } from './utils/template-processor'
+import {
+  processTemplateVariables,
+  processTemplateVariablesWithHighlighting,
+  ContactData,
+} from './utils/template-processor'
 
 @Injectable()
 export class CampaignsService {
@@ -57,6 +69,10 @@ export class CampaignsService {
     private campaignModel: Model<CampaignDocument>,
     @InjectModel(CampaignMessage.name)
     private campaignMessageModel: Model<CampaignMessageDocument>,
+    @InjectModel(SMS.name)
+    private smsModel: Model<SMSDocument>,
+    @InjectModel(Device.name)
+    private deviceModel: Model<DeviceDocument>,
     @InjectQueue('campaign-queue')
     private campaignQueue: Queue,
     private contactsService: ContactsService,
@@ -214,7 +230,7 @@ export class CampaignsService {
     // Verify all template groups belong to the user
     const groups = await this.messageTemplateGroupModel
       .find({
-        _id: { $in: templateGroupIds.map(id => new Types.ObjectId(id)) },
+        _id: { $in: templateGroupIds.map((id) => new Types.ObjectId(id)) },
         userId: new Types.ObjectId(userId),
       })
       .lean()
@@ -389,7 +405,11 @@ export class CampaignsService {
     // Validate templates exist and belong to user
     const templates = await this.messageTemplateModel
       .find({
-        _id: { $in: createCampaignDto.selectedTemplates.map(id => new Types.ObjectId(id)) },
+        _id: {
+          $in: createCampaignDto.selectedTemplates.map(
+            (id) => new Types.ObjectId(id),
+          ),
+        },
         userId: new Types.ObjectId(user._id),
       })
       .lean()
@@ -400,14 +420,16 @@ export class CampaignsService {
 
     // Get unique contact count to calculate total messages (deduplicated with filters)
     const excludeDnc = createCampaignDto.excludeDnc ?? true
-    const includePreviouslyMessaged = createCampaignDto.includePreviouslyMessaged ?? false
+    const includePreviouslyMessaged =
+      createCampaignDto.includePreviouslyMessaged ?? false
 
-    const uniqueContactResult = await this.contactsService.getUniqueContactCount(
-      user._id.toString(),
-      createCampaignDto.selectedContacts,
-      excludeDnc,
-      includePreviouslyMessaged
-    )
+    const uniqueContactResult =
+      await this.contactsService.getUniqueContactCount(
+        user._id.toString(),
+        createCampaignDto.selectedContacts,
+        excludeDnc,
+        includePreviouslyMessaged,
+      )
     const totalContacts = uniqueContactResult.uniqueContactCount
 
     // Create campaign
@@ -431,7 +453,10 @@ export class CampaignsService {
     return this.formatCampaignResponse(savedCampaign)
   }
 
-  async getCampaigns(user: User, includeDeleted: boolean = false): Promise<CampaignResponseDto[]> {
+  async getCampaigns(
+    user: User,
+    includeDeleted: boolean = false,
+  ): Promise<CampaignResponseDto[]> {
     const filter: any = { user: user._id }
     if (!includeDeleted) {
       filter.isDeleted = { $ne: true }
@@ -442,19 +467,30 @@ export class CampaignsService {
       .sort({ createdAt: -1 })
       .lean()
 
-    return campaigns.map(campaign => this.formatCampaignResponse(campaign))
+    // Calculate stats for each campaign
+    const campaignsWithStats = await Promise.all(
+      campaigns.map(async (campaign) => {
+        const stats = await this.calculateCampaignStats(
+          campaign._id.toString(),
+          user._id,
+        )
+        return this.formatCampaignResponse(campaign, stats)
+      }),
+    )
+
+    return campaignsWithStats
   }
 
   async getDeletedCampaigns(user: User): Promise<CampaignResponseDto[]> {
     const campaigns = await this.campaignModel
       .find({
         user: user._id,
-        isDeleted: true
+        isDeleted: true,
       })
       .sort({ deletedAt: -1 })
       .lean()
 
-    return campaigns.map(campaign => this.formatCampaignResponse(campaign))
+    return campaigns.map((campaign) => this.formatCampaignResponse(campaign))
   }
 
   async getSidebarCampaigns(user: User, page: number = 1, limit: number = 10) {
@@ -464,7 +500,7 @@ export class CampaignsService {
     const filter = {
       user: user._id,
       isDeleted: { $ne: true },
-      sentMessages: { $gt: 0 }
+      sentMessages: { $gt: 0 },
     }
 
     // Get campaigns and total count in parallel
@@ -476,26 +512,30 @@ export class CampaignsService {
         .limit(limit)
         .select('_id name sentMessages createdAt')
         .lean(),
-      this.campaignModel.countDocuments(filter)
+      this.campaignModel.countDocuments(filter),
     ])
 
     const hasMore = skip + campaigns.length < totalCount
 
     return {
-      campaigns: campaigns.map(campaign => ({
+      campaigns: campaigns.map((campaign) => ({
         _id: campaign._id.toString(),
         name: campaign.name,
         sentMessages: campaign.sentMessages,
-        createdAt: campaign.createdAt
+        createdAt: campaign.createdAt,
       })),
       totalCount,
       page,
       limit,
-      hasMore
+      hasMore,
     }
   }
 
-  async getCampaign(user: User, campaignId: string, includeDeleted: boolean = false): Promise<CampaignResponseDto> {
+  async getCampaign(
+    user: User,
+    campaignId: string,
+    includeDeleted: boolean = false,
+  ): Promise<CampaignResponseDto> {
     const filter: any = {
       _id: new Types.ObjectId(campaignId),
       user: user._id,
@@ -505,9 +545,7 @@ export class CampaignsService {
       filter.isDeleted = { $ne: true }
     }
 
-    const campaign = await this.campaignModel
-      .findOne(filter)
-      .lean()
+    const campaign = await this.campaignModel.findOne(filter).lean()
 
     if (!campaign) {
       throw new NotFoundException('Campaign not found')
@@ -534,17 +572,34 @@ export class CampaignsService {
     const oldStatus = campaign.status
     campaign.status = updateStatusDto.status
 
-    if (updateStatusDto.status === CampaignStatus.RUNNING && oldStatus === CampaignStatus.DRAFT) {
+    if (
+      updateStatusDto.status === CampaignStatus.RUNNING &&
+      oldStatus === CampaignStatus.DRAFT
+    ) {
       campaign.startedAt = new Date()
       // Add job to campaign queue for processing
       await this.campaignQueueService.addCampaignToQueue(
         campaign._id.toString(),
-        user._id.toString()
+        user._id.toString(),
+      )
+    } else if (updateStatusDto.status === CampaignStatus.SCHEDULED) {
+      // Schedule the campaign to start at specified time using queue
+      const startTime = this.calculateCampaignStartTime(campaign)
+      await this.campaignQueueService.scheduleCampaignStart(
+        campaign._id.toString(),
+        user._id.toString(),
+        startTime,
       )
     } else if (updateStatusDto.status === CampaignStatus.PAUSED) {
       await this.campaignQueueService.pauseCampaign(campaign._id.toString())
-    } else if (updateStatusDto.status === CampaignStatus.RUNNING && oldStatus === CampaignStatus.PAUSED) {
-      await this.campaignQueueService.resumeCampaign(campaign._id.toString(), user._id.toString())
+    } else if (
+      updateStatusDto.status === CampaignStatus.RUNNING &&
+      oldStatus === CampaignStatus.PAUSED
+    ) {
+      await this.campaignQueueService.resumeCampaign(
+        campaign._id.toString(),
+        user._id.toString(),
+      )
     } else if (updateStatusDto.status === CampaignStatus.CANCELLED) {
       await this.campaignQueueService.cancelCampaign(campaign._id.toString())
     }
@@ -557,7 +612,7 @@ export class CampaignsService {
     const campaign = await this.campaignModel.findOne({
       _id: new Types.ObjectId(campaignId),
       user: user._id,
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
     })
 
     if (!campaign) {
@@ -574,29 +629,65 @@ export class CampaignsService {
     }
 
     // Soft delete the campaign
-    await this.campaignModel.findByIdAndUpdate(
-      campaign._id,
-      {
-        $set: {
-          isDeleted: true,
-          deletedAt: new Date(),
-          statusBeforeDelete,
-          status: campaign.status, // Keep the current status (which might be PAUSED if it was running)
-        }
-      }
+    await this.campaignModel.findByIdAndUpdate(campaign._id, {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        statusBeforeDelete,
+        status: campaign.status, // Keep the current status (which might be PAUSED if it was running)
+      },
+    })
+
+    // Mark all campaign messages as deleted for efficient filtering
+    await this.campaignMessageModel.updateMany(
+      { campaign: campaign._id },
+      { $set: { campaignIsDeleted: true } },
     )
   }
 
-  async restoreCampaign(user: User, campaignId: string): Promise<CampaignResponseDto> {
+  async restoreCampaign(
+    user: User,
+    campaignId: string,
+  ): Promise<CampaignResponseDto> {
     const campaign = await this.campaignModel.findOne({
       _id: new Types.ObjectId(campaignId),
       user: user._id,
-      isDeleted: true
+      isDeleted: true,
     })
 
     if (!campaign) {
       throw new NotFoundException('Deleted campaign not found')
     }
+
+    // Check if campaign should exclude previously messaged contacts
+    if (!campaign.includePreviouslyMessaged) {
+      // Get list of contacts that have been messaged (excluding this campaign)
+      const messagedPhones = await this.getMessagedContacts(
+        user._id.toString(),
+        campaign._id.toString(),
+      )
+
+      // Delete queued/pending messages for contacts who have been messaged since campaign was deleted
+      if (messagedPhones.length > 0) {
+        await this.campaignMessageModel.deleteMany({
+          campaign: campaign._id,
+          recipient: { $in: messagedPhones },
+          status: {
+            $in: [
+              MessageStatus.PENDING,
+              MessageStatus.QUEUED,
+              MessageStatus.SCHEDULED,
+            ],
+          },
+        })
+      }
+    }
+
+    // Unmark remaining messages as deleted
+    await this.campaignMessageModel.updateMany(
+      { campaign: campaign._id },
+      { $set: { campaignIsDeleted: false } },
+    )
 
     // Restore the campaign with its original status
     const restoredStatus = campaign.statusBeforeDelete || campaign.status
@@ -611,9 +702,9 @@ export class CampaignsService {
         $unset: {
           deletedAt: 1,
           statusBeforeDelete: 1,
-        }
+        },
       },
-      { new: true }
+      { new: true },
     )
 
     return this.formatCampaignResponse(updatedCampaign)
@@ -633,7 +724,7 @@ export class CampaignsService {
       user._id.toString(),
       campaign.selectedContacts,
       campaign.excludeDnc,
-      campaign.includePreviouslyMessaged
+      campaign.includePreviouslyMessaged,
     )
 
     // Create messages for each unique contact, rotating through templates
@@ -657,11 +748,15 @@ export class CampaignsService {
         mailingZip: contact.mailingZip,
       }
 
-      const processedContent = processTemplateVariables(template.content, contactData)
+      const processedContent = processTemplateVariables(
+        template.content,
+        contactData,
+      )
 
       messages.push({
         user: user._id,
         campaign: campaign._id,
+        campaignStatus: campaign.status, // Denormalize campaign status for efficient worker filtering
         templateId: template._id.toString(),
         templateIndex: templateIndex % templates.length,
         content: processedContent, // Now contains processed content with substituted variables
@@ -680,7 +775,146 @@ export class CampaignsService {
     }
   }
 
-  private formatCampaignResponse(campaign: any): CampaignResponseDto {
+  /**
+   * Calculate when a campaign should start based on its schedule settings
+   */
+  private calculateCampaignStartTime(campaign: CampaignDocument): Date {
+    const now = new Date()
+
+    // Use the first sending window's start time if available
+    if (campaign.sendingWindows && campaign.sendingWindows.length > 0) {
+      const firstWindow = campaign.sendingWindows[0]
+      const windowStart = new Date(
+        `${firstWindow.startDate}T${firstWindow.startTime}:00Z`,
+      )
+      return windowStart > now ? windowStart : now
+    }
+
+    // Fallback: If scheduleType is 'now', start immediately
+    if (campaign.scheduleType === 'now') {
+      return now
+    }
+
+    // For other types, use campaign start date
+    if (campaign.campaignStartDate) {
+      const startDate = new Date(`${campaign.campaignStartDate}T00:00:00`)
+      return startDate > now ? startDate : now
+    }
+
+    // Default to now if no schedule info available
+    return now
+  }
+
+  /**
+   * Calculate delivery rate and response rate for a specific campaign
+   */
+  private async calculateCampaignStats(
+    campaignId: string,
+    userId: Types.ObjectId,
+  ): Promise<{ deliveryRate?: number; responseRate?: number }> {
+    const campaignIdStr = campaignId.toString()
+
+    // Build base query for SMS belonging to this user
+    const baseQuery = {
+      device: {
+        $in: await this.smsModel
+          .distinct('device', { device: { $exists: true } })
+          .then(async (deviceIds) => {
+            // Filter to only devices belonging to this user
+            // We'll need to check device ownership via the device model
+            // For now, we'll trust that campaignId filtering is sufficient since campaigns belong to users
+            return deviceIds
+          }),
+      },
+    }
+
+    // Calculate Delivery Rate
+    // Count total sent SMS for this campaign
+    const totalSentSMSCount = await this.smsModel.countDocuments({
+      type: SMSType.SENT,
+      campaignId: campaignIdStr,
+    })
+
+    // Return undefined rates for campaigns with no sent messages
+    if (totalSentSMSCount === 0) {
+      return {
+        deliveryRate: undefined,
+        responseRate: undefined,
+      }
+    }
+
+    // Count delivered SMS for this campaign
+    const deliveredSMSCount = await this.smsModel.countDocuments({
+      type: SMSType.SENT,
+      campaignId: campaignIdStr,
+      status: 'delivered',
+    })
+
+    // Calculate delivery rate
+    const deliveryRate =
+      totalSentSMSCount > 0 ? (deliveredSMSCount / totalSentSMSCount) * 100 : 0
+
+    // Calculate Response Rate
+    let responseRate = 0
+
+    // Get unique recipients who received campaign messages
+    const campaignRecipients = await this.smsModel.aggregate([
+      {
+        $match: {
+          type: SMSType.SENT,
+          campaignId: campaignIdStr,
+        },
+      },
+      {
+        $group: {
+          _id: '$recipient',
+          firstCampaignSentAt: { $min: '$sentAt' },
+        },
+      },
+    ])
+
+    if (campaignRecipients.length > 0) {
+      // For each recipient, check if they responded after receiving their first campaign message
+      const responseCheck = await this.smsModel.aggregate([
+        {
+          $match: {
+            type: SMSType.RECEIVED,
+            sender: { $in: campaignRecipients.map((r) => r._id) },
+          },
+        },
+        {
+          $group: {
+            _id: '$sender',
+            firstResponseAt: { $min: '$receivedAt' },
+          },
+        },
+      ])
+
+      // Count how many recipients responded after their first campaign message
+      let respondedCount = 0
+      for (const recipient of campaignRecipients) {
+        const response = responseCheck.find((r) => r._id === recipient._id)
+        if (
+          response &&
+          response.firstResponseAt > recipient.firstCampaignSentAt
+        ) {
+          respondedCount++
+        }
+      }
+
+      responseRate = (respondedCount / campaignRecipients.length) * 100
+    }
+
+    return {
+      deliveryRate: Number(deliveryRate.toFixed(1)),
+      responseRate: Number(responseRate.toFixed(1)),
+    }
+  }
+
+  private formatCampaignResponse(
+    campaign: any,
+    stats?: { deliveryRate?: number; responseRate?: number },
+  ): CampaignResponseDto {
     return {
       _id: campaign._id.toString(),
       name: campaign.name,
@@ -707,6 +941,8 @@ export class CampaignsService {
       isDeleted: campaign.isDeleted,
       deletedAt: campaign.deletedAt,
       statusBeforeDelete: campaign.statusBeforeDelete,
+      deliveryRate: stats?.deliveryRate,
+      responseRate: stats?.responseRate,
     }
   }
 
@@ -727,7 +963,7 @@ export class CampaignsService {
     // Validate templates exist and belong to user
     const templates = await this.messageTemplateModel
       .find({
-        _id: { $in: templateIds.map(id => new Types.ObjectId(id)) },
+        _id: { $in: templateIds.map((id) => new Types.ObjectId(id)) },
         userId: new Types.ObjectId(user._id),
       })
       .lean()
@@ -741,7 +977,7 @@ export class CampaignsService {
       user._id.toString(),
       contactSpreadsheetIds,
       excludeDnc,
-      includePreviouslyMessaged
+      includePreviouslyMessaged,
     )
 
     const uniqueContacts = uniqueContactsResult.data.slice(0, maxPreviewCount)
@@ -772,27 +1008,34 @@ export class CampaignsService {
       }
 
       // Process template variables with contact data
-      const processedContent = processTemplateVariables(template.content, contactData)
+      const processedContent = processTemplateVariables(
+        template.content,
+        contactData,
+      )
 
       // Generate highlighted content if requested
       let highlightedContentDto: HighlightedContentDto | undefined
       if (highlightVariables) {
-        const highlightedContent = processTemplateVariablesWithHighlighting(template.content, contactData)
+        const highlightedContent = processTemplateVariablesWithHighlighting(
+          template.content,
+          contactData,
+        )
         highlightedContentDto = {
-          segments: highlightedContent.segments.map(segment => ({
+          segments: highlightedContent.segments.map((segment) => ({
             text: segment.text,
             isVariable: segment.isVariable,
             variableName: segment.variableName,
             variableType: segment.variableType,
           })),
           plainText: highlightedContent.plainText,
-          validationErrors: highlightedContent.validationErrors?.map(error => ({
-            variableName: error.variableName,
-            errorType: error.errorType,
-            message: error.message,
-          })),
+          validationErrors: highlightedContent.validationErrors?.map(
+            (error) => ({
+              variableName: error.variableName,
+              errorType: error.errorType,
+              message: error.message,
+            }),
+          ),
         }
-
       }
 
       // Convert to DTO format
@@ -837,5 +1080,70 @@ export class CampaignsService {
     }
 
     return response
+  }
+
+  /**
+   * Helper method to get list of previously messaged phone numbers for a user
+   * @param userId - The user ID
+   * @param excludeCampaignId - Optional campaign ID to exclude from the check (for restoration)
+   * @returns Array of phone numbers that have been messaged
+   */
+  async getMessagedContacts(
+    userId: string,
+    excludeCampaignId?: string,
+  ): Promise<string[]> {
+    // Get user's device IDs
+    const userDevices = await this.deviceModel
+      .find({
+        user: new Types.ObjectId(userId),
+      })
+      .select('_id')
+    const userDeviceIds = userDevices.map((device) => device._id)
+
+    // Get previously messaged phones from SMS records
+    const smsQuery: any = {
+      device: { $in: userDeviceIds },
+      type: SMSType.SENT,
+      status: { $in: ['pending', 'sent', 'delivered', 'unknown', 'failed'] },
+    }
+
+    const previouslyMessagedPhones = await this.smsModel.distinct(
+      'recipient',
+      smsQuery,
+    )
+
+    // Get messaged phones from CampaignMessage records
+    const campaignMessageQuery: any = {
+      user: new Types.ObjectId(userId),
+      campaignIsDeleted: { $ne: true },
+      status: {
+        $in: [
+          MessageStatus.QUEUED,
+          MessageStatus.CLAIMED,
+          MessageStatus.SENDING,
+          MessageStatus.SENT,
+          MessageStatus.FAILED,
+        ],
+      },
+    }
+
+    // Exclude specific campaign if provided (for restoration scenario)
+    if (excludeCampaignId) {
+      campaignMessageQuery.campaign = {
+        $ne: new Types.ObjectId(excludeCampaignId),
+      }
+    }
+
+    const campaignMessagePhones = await this.campaignMessageModel.distinct(
+      'recipient',
+      campaignMessageQuery,
+    )
+
+    // Combine and deduplicate
+    const allMessagedPhones = [
+      ...new Set([...previouslyMessagedPhones, ...campaignMessagePhones]),
+    ]
+
+    return allMessagedPhones
   }
 }

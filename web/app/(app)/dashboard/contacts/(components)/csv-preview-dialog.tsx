@@ -616,7 +616,7 @@ export default function CsvPreviewDialog({
                   return (
                     <th key={index} className="border p-2 text-left min-w-[150px]">
                       <div className="space-y-2">
-                        <div className="font-medium">
+                        <div className="font-medium whitespace-nowrap">
                           {header}
                         </div>
                       <Select

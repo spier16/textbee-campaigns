@@ -1,4 +1,12 @@
-import { IsString, IsOptional, IsEnum, IsObject, IsNumber, IsBoolean, IsArray } from 'class-validator'
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsObject,
+  IsNumber,
+  IsBoolean,
+  IsArray,
+} from 'class-validator'
 import { ApiProperty } from '@nestjs/swagger'
 
 export class UploadSpreadsheetDto {
@@ -29,11 +37,16 @@ export class PreviewCsvDto {
 }
 
 export class ProcessSpreadsheetDto {
-  @ApiProperty({ description: 'Column mapping from CSV headers to contact fields' })
+  @ApiProperty({
+    description: 'Column mapping from CSV headers to contact fields',
+  })
   @IsObject()
   columnMapping: Record<string, string>
 
-  @ApiProperty({ description: 'Template ID to save mapping as', required: false })
+  @ApiProperty({
+    description: 'Template ID to save mapping as',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   templateId?: string
@@ -43,7 +56,10 @@ export class ProcessSpreadsheetDto {
   @IsString()
   dncColumn?: string
 
-  @ApiProperty({ description: 'Value that indicates DNC is true', required: false })
+  @ApiProperty({
+    description: 'Value that indicates DNC is true',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   dncValue?: string
@@ -54,7 +70,9 @@ export class CreateTemplateDto {
   @IsString()
   name: string
 
-  @ApiProperty({ description: 'Column mapping from CSV headers to contact fields' })
+  @ApiProperty({
+    description: 'Column mapping from CSV headers to contact fields',
+  })
   @IsObject()
   columnMapping: Record<string, string>
 
@@ -63,7 +81,10 @@ export class CreateTemplateDto {
   @IsString()
   dncColumn?: string
 
-  @ApiProperty({ description: 'Value that indicates DNC is true', required: false })
+  @ApiProperty({
+    description: 'Value that indicates DNC is true',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   dncValue?: string
@@ -259,17 +280,57 @@ export class CreateGroupDto {
 }
 
 export class GetContactsDto {
-  @ApiProperty({ description: 'Search query for contact names or phone', required: false })
+  @ApiProperty({
+    description: 'Search query for contact names or phone',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   search?: string
 
-  @ApiProperty({ description: 'Sort field', required: false, enum: ['newest', 'oldest', 'firstName', 'lastName', 'phone', 'email', 'propertyAddress', 'propertyCity', 'propertyState'] })
+  @ApiProperty({
+    description: 'Sort field',
+    required: false,
+    enum: [
+      'newest',
+      'oldest',
+      'firstName',
+      'lastName',
+      'phone',
+      'email',
+      'propertyAddress',
+      'propertyCity',
+      'propertyState',
+    ],
+  })
   @IsOptional()
-  @IsEnum(['newest', 'oldest', 'firstName', 'lastName', 'phone', 'email', 'propertyAddress', 'propertyCity', 'propertyState'])
-  sortBy?: 'newest' | 'oldest' | 'firstName' | 'lastName' | 'phone' | 'email' | 'propertyAddress' | 'propertyCity' | 'propertyState'
+  @IsEnum([
+    'newest',
+    'oldest',
+    'firstName',
+    'lastName',
+    'phone',
+    'email',
+    'propertyAddress',
+    'propertyCity',
+    'propertyState',
+  ])
+  sortBy?:
+    | 'newest'
+    | 'oldest'
+    | 'firstName'
+    | 'lastName'
+    | 'phone'
+    | 'email'
+    | 'propertyAddress'
+    | 'propertyCity'
+    | 'propertyState'
 
-  @ApiProperty({ description: 'Sort order', required: false, enum: ['asc', 'desc'] })
+  @ApiProperty({
+    description: 'Sort order',
+    required: false,
+    enum: ['asc', 'desc'],
+  })
   @IsOptional()
   @IsEnum(['asc', 'desc'])
   sortOrder?: 'asc' | 'desc'
@@ -294,7 +355,11 @@ export class GetSpreadsheetsDto {
   @IsString()
   search?: string
 
-  @ApiProperty({ description: 'Sort order', required: false, enum: ['newest', 'oldest', 'a-z', 'z-a'] })
+  @ApiProperty({
+    description: 'Sort order',
+    required: false,
+    enum: ['newest', 'oldest', 'a-z', 'z-a'],
+  })
   @IsOptional()
   @IsEnum(['newest', 'oldest', 'a-z', 'z-a'])
   sortBy?: 'newest' | 'oldest' | 'a-z' | 'z-a'
@@ -390,12 +455,20 @@ export class GetUniqueContactCountDto {
   @IsString({ each: true })
   spreadsheetIds: string[]
 
-  @ApiProperty({ description: 'Whether to exclude DNC contacts', required: false, default: true })
+  @ApiProperty({
+    description: 'Whether to exclude DNC contacts',
+    required: false,
+    default: true,
+  })
   @IsOptional()
   @IsBoolean()
   excludeDnc?: boolean
 
-  @ApiProperty({ description: 'Whether to include previously messaged contacts', required: false, default: false })
+  @ApiProperty({
+    description: 'Whether to include previously messaged contacts',
+    required: false,
+    default: false,
+  })
   @IsOptional()
   @IsBoolean()
   includePreviouslyMessaged?: boolean
@@ -407,12 +480,20 @@ export class GetUniqueContactsDto {
   @IsString({ each: true })
   spreadsheetIds: string[]
 
-  @ApiProperty({ description: 'Whether to exclude DNC contacts', required: false, default: true })
+  @ApiProperty({
+    description: 'Whether to exclude DNC contacts',
+    required: false,
+    default: true,
+  })
   @IsOptional()
   @IsBoolean()
   excludeDnc?: boolean
 
-  @ApiProperty({ description: 'Whether to include previously messaged contacts', required: false, default: false })
+  @ApiProperty({
+    description: 'Whether to include previously messaged contacts',
+    required: false,
+    default: false,
+  })
   @IsOptional()
   @IsBoolean()
   includePreviouslyMessaged?: boolean

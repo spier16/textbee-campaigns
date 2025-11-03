@@ -23,7 +23,6 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Plus, Trash2, ArrowUp, ArrowDown, Copy } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
@@ -38,12 +37,12 @@ const PLAN_TEMPLATES = [
     description: 'Best for high-volume sending',
     maxDailyLimit: 700,
     tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 70 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 140 }, // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 280 }, // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 420 }, // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 560 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 700 },  // 100%
+      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 70 },  // 10%
+      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 140 }, // 20%
+      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 280 }, // 40%
+      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 420 }, // 60%
+      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 560 },  // 80%
+      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 700 },  // 100%
     ],
   },
   {
@@ -51,12 +50,12 @@ const PLAN_TEMPLATES = [
     description: 'Reliable mid-volume option',
     maxDailyLimit: 200,
     tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 20 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 40 },  // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 80 },  // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 120 }, // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 160 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 200 },  // 100%
+      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 20 },  // 10%
+      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 40 },  // 20%
+      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 80 },  // 40%
+      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 120 }, // 60%
+      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 160 },  // 80%
+      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 200 },  // 100%
     ],
   },
   {
@@ -64,12 +63,12 @@ const PLAN_TEMPLATES = [
     description: "Reliable mid-volume option on Verizon's network",
     maxDailyLimit: 150,
     tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },  // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },  // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },  // 100%
+      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 },  // 10%
+      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 },  // 20%
+      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 60 },  // 40%
+      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 90 },  // 60%
+      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 120 },  // 80%
+      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 150 },  // 100%
     ],
   },
   {
@@ -77,32 +76,48 @@ const PLAN_TEMPLATES = [
     description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
     maxDailyLimit: 150,
     tiers: [
-      { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },  // 10%
-      { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },  // 20%
-      { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },  // 40%
-      { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },  // 60%
-      { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },  // 80%
-      { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },  // 100%
+      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 },  // 10%
+      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 },  // 20%
+      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 60 },  // 40%
+      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 90 },  // 60%
+      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 120 },  // 80%
+      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 150 },  // 100%
     ],
   },
 ]
 
 const tierSchema = z.object({
   tier: z.number().min(1),
-  timeDelayBetweenMessages: z.union([z.number().min(30, 'Time delay must be at least 30 seconds'), z.string()]).transform((val) => {
-    if (typeof val === 'string') {
-      const num = parseInt(val)
-      return isNaN(num) ? 30 : num
-    }
-    return val
-  }).refine((val) => val >= 30, { message: 'Time delay must be at least 30 seconds' }),
-  dailyLimit: z.union([z.number().min(1), z.string()]).transform((val) => {
-    if (typeof val === 'string') {
-      const num = parseInt(val)
-      return isNaN(num) || num < 1 ? 1 : num
-    }
-    return val < 1 ? 1 : val
-  }),
+  min_wait_seconds: z.union([z.number(), z.string()])
+    .refine((val) => {
+      if (typeof val === 'string' && val.trim() === '') {
+        return false
+      }
+      return true
+    }, { message: 'Time delay is required' })
+    .transform((val) => {
+      if (typeof val === 'string') {
+        const num = parseInt(val)
+        return isNaN(num) ? 30 : num
+      }
+      return val
+    })
+    .refine((val) => val >= 30, { message: 'Time delay must be at least 30 seconds' }),
+  messages_per_cycle: z.union([z.number(), z.string()])
+    .refine((val) => {
+      if (typeof val === 'string' && val.trim() === '') {
+        return false
+      }
+      return true
+    }, { message: 'Daily limit is required' })
+    .transform((val) => {
+      if (typeof val === 'string') {
+        const num = parseInt(val)
+        return isNaN(num) || num < 1 ? 1 : num
+      }
+      return val < 1 ? 1 : val
+    })
+    .refine((val) => val >= 1, { message: 'Daily limit must be at least 1' }),
 })
 
 const createUsagePlanSchema = (existingNames: string[] = [], currentPlanName?: string) => z.object({
@@ -122,6 +137,21 @@ const createUsagePlanSchema = (existingNames: string[] = [], currentPlanName?: s
       return !normalizedExisting.includes(normalizedName)
     }, 'A plan with this name already exists'),
   description: z.string().optional(),
+  tierPromotionCooldownHours: z.union([z.number(), z.string()])
+    .refine((val) => {
+      if (typeof val === 'string' && val.trim() === '') {
+        return false
+      }
+      return true
+    }, { message: 'Cooldown is required' })
+    .transform((val) => {
+      if (typeof val === 'string') {
+        const num = parseInt(val)
+        return isNaN(num) || num < 1 ? 24 : num
+      }
+      return val < 1 ? 24 : val
+    })
+    .refine((val) => val >= 1, { message: 'Cooldown must be at least 1 hour' }),
   tiers: z.array(tierSchema).min(1, 'At least one tier is required'),
   isDefault: z.boolean().default(false),
 })
@@ -132,10 +162,11 @@ interface UsagePlan {
   _id: string
   name: string
   description?: string
+  tierPromotionCooldownHours?: number
   tiers: {
     tier: number
-    timeDelayBetweenMessages: number
-    dailyLimit: number
+    min_wait_seconds: number
+    messages_per_cycle: number
   }[]
   isDefault: boolean
   isActive: boolean
@@ -168,18 +199,20 @@ export function CreateUsagePlanDialog({
       ? {
           name: editingPlan.name,
           description: editingPlan.description || '',
+          tierPromotionCooldownHours: editingPlan.tierPromotionCooldownHours || 24,
           tiers: editingPlan.tiers.map((tier) => ({
             tier: tier.tier,
-            timeDelayBetweenMessages: tier.timeDelayBetweenMessages,
-            dailyLimit: tier.dailyLimit,
+            min_wait_seconds: tier.min_wait_seconds,
+            messages_per_cycle: tier.messages_per_cycle,
           })),
           isDefault: editingPlan.isDefault,
         }
       : {
           name: '',
           description: '',
+          tierPromotionCooldownHours: 24,
           tiers: [
-            { tier: 1, timeDelayBetweenMessages: 30, dailyLimit: 50 },
+            { tier: 1, min_wait_seconds: 30, messages_per_cycle: 50 },
           ],
           isDefault: false,
         },
@@ -253,8 +286,8 @@ export function CreateUsagePlanDialog({
     const nextTier = fields.length + 1
     append({
       tier: nextTier,
-      timeDelayBetweenMessages: 30,
-      dailyLimit: 100,
+      min_wait_seconds: 30,
+      messages_per_cycle: 100,
     })
   }
 
@@ -282,6 +315,7 @@ export function CreateUsagePlanDialog({
     // Set form values
     form.setValue('name', template.name)
     form.setValue('description', template.description)
+    form.setValue('tierPromotionCooldownHours', 24)
     form.setValue('tiers', template.tiers)
     form.setValue('isDefault', false)
 
@@ -392,21 +426,27 @@ export function CreateUsagePlanDialog({
 
               <FormField
                 control={form.control}
-                name="isDefault"
+                name="tierPromotionCooldownHours"
                 render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">Default Plan</FormLabel>
-                      <div className="text-sm text-muted-foreground">
-                        Set as the default plan for new devices
-                      </div>
-                    </div>
+                  <FormItem>
+                    <FormLabel>Tier Promotion Cooldown (hours)</FormLabel>
                     <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
+                      <Input
+                        {...field}
+                        type="number"
+                        min="1"
+                        value={field.value === undefined ? '' : String(field.value)}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          field.onChange(v === '' ? '' : Number(v))
+                        }}
+                        onWheel={(e) => e.currentTarget.blur()}
                       />
                     </FormControl>
+                    <div className="text-xs text-muted-foreground">
+                      How long devices wait after tier promotion before sending more campaign messages (default: 24 hours)
+                    </div>
+                    <FormMessage />
                   </FormItem>
                 )}
               />
@@ -468,10 +508,10 @@ export function CreateUsagePlanDialog({
                     <div className="grid grid-cols-2 gap-4">
                       <FormField
                         control={form.control}
-                        name={`tiers.${index}.timeDelayBetweenMessages`}
+                        name={`tiers.${index}.min_wait_seconds`}
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Time Delay (seconds)</FormLabel>
+                            <FormLabel>Minimum Time Delay (seconds)</FormLabel>
                             <FormControl>
                               <Input
                                 {...field}
@@ -480,7 +520,7 @@ export function CreateUsagePlanDialog({
                                 value={field.value === undefined ? '' : String(field.value)}
                                 onChange={(e) => {
                                   const v = e.target.value
-                                  field.onChange(v === '' ? undefined : Number(v))
+                                  field.onChange(v === '' ? '' : Number(v))
                                 }}
                                 onWheel={(e) => e.currentTarget.blur()}
                               />
@@ -501,7 +541,7 @@ export function CreateUsagePlanDialog({
 
                       <FormField
                         control={form.control}
-                        name={`tiers.${index}.dailyLimit`}
+                        name={`tiers.${index}.messages_per_cycle`}
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Daily Message Limit</FormLabel>
@@ -509,13 +549,11 @@ export function CreateUsagePlanDialog({
                               <Input
                                 {...field}
                                 type="number"
-                                min={1}                                  // number literal (optional but cleaner)
+                                min={1}
                                 value={field.value === undefined ? '' : String(field.value)}
                                 onChange={(e) => {
                                   const v = e.target.value
-                                  // empty -> undefined; otherwise clamp to >= 1 and ensure integer
-                                  const n = v === '' ? undefined : Math.max(1, Number.parseInt(v, 10) || 1)
-                                  field.onChange(n)
+                                  field.onChange(v === '' ? '' : Number(v))
                                 }}
                                 onWheel={(e) => e.currentTarget.blur()}
                                 inputMode="numeric"
@@ -532,9 +570,7 @@ export function CreateUsagePlanDialog({
 
               <div className="bg-muted/50 p-4 rounded-lg">
                 <p className="text-sm text-muted-foreground">
-                  <strong>How tiers work:</strong> Devices start on Tier 1. When a device exceeds its daily limit,
-                  it goes on cooldown. After 24 hours with zero usage, the device is taken off cooldown and moves
-                  to the next tier (if available). Messages sent manually (not through campaigns) do not count against daily/hourly limits.
+                  <strong>How tiers work:</strong> Devices start on Tier 1. When a device exceeds its tier's daily limit, it automatically promotes to the next tier (if available) and enters a cooldown period. During cooldown, the device cannot send campaign messages. After cooldown ends, the device can use its new tier's higher limits. When a device at the maximum tier exceeds its limit, it goes on cooldown until the rolling usage window allows more messages. Messages sent manually (not through campaigns) do not count against daily limits.
                 </p>
               </div>
             </div>

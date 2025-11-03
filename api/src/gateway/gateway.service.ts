@@ -22,6 +22,8 @@ import { WebhookService } from '../webhook/webhook.service'
 import { BillingService } from '../billing/billing.service'
 import { SmsQueueService } from './queue/sms-queue.service'
 import { UsagePlan, UsagePlanDocument } from './schemas/usage-plan.schema'
+import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
+import { PREDEFINED_PLANS } from './constants/usage-plan-templates'
 
 @Injectable()
 export class GatewayService {
@@ -29,89 +31,23 @@ export class GatewayService {
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     @InjectModel(SMS.name) private smsModel: Model<SMS>,
     @InjectModel(SMSBatch.name) private smsBatchModel: Model<SMSBatch>,
-    @InjectModel(UsagePlan.name) private usagePlanModel: Model<UsagePlanDocument>,
+    @InjectModel(UsagePlan.name)
+    private usagePlanModel: Model<UsagePlanDocument>,
     private authService: AuthService,
     private webhookService: WebhookService,
     private billingService: BillingService,
     private smsQueueService: SmsQueueService,
+    private usageCalculator: DeviceUsageCalculatorService,
   ) {}
 
-  private async getUsagePlanById(planId: string | Types.ObjectId): Promise<UsagePlan | null> {
+  private async getUsagePlanById(
+    planId: string | Types.ObjectId,
+  ): Promise<UsagePlan | null> {
     if (typeof planId === 'string' && planId.startsWith('template_')) {
-      // Inline template plans to avoid circular dependencies
-      const PREDEFINED_PLANS = [
-        {
-          _id: 'template_verizon_business',
-          name: 'Verizon Business SIM',
-          description: 'Best for high-volume sending',
-          tiers: [
-            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 70 },
-            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 140 },
-            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 280 },
-            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 420 },
-            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 560 },
-            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 700 },
-          ],
-          isDefault: false,
-          isActive: true,
-          isTemplate: true,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          _id: 'template_verizon_prepaid',
-          name: 'Verizon Prepaid SIM',
-          description: 'Reliable mid-volume option',
-          tiers: [
-            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 20 },
-            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 40 },
-            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 80 },
-            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 120 },
-            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 160 },
-            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 200 },
-          ],
-          isDefault: false,
-          isActive: true,
-          isTemplate: true,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          _id: 'template_total_wireless',
-          name: 'Total Wireless SIM',
-          description: "Reliable mid-volume option on Verizon's network",
-          tiers: [
-            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },
-            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },
-            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },
-            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },
-            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },
-            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },
-          ],
-          isDefault: false,
-          isActive: true,
-          isTemplate: true,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          _id: 'template_tracfone',
-          name: 'Tracfone SIM',
-          description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
-          tiers: [
-            { tier: 1, timeDelayBetweenMessages: 300, dailyLimit: 15 },
-            { tier: 2, timeDelayBetweenMessages: 240, dailyLimit: 30 },
-            { tier: 3, timeDelayBetweenMessages: 180, dailyLimit: 60 },
-            { tier: 4, timeDelayBetweenMessages: 120, dailyLimit: 90 },
-            { tier: 5, timeDelayBetweenMessages: 90, dailyLimit: 120 },
-            { tier: 6, timeDelayBetweenMessages: 60, dailyLimit: 150 },
-          ],
-          isDefault: false,
-          isActive: true,
-          isTemplate: true,
-          createdAt: new Date().toISOString(),
-        },
-      ]
-
-      const templatePlan = PREDEFINED_PLANS.find(template => template._id === planId)
-      return templatePlan ? templatePlan as any : null
+      const templatePlan = PREDEFINED_PLANS.find(
+        (template) => template._id === planId,
+      )
+      return templatePlan ? (templatePlan as any) : null
     }
 
     if (Types.ObjectId.isValid(planId as string)) {
@@ -142,9 +78,41 @@ export class GatewayService {
   }
 
   async getDevicesForUser(user: User): Promise<any> {
-    return await this.deviceModel
-      .find({ user: user._id })
-      .exec()
+    const devices = await this.deviceModel.find({ user: user._id }).exec()
+
+    // Enrich devices with real-time rolling window usage stats
+    const enrichedDevices = await Promise.all(
+      devices.map(async (device) => {
+        const deviceObj = device.toObject()
+
+        // Calculate current window usage if device has a usage plan
+        if (device.usagePlan) {
+          try {
+            const stats = await this.usageCalculator.getDeviceUsageStats(device)
+
+            return {
+              ...deviceObj,
+              // Add calculated fields for frontend (backward compatible)
+              messages_sent_today: stats.messagesSentInWindow,
+              usage_window_minutes: stats.windowMinutes,
+              usage_percentage: stats.usagePercentage,
+              estimated_cooldown_end: stats.estimatedCooldownEndTime,
+            }
+          } catch (error) {
+            console.error(
+              `Failed to calculate usage for device ${device._id}:`,
+              error,
+            )
+            // Return device without calculated stats if calculation fails
+            return deviceObj
+          }
+        }
+
+        return deviceObj
+      }),
+    )
+
+    return enrichedDevices
   }
 
   async getDeviceById(deviceId: string): Promise<any> {
@@ -167,12 +135,43 @@ export class GatewayService {
     }
 
     if (input.enabled !== false) {
-      input.enabled = true;
+      input.enabled = true
     }
-    
+
+    // Phone number change detection
+    const updateData: any = { ...input }
+    if (
+      input.phoneNumber &&
+      device.phoneNumber &&
+      input.phoneNumber !== device.phoneNumber
+    ) {
+      updateData.previousPhoneNumber = device.phoneNumber
+      updateData.phoneNumberLastUpdated = new Date()
+      console.log(
+        `Phone number changed for device ${deviceId}: ${device.phoneNumber} -> ${input.phoneNumber}`,
+      )
+    } else if (input.phoneNumber && !device.phoneNumber) {
+      updateData.phoneNumberLastUpdated = new Date()
+      console.log(
+        `Phone number set for device ${deviceId}: ${input.phoneNumber}`,
+      )
+    }
+
+    // Same for phoneNumber2 (dual-SIM)
+    if (
+      input.phoneNumber2 &&
+      device.phoneNumber2 &&
+      input.phoneNumber2 !== device.phoneNumber2
+    ) {
+      updateData.phoneNumberLastUpdated = new Date()
+      console.log(
+        `Phone number 2 changed for device ${deviceId}: ${device.phoneNumber2} -> ${input.phoneNumber2}`,
+      )
+    }
+
     return await this.deviceModel.findByIdAndUpdate(
       deviceId,
-      { $set: input },
+      { $set: updateData },
       { new: true },
     )
   }
@@ -193,7 +192,11 @@ export class GatewayService {
     // return await this.deviceModel.findByIdAndDelete(deviceId)
   }
 
-  async sendSMS(deviceId: string, smsData: SendSMSInputDTO, campaignId?: string): Promise<any> {
+  async sendSMS(
+    deviceId: string,
+    smsData: SendSMSInputDTO,
+    campaignId?: string,
+  ): Promise<any> {
     const device = await this.deviceModel.findById(deviceId)
 
     if (!device?.enabled) {
@@ -206,22 +209,21 @@ export class GatewayService {
       )
     }
 
-    // Check if device is on cooldown
+    // Check if device is on cooldown (rolling window based)
     if (device.is_on_cooldown) {
-      // Try to reset cooldown first
-      const cooldownReset = await this.checkAndResetCooldown(device)
-      if (!cooldownReset && device.is_on_cooldown) {
-        const cooldownUntil = device.cooldown_until
-          ? new Date(device.cooldown_until).toLocaleString()
-          : 'unknown'
-        throw new HttpException(
-          {
-            success: false,
-            error: `Device is on cooldown until ${cooldownUntil}. Please wait before sending more messages.`,
-          },
-          HttpStatus.TOO_MANY_REQUESTS,
-        )
-      }
+      // Get current usage stats to estimate cooldown end
+      const stats = await this.usageCalculator.getDeviceUsageStats(device)
+      const cooldownMessage = stats.estimatedCooldownEndTime
+        ? `Device is on cooldown until approximately ${stats.estimatedCooldownEndTime.toLocaleString()}`
+        : 'Device is on cooldown. Please wait before sending more messages.'
+
+      throw new HttpException(
+        {
+          success: false,
+          error: cooldownMessage,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      )
     }
 
     const message = smsData.message || smsData.smsBody
@@ -373,19 +375,21 @@ export class GatewayService {
         )
       }
 
+      // Update device: increment total count and last message timestamp
       this.deviceModel
         .findByIdAndUpdate(deviceId, {
           $inc: {
             sentSMSCount: response.successCount,
-            messages_sent_today: response.successCount,
-            messages_sent_this_hour: response.successCount,
+          },
+          $set: {
+            lastMessageSentAt: new Date(),
           },
         })
         .exec()
         .then(async (updatedDevice) => {
           if (updatedDevice) {
-            // Check if device needs tier progression
-            await this.checkAndProgressTier(updatedDevice)
+            // Check if device needs tier progression based on rolling window usage
+            await this.checkTierProgression(updatedDevice._id)
           }
         })
         .catch((e) => {
@@ -436,22 +440,21 @@ export class GatewayService {
       )
     }
 
-    // Check if device is on cooldown
+    // Check if device is on cooldown (rolling window based)
     if (device.is_on_cooldown) {
-      // Try to reset cooldown first
-      const cooldownReset = await this.checkAndResetCooldown(device)
-      if (!cooldownReset && device.is_on_cooldown) {
-        const cooldownUntil = device.cooldown_until
-          ? new Date(device.cooldown_until).toLocaleString()
-          : 'unknown'
-        throw new HttpException(
-          {
-            success: false,
-            error: `Device is on cooldown until ${cooldownUntil}. Please wait before sending more messages.`,
-          },
-          HttpStatus.TOO_MANY_REQUESTS,
-        )
-      }
+      // Get current usage stats to estimate cooldown end
+      const stats = await this.usageCalculator.getDeviceUsageStats(device)
+      const cooldownMessage = stats.estimatedCooldownEndTime
+        ? `Device is on cooldown until approximately ${stats.estimatedCooldownEndTime.toLocaleString()}`
+        : 'Device is on cooldown. Please wait before sending more messages.'
+
+      throw new HttpException(
+        {
+          success: false,
+          error: cooldownMessage,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      )
     }
 
     if (
@@ -595,15 +598,16 @@ export class GatewayService {
           .findByIdAndUpdate(deviceId, {
             $inc: {
               sentSMSCount: response.successCount,
-              messages_sent_today: response.successCount,
-              messages_sent_this_hour: response.successCount,
+            },
+            $set: {
+              lastMessageSentAt: new Date(),
             },
           })
           .exec()
           .then(async (updatedDevice) => {
             if (updatedDevice) {
-              // Check if device needs tier progression
-              await this.checkAndProgressTier(updatedDevice)
+              // Check if device needs tier progression based on rolling window usage
+              await this.checkTierProgression(updatedDevice._id)
             }
           })
           .catch((e) => {
@@ -685,9 +689,14 @@ export class GatewayService {
       1,
     )
 
-    const receivedAt = dto.receivedAtInMillis
-      ? new Date(dto.receivedAtInMillis)
-      : dto.receivedAt
+    // Android now sends System.currentTimeMillis() which is already in UTC
+    // No timezone conversion needed - the timestamp is already correct
+    let receivedAt: Date
+    if (dto.receivedAtInMillis) {
+      receivedAt = new Date(dto.receivedAtInMillis)
+    } else {
+      receivedAt = dto.receivedAt
+    }
 
     const sms = await this.smsModel.create({
       device: device._id,
@@ -696,6 +705,7 @@ export class GatewayService {
       status: 'received',
       sender: dto.sender,
       receivedAt,
+      senderPhoneNumber: dto.senderPhoneNumber,
     })
 
     this.deviceModel
@@ -763,7 +773,7 @@ export class GatewayService {
       )
       .populate({
         path: 'device',
-        select: '_id brand model buildId enabled',
+        select: '_id brand model buildId enabled appVersionCode',
       })
       .lean() // Use lean() to return plain JavaScript objects instead of Mongoose documents
 
@@ -824,7 +834,7 @@ export class GatewayService {
       })
       .populate({
         path: 'device',
-        select: '_id brand model buildId enabled',
+        select: '_id brand model buildId enabled appVersionCode',
       })
       .lean() // Use lean() to return plain JavaScript objects instead of Mongoose documents
 
@@ -842,10 +852,12 @@ export class GatewayService {
     }
   }
 
-  async updateSMSStatus(deviceId: string, dto: UpdateSMSStatusDTO): Promise<any> {
+  async updateSMSStatus(
+    deviceId: string,
+    dto: UpdateSMSStatusDTO,
+  ): Promise<any> {
+    const device = await this.deviceModel.findById(deviceId)
 
-    const device = await this.deviceModel.findById(deviceId);
-    
     if (!device) {
       throw new HttpException(
         {
@@ -853,11 +865,11 @@ export class GatewayService {
           error: 'Device not found',
         },
         HttpStatus.NOT_FOUND,
-      );
+      )
     }
-    
-    const sms = await this.smsModel.findById(dto.smsId);
-    
+
+    const sms = await this.smsModel.findById(dto.smsId)
+
     if (!sms) {
       throw new HttpException(
         {
@@ -865,9 +877,9 @@ export class GatewayService {
           error: 'SMS not found',
         },
         HttpStatus.NOT_FOUND,
-      );
+      )
     }
-    
+
     // Verify the SMS belongs to this device
     if (sms.device.toString() !== deviceId) {
       throw new HttpException(
@@ -876,85 +888,221 @@ export class GatewayService {
           error: 'SMS does not belong to this device',
         },
         HttpStatus.FORBIDDEN,
-      );
+      )
     }
-    
+
     // Normalize status to lowercase for comparison
-    const normalizedStatus = dto.status.toLowerCase();
-    
+    const normalizedStatus = dto.status.toLowerCase()
+
     const updateData: any = {
       status: normalizedStatus, // Store normalized status
-    };
-    
+    }
+
     // Update timestamps based on status
     if (normalizedStatus === 'sent' && dto.sentAtInMillis) {
-      updateData.sentAt = new Date(dto.sentAtInMillis);
+      updateData.sentAt = new Date(dto.sentAtInMillis)
     } else if (normalizedStatus === 'delivered' && dto.deliveredAtInMillis) {
-      updateData.deliveredAt = new Date(dto.deliveredAtInMillis);
+      updateData.deliveredAt = new Date(dto.deliveredAtInMillis)
     } else if (normalizedStatus === 'failed' && dto.failedAtInMillis) {
-      updateData.failedAt = new Date(dto.failedAtInMillis);
-      updateData.errorCode = dto.errorCode;
-      updateData.errorMessage = dto.errorMessage || 'Unknown error';
+      updateData.failedAt = new Date(dto.failedAtInMillis)
+      updateData.errorCode = dto.errorCode
+      updateData.errorMessage = dto.errorMessage || 'Unknown error'
     }
-    
+
+    // Include sender phone number if provided (for tracking dual-SIM)
+    if (dto.senderPhoneNumber) {
+      updateData.senderPhoneNumber = dto.senderPhoneNumber
+    }
+
     // Update the SMS
-    await this.smsModel.findByIdAndUpdate(dto.smsId, { $set: updateData });
-    
+    await this.smsModel.findByIdAndUpdate(dto.smsId, { $set: updateData })
+
     // Check if all SMS in batch have the same status, then update batch status
     if (dto.smsBatchId) {
-      const smsBatch = await this.smsBatchModel.findById(dto.smsBatchId);
+      const smsBatch = await this.smsBatchModel.findById(dto.smsBatchId)
       if (smsBatch) {
-        const allSmsInBatch = await this.smsModel.find({ smsBatch: dto.smsBatchId });
-        
+        const allSmsInBatch = await this.smsModel.find({
+          smsBatch: dto.smsBatchId,
+        })
+
         // Check if all SMS in batch have the same status (case insensitive)
-        const allHaveSameStatus = allSmsInBatch.every(sms => sms.status.toLowerCase() === normalizedStatus);
-        
+        const allHaveSameStatus = allSmsInBatch.every(
+          (sms) => sms.status.toLowerCase() === normalizedStatus,
+        )
+
         if (allHaveSameStatus) {
-          const smsBatchStatus = normalizedStatus === 'failed' ? 'failed' : 'completed';
-          await this.smsBatchModel.findByIdAndUpdate(dto.smsBatchId, { 
-            $set: { status: smsBatchStatus } 
-          });
+          const smsBatchStatus =
+            normalizedStatus === 'failed' ? 'failed' : 'completed'
+          await this.smsBatchModel.findByIdAndUpdate(dto.smsBatchId, {
+            $set: { status: smsBatchStatus },
+          })
         }
       }
     }
-    
+
     // Trigger webhook event for SMS status update
     try {
       this.webhookService.deliverNotification({
         sms,
         user: device.user,
         event: WebhookEvent.SMS_STATUS_UPDATED,
-      });
+      })
     } catch (error) {
-      console.error('Failed to trigger webhook event:', error);
+      console.error('Failed to trigger webhook event:', error)
     }
-    
+
     return {
       success: true,
       message: 'SMS status updated successfully',
-    };
+    }
   }
 
-  async getStatsForUser(user: User) {
-    const devices = await this.deviceModel.find({ user: user._id })
+  async getStatsForUser(
+    user: User,
+    startDate?: Date,
+    endDate?: Date,
+    deviceIds?: string[],
+  ) {
+    // Get all user devices
+    const allDevices = await this.deviceModel.find({ user: user._id })
     const apiKeys = await this.authService.getUserApiKeys(user)
 
-    const totalSentSMSCount = devices.reduce((acc, device) => {
-      return acc + (device.sentSMSCount || 0)
-    }, 0)
+    // Determine which devices to filter by
+    let targetDeviceIds: Types.ObjectId[]
+    if (deviceIds && deviceIds.length > 0) {
+      // Use specified device IDs
+      targetDeviceIds = deviceIds.map((id) => new Types.ObjectId(id))
+    } else {
+      // Use all user's devices
+      targetDeviceIds = allDevices.map((device) => device._id)
+    }
 
-    const totalReceivedSMSCount = devices.reduce((acc, device) => {
-      return acc + (device.receivedSMSCount || 0)
-    }, 0)
+    // Build base query for SMS filtering
+    const baseQuery: any = {
+      device: { $in: targetDeviceIds },
+    }
 
-    const totalDeviceCount = devices.length
-    const totalApiKeyCount = apiKeys.length
+    // Add date range filtering if provided
+    let sentDateQuery = {}
+    let receivedDateQuery = {}
+    if (startDate || endDate) {
+      if (startDate && endDate) {
+        // Add 1 day to endDate to include entire end date
+        const endDateInclusive = new Date(endDate)
+        endDateInclusive.setDate(endDateInclusive.getDate() + 1)
+
+        sentDateQuery = { sentAt: { $gte: startDate, $lt: endDateInclusive } }
+        receivedDateQuery = {
+          receivedAt: { $gte: startDate, $lt: endDateInclusive },
+        }
+      } else if (startDate) {
+        sentDateQuery = { sentAt: { $gte: startDate } }
+        receivedDateQuery = { receivedAt: { $gte: startDate } }
+      } else if (endDate) {
+        // Add 1 day to endDate for consistency
+        const endDateInclusive = new Date(endDate)
+        endDateInclusive.setDate(endDateInclusive.getDate() + 1)
+
+        sentDateQuery = { sentAt: { $lt: endDateInclusive } }
+        receivedDateQuery = { receivedAt: { $lt: endDateInclusive } }
+      }
+    }
+
+    // Count sent SMS
+    const totalSentSMSCount = await this.smsModel.countDocuments({
+      ...baseQuery,
+      type: SMSType.SENT,
+      ...sentDateQuery,
+    })
+
+    // Count received SMS
+    const totalReceivedSMSCount = await this.smsModel.countDocuments({
+      ...baseQuery,
+      type: SMSType.RECEIVED,
+      ...receivedDateQuery,
+    })
+
+    // Count delivered SMS for delivery rate
+    const deliveredSMSCount = await this.smsModel.countDocuments({
+      ...baseQuery,
+      type: SMSType.SENT,
+      status: 'delivered',
+      ...sentDateQuery,
+    })
+
+    // Calculate delivery rate
+    const smsDeliveryRate =
+      totalSentSMSCount > 0 ? (deliveredSMSCount / totalSentSMSCount) * 100 : 0
+
+    // Total device count and API key count remain unfiltered
+    const totalDeviceCount = allDevices.length
+    const totalApiKeyCount = apiKeys.filter((key) => !key.revokedAt).length
+
+    // Calculate campaign response rate
+    let campaignResponseRate = 0
+
+    // Get unique recipients who received campaign messages
+    const campaignRecipients = await this.smsModel.aggregate([
+      {
+        $match: {
+          ...baseQuery,
+          type: SMSType.SENT,
+          campaignId: { $exists: true, $ne: null },
+          ...sentDateQuery,
+        },
+      },
+      {
+        $group: {
+          _id: '$recipient',
+          firstCampaignSentAt: { $min: '$sentAt' },
+        },
+      },
+    ])
+
+    if (campaignRecipients.length > 0) {
+      // For each recipient, check if they responded after receiving their first campaign message
+      const responseCheck = await this.smsModel.aggregate([
+        {
+          $match: {
+            ...baseQuery,
+            type: SMSType.RECEIVED,
+            ...receivedDateQuery,
+            sender: { $in: campaignRecipients.map((r) => r._id) },
+          },
+        },
+        {
+          $group: {
+            _id: '$sender',
+            firstResponseAt: { $min: '$receivedAt' },
+          },
+        },
+      ])
+
+      // Count how many recipients responded after their first campaign message
+      let respondedCount = 0
+      for (const recipient of campaignRecipients) {
+        const response = responseCheck.find((r) => r._id === recipient._id)
+        if (
+          response &&
+          response.firstResponseAt > recipient.firstCampaignSentAt
+        ) {
+          respondedCount++
+        }
+      }
+
+      campaignResponseRate = (respondedCount / campaignRecipients.length) * 100
+    }
 
     return {
       totalSentSMSCount,
       totalReceivedSMSCount,
       totalDeviceCount,
       totalApiKeyCount,
+      smsDeliveryRate: Number(smsDeliveryRate.toFixed(1)),
+      campaignResponseRate:
+        campaignRecipients.length > 0
+          ? Number(campaignResponseRate.toFixed(1))
+          : undefined,
     }
   }
 
@@ -975,8 +1123,7 @@ export class GatewayService {
   }
 
   async getSMSById(smsId: string): Promise<any> {
-
-    const sms = await this.smsModel.findById(smsId);
+    const sms = await this.smsModel.findById(smsId)
 
     if (!sms) {
       throw new HttpException(
@@ -985,15 +1132,14 @@ export class GatewayService {
           error: 'SMS not found',
         },
         HttpStatus.NOT_FOUND,
-      );
+      )
     }
 
-    return sms;
+    return sms
   }
 
   async getSmsBatchById(smsBatchId: string): Promise<any> {
-
-    const smsBatch = await this.smsBatchModel.findById(smsBatchId);
+    const smsBatch = await this.smsBatchModel.findById(smsBatchId)
 
     if (!smsBatch) {
       throw new HttpException(
@@ -1002,79 +1148,93 @@ export class GatewayService {
           error: 'SMS batch not found',
         },
         HttpStatus.NOT_FOUND,
-      );
+      )
     }
 
     // Find all SMS messages that belong to this batch
-    const smsMessages = await this.smsModel.find({ 
+    const smsMessages = await this.smsModel.find({
       smsBatch: new Types.ObjectId(smsBatchId),
-      device: smsBatch.device
-    });
+      device: smsBatch.device,
+    })
 
     // Return both the batch and its SMS messages
     return {
       batch: smsBatch,
-      messages: smsMessages
-    };
+      messages: smsMessages,
+    }
   }
 
-  private async checkAndProgressTier(device: DeviceDocument): Promise<boolean> {
-    if (!device.usagePlan) {
+  /**
+   * Check and update tier progression based on rolling window usage
+   * Now takes deviceId instead of device document to ensure fresh data
+   */
+  async checkTierProgression(
+    deviceId: string | Types.ObjectId,
+  ): Promise<boolean> {
+    const device = await this.deviceModel.findById(deviceId).exec()
+    if (!device || !device.usagePlan) {
       return false
     }
+
+    // Get current usage stats from rolling window
+    const stats = await this.usageCalculator.getDeviceUsageStats(device)
 
     const usagePlan = await this.getUsagePlanById(device.usagePlan)
     if (!usagePlan) {
       return false
     }
 
-    const currentTier = usagePlan.tiers.find(t => t.tier === device.current_tier)
-    if (!currentTier) {
-      return false
-    }
-
-    // Check if daily limit exceeded
-    if (device.messages_sent_today >= currentTier.dailyLimit) {
+    // Check if current tier limit exceeded
+    if (stats.isOverLimit) {
       // Find next tier
-      const nextTier = usagePlan.tiers.find(t => t.tier === device.current_tier + 1)
+      const nextTier = usagePlan.tiers.find(
+        (t) => t.tier === device.current_tier + 1,
+      )
 
       if (nextTier) {
-        // Upgrade tier
-        device.current_tier = nextTier.tier
-        device.last_tier_upgrade = new Date()
+        // Apply tier promotion cooldown FIRST, then upgrade tier when cooldown ends
+        const cooldownHours =
+          (usagePlan as any).tierPromotionCooldownHours || 24
+        const cooldownEndTime = new Date(
+          Date.now() + cooldownHours * 60 * 60 * 1000,
+        )
+
+        device.is_on_cooldown = true
+        device.cooldown_end_time = cooldownEndTime
+        device.cooldown_reason = 'tier_promotion'
+
+        // Store the pending tier upgrade so it can be applied when cooldown ends
+        device.pending_tier_upgrade = nextTier.tier
+
         await device.save()
+        console.log(
+          `Device ${device._id} placed on tier promotion cooldown until ${cooldownEndTime}, will upgrade to tier ${nextTier.tier} after cooldown`,
+        )
+
+        // Schedule wake-device job for when cooldown ends (will handle tier upgrade)
+        await this.smsQueueService.scheduleWakeDevice(
+          device._id.toString(),
+          cooldownEndTime,
+        )
+
         return true
       } else {
-        // No next tier available, put on cooldown
+        // No next tier available, put on max tier cooldown
         device.is_on_cooldown = true
-        device.cooldown_until = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+        device.cooldown_reason = 'max_tier_limit'
+
+        // Calculate cooldown end time based on rolling window
+        if (stats.estimatedCooldownEndTime) {
+          device.cooldown_end_time = stats.estimatedCooldownEndTime
+          await this.smsQueueService.scheduleWakeDevice(
+            device._id.toString(),
+            stats.estimatedCooldownEndTime,
+          )
+        }
+
         await device.save()
+        console.log(`Device ${device._id} entered max tier cooldown`)
       }
-    }
-
-    return false
-  }
-
-  private async checkAndResetCooldown(device: DeviceDocument): Promise<boolean> {
-    if (!device.is_on_cooldown || !device.cooldown_until) {
-      return false
-    }
-
-    const now = new Date()
-
-    // Check if cooldown period has passed
-    if (now >= device.cooldown_until) {
-      // Reset cooldown and check if we can move to next tier
-      device.is_on_cooldown = false
-      device.cooldown_until = undefined
-
-      // If messages sent in last 24 hours is now 0, we can progress
-      if (device.messages_sent_today === 0) {
-        await this.checkAndProgressTier(device)
-      }
-
-      await device.save()
-      return true
     }
 
     return false

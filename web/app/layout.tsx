@@ -8,7 +8,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
 export const metadata: Metadata = {
-  title: 'textbee.dev - sms gateway - dashboard',
+  title: 'hivesms.com - sms gateway - dashboard',
 
   metadataBase: new URL('https://textbee.dev'),
 }
@@ -18,7 +18,7 @@ export default async function RootLayout({ children }: PropsWithChildren) {
 
   return (
     <html lang='en' suppressHydrationWarning>
-      <body>
+      <body suppressHydrationWarning>
         <main>{children}</main>
         <Analytics user={session?.user} />
         <Toaster />

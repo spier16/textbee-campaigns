@@ -6,8 +6,8 @@ export type UsagePlanDocument = UsagePlan & Document
 
 export interface UsagePlanTier {
   tier: number
-  timeDelayBetweenMessages: number // in seconds
-  dailyLimit: number
+  min_wait_seconds: number // Minimum wait time between messages in seconds (with right-skewed randomization)
+  messages_per_cycle: number // Maximum messages allowed in the rolling window
 }
 
 @Schema({ timestamps: true })
@@ -23,13 +23,21 @@ export class UsagePlan {
   @Prop({ type: String })
   description?: string
 
+  @Prop({ type: Number, default: 1440 })
+  usageWindowMinutes: number // Rolling window period in minutes (default: 1440 = 24 hours)
+
+  @Prop({ type: Number, default: 24 })
+  tierPromotionCooldownHours: number // Cooldown period after tier promotion (default: 24 hours)
+
   @Prop({
-    type: [{
-      tier: { type: Number, required: true },
-      timeDelayBetweenMessages: { type: Number, required: true },
-      dailyLimit: { type: Number, required: true }
-    }],
-    required: true
+    type: [
+      {
+        tier: { type: Number, required: true },
+        min_wait_seconds: { type: Number, required: true },
+        messages_per_cycle: { type: Number, required: true },
+      },
+    ],
+    required: true,
   })
   tiers: UsagePlanTier[]
 
@@ -49,14 +57,16 @@ export class UsagePlan {
 export const UsagePlanSchema = SchemaFactory.createForClass(UsagePlan)
 
 // Ensure tiers are sorted by tier number
-UsagePlanSchema.pre('save', function() {
+UsagePlanSchema.pre('save', function () {
   if (this.tiers) {
     this.tiers.sort((a, b) => a.tier - b.tier)
 
     // Validate tier numbers are sequential starting from 1
     this.tiers.forEach((tier, index) => {
       if (tier.tier !== index + 1) {
-        throw new Error(`Tiers must be sequential starting from 1. Found tier ${tier.tier} at position ${index + 1}`)
+        throw new Error(
+          `Tiers must be sequential starting from 1. Found tier ${tier.tier} at position ${index + 1}`,
+        )
       }
     })
   }

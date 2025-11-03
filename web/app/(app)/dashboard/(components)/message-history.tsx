@@ -43,6 +43,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 
 function ReplyDialog({ sms, onClose }: { sms: any; onClose?: () => void }) {
   const [open, setOpen] = useState(false)
@@ -397,19 +398,20 @@ function FollowUpDialog({
   )
 }
 
-function StatusDetailsDialog({ message }: { message: any }) {
+function StatusDetailsDialog({ message, showSeconds }: { message: any; showSeconds?: boolean }) {
   const [open, setOpen] = useState(false);
-  
+
   // Format timestamps for display
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return 'N/A';
     return new Date(timestamp).toLocaleString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit',
+      ...(showSeconds && { second: '2-digit' }),
       day: 'numeric',
       month: 'short',
       year: 'numeric',
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
   };
   
@@ -533,7 +535,7 @@ function StatusDetailsDialog({ message }: { message: any }) {
   );
 }
 
-function MessageCard({ message, type, device }) {
+function MessageCard({ message, type, device, showSeconds }) {
   const isSent = type === 'sent'
 
   const formattedDate = new Date(
@@ -541,9 +543,11 @@ function MessageCard({ message, type, device }) {
   ).toLocaleString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
+    ...(showSeconds && { second: '2-digit' }),
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   })
 
   const shouldShowStatus = device?.appVersionCode >= 14 &&  new Date(message?.createdAt) > new Date('2025-06-05')
@@ -584,16 +588,16 @@ function MessageCard({ message, type, device }) {
           </div>
 
           <div className='flex gap-2'>
-            <p className='text-sm max-w-sm md:max-w-none'>{message.message}</p>
+            <p className='text-sm max-w-sm md:max-w-none break-words whitespace-pre-wrap'>{message.message}</p>
           </div>
 
           <div className='flex justify-between items-center'>
             {isSent && shouldShowStatus && (
               <div className='flex items-center'>
-                <StatusDetailsDialog message={message} />
+                <StatusDetailsDialog message={message} showSeconds={showSeconds} />
               </div>
             )}
-            
+
             <div className='flex justify-end ml-auto'>
               {!isSent && <ReplyDialog sms={message} />}
               {isSent && <FollowUpDialog message={message} />}
@@ -640,6 +644,7 @@ export default function MessageHistory() {
   const [limit, setLimit] = useState(20)
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(0) // 0 means no auto-refresh
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [showSeconds, setShowSeconds] = useState(false)
   const refreshTimerRef = useRef(null)
 
   useEffect(() => {
@@ -828,29 +833,6 @@ export default function MessageHistory() {
           {/* Refresh Controls */}
           <div className='flex items-center justify-between gap-2 pt-2 mt-2 border-t border-brand-100 dark:border-brand-800/50'>
             <div className='flex items-center gap-1.5'>
-              <Button
-                onClick={handleRefresh}
-                variant='ghost'
-                size='sm'
-                disabled={!currentDevice}
-                className='h-7 px-2 text-xs text-brand-700 dark:text-brand-300 hover:bg-brand-100 dark:hover:bg-brand-900/30'
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 mr-1 ${
-                    isRefreshing ? 'animate-spin' : ''
-                  }`}
-                />
-                Refresh Now
-              </Button>
-
-              {/* {messagesResponse && (
-                <span className='text-xs text-muted-foreground hidden sm:inline-block'>
-                  Updated: {new Date().toLocaleTimeString()}
-                </span>
-              )} */}
-            </div>
-
-            <div className='flex items-center gap-1.5'>
               <Timer className='h-3 w-3 text-brand-500' />
               <span className='text-xs font-medium mr-1'>Auto Refresh:</span>
 
@@ -877,6 +859,29 @@ export default function MessageHistory() {
                   </Button>
                 ))}
               </div>
+
+              <Button
+                onClick={handleRefresh}
+                variant='ghost'
+                size='sm'
+                disabled={!currentDevice}
+                className='h-7 px-2 text-xs text-brand-700 dark:text-brand-300 hover:bg-brand-100 dark:hover:bg-brand-900/30 ml-1'
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 mr-1 ${
+                    isRefreshing ? 'animate-spin' : ''
+                  }`}
+                />
+                Refresh Now
+              </Button>
+            </div>
+
+            <div className='flex items-center gap-2'>
+              <span className='text-xs font-medium'>Show seconds</span>
+              <Switch
+                checked={showSeconds}
+                onCheckedChange={setShowSeconds}
+              />
             </div>
           </div>
         </div>
@@ -908,7 +913,8 @@ export default function MessageHistory() {
             key={message._id}
             message={message}
             type={message.sender ? 'received' : 'sent'}
-            device={devices?.data?.find((device) => device._id === currentDevice)}
+            device={message.device}
+            showSeconds={showSeconds}
           />
         ))}
       </div>

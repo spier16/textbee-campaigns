@@ -12,6 +12,8 @@ public class RegisterDeviceInputDTO {
     private String osVersion;
     private String appVersionName;
     private int appVersionCode;
+    private String phoneNumber;
+    private String phoneNumber2;
 
     public RegisterDeviceInputDTO() {
     }
@@ -106,5 +108,21 @@ public class RegisterDeviceInputDTO {
 
     public void setAppVersionCode(int appVersionCode) {
         this.appVersionCode = appVersionCode;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
+    }
+
+    public String getPhoneNumber2() {
+        return phoneNumber2;
+    }
+
+    public void setPhoneNumber2(String phoneNumber2) {
+        this.phoneNumber2 = phoneNumber2;
     }
 }

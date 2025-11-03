@@ -51,45 +51,47 @@ export class Device {
   @Prop({ type: Number, default: 0 })
   receivedSMSCount: number
 
-  // @deprecated Legacy field - replaced by usage plan system's timeDelayBetweenMessages
-  // TODO: Remove this field in future migration after all devices use usage plans
-  @Prop({ type: Number, default: 60 })
-  max_hourly_send_rate: number
-
-  // @deprecated Legacy field - replaced by usage plan system's dailyLimit per tier
-  // TODO: Remove this field in future migration after all devices use usage plans
-  @Prop({ type: Number, default: 50 })
-  daily_send_limit: number
-
   @Prop({ type: Number, default: 1 })
   current_tier: number
+
+  @Prop({ type: Number })
+  best_min_wait_seconds?: number // Lowest minimum wait time ever achieved (historical tracking)
+
+  @Prop({ type: Number })
+  max_messages_per_cycle?: number
 
   @Prop({ type: Date })
   last_tier_upgrade: Date
 
-  @Prop({ type: Number, default: 0 })
-  messages_sent_today: number
-
-  @Prop({ type: Number, default: 0 })
-  messages_sent_this_hour: number
-
-  @Prop({ type: Date })
-  hourly_counter_reset: Date
-
-  @Prop({ type: Date })
-  daily_counter_reset: Date
-
   @Prop({ type: MongooseSchema.Types.Mixed })
   usagePlan?: Types.ObjectId | string
-
-  @Prop({ type: Date })
-  cooldown_until?: Date
 
   @Prop({ type: Boolean, default: false })
   is_on_cooldown?: boolean
 
   @Prop({ type: Date })
+  cooldown_end_time?: Date
+
+  @Prop({ type: String, enum: ['tier_promotion', 'max_tier_limit'] })
+  cooldown_reason?: 'tier_promotion' | 'max_tier_limit'
+
+  @Prop({ type: Number })
+  pending_tier_upgrade?: number
+
+  @Prop({ type: Date })
   lastMessageSentAt?: Date
+
+  @Prop({ type: String })
+  phoneNumber: string
+
+  @Prop({ type: String })
+  phoneNumber2: string
+
+  @Prop({ type: Date })
+  phoneNumberLastUpdated: Date
+
+  @Prop({ type: String })
+  previousPhoneNumber: string
 }
 
 export const DeviceSchema = SchemaFactory.createForClass(Device)

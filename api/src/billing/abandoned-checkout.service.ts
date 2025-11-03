@@ -14,7 +14,7 @@ interface EmailConfig {
   template: string
   subject: string
   minutesBeforeExpiry?: number // Send X minutes before expiry
-  minutesAfterExpiry?: number  // Send X minutes after expiry
+  minutesAfterExpiry?: number // Send X minutes after expiry
   emailType:
     | 'first_reminder'
     | 'second_reminder'
@@ -34,7 +34,6 @@ export class AbandonedCheckoutService {
       minutesBeforeExpiry: 15,
       emailType: 'first_reminder',
     },
-
   ]
 
   constructor(
@@ -70,8 +69,10 @@ export class AbandonedCheckoutService {
 
     if (emailConfig.minutesBeforeExpiry !== undefined) {
       // BEFORE EXPIRY: Find sessions that will expire in X minutes
-      const targetExpiryTime = new Date(now.getTime() + emailConfig.minutesBeforeExpiry * 60 * 1000)
-      
+      const targetExpiryTime = new Date(
+        now.getTime() + emailConfig.minutesBeforeExpiry * 60 * 1000,
+      )
+
       windowStart = new Date(targetExpiryTime.getTime() - 10 * 60 * 1000)
       windowEnd = new Date(targetExpiryTime.getTime() + 10 * 60 * 1000)
 
@@ -84,8 +85,10 @@ export class AbandonedCheckoutService {
       }
     } else if (emailConfig.minutesAfterExpiry !== undefined) {
       // AFTER EXPIRY: Find sessions that expired X minutes ago
-      const targetExpiryTime = new Date(now.getTime() - emailConfig.minutesAfterExpiry * 60 * 1000)
-      
+      const targetExpiryTime = new Date(
+        now.getTime() - emailConfig.minutesAfterExpiry * 60 * 1000,
+      )
+
       windowStart = new Date(targetExpiryTime.getTime() - 10 * 60 * 1000)
       windowEnd = new Date(targetExpiryTime.getTime() + 10 * 60 * 1000)
 
@@ -97,7 +100,9 @@ export class AbandonedCheckoutService {
         'abandonedEmails.emailType': { $ne: emailConfig.emailType }, // Don't send duplicate emails
       }
     } else {
-      this.logger.error(`Invalid email config: must specify either minutesBeforeExpiry or minutesAfterExpiry`)
+      this.logger.error(
+        `Invalid email config: must specify either minutesBeforeExpiry or minutesAfterExpiry`,
+      )
       return
     }
 

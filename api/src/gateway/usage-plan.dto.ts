@@ -1,5 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator'
+import {
+  IsArray,
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 // import { Type } from 'class-transformer'
 
 export class UsagePlanTierDTO {
@@ -8,15 +16,20 @@ export class UsagePlanTierDTO {
   @Min(1)
   tier: number
 
-  @ApiProperty({ description: 'Time delay between messages in seconds' })
+  @ApiProperty({
+    description:
+      'Minimum wait time between messages in seconds (with right-skewed randomization)',
+  })
   @IsNumber()
   @Min(0)
-  timeDelayBetweenMessages: number
+  min_wait_seconds: number
 
-  @ApiProperty({ description: 'Maximum daily message limit for this tier' })
+  @ApiProperty({
+    description: 'Maximum messages allowed in the rolling window',
+  })
   @IsNumber()
   @Min(1)
-  dailyLimit: number
+  messages_per_cycle: number
 }
 
 export class CreateUsagePlanDTO {
@@ -28,6 +41,16 @@ export class CreateUsagePlanDTO {
   @IsOptional()
   @IsString()
   description?: string
+
+  @ApiProperty({
+    required: false,
+    default: 1440,
+    description: 'Rolling window period in minutes (default: 1440 = 24 hours)',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  usageWindowMinutes?: number
 
   @ApiProperty({ type: [UsagePlanTierDTO] })
   @IsArray()
@@ -51,6 +74,15 @@ export class UpdateUsagePlanDTO {
   @IsOptional()
   @IsString()
   description?: string
+
+  @ApiProperty({
+    required: false,
+    description: 'Rolling window period in minutes',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  usageWindowMinutes?: number
 
   @ApiProperty({ type: [UsagePlanTierDTO], required: false })
   @IsOptional()

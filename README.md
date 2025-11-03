@@ -158,23 +158,165 @@ curl -X GET "https://api.textbee.dev/api/v1/gateway/devices/YOUR_DEVICE_ID/get-r
    ```
 4. Ensure your domain points to your VPS and Caddy is configured properly.
 
-### Dockerized env
-#### Requirements:   
-- Docker installed
-1. After setting up Firebase, update your `.env` in `web` && `api` folder.
+### Dockerized Deployment
+
+#### Option 1: Build Locally (Recommended for Low-Memory VPS)
+
+This approach builds Docker images on your local machine and pushes them to GitHub Container Registry, then pulls them on your VPS. This is ideal for VPS instances with limited RAM (< 4GB) that struggle with building Next.js applications.
+
+##### Requirements:
+- Docker installed on both local machine and VPS
+- GitHub account with Container Registry access
+
+##### Setup GitHub Container Registry
+
+1. **Create a GitHub Personal Access Token**:
+   - Go to https://github.com/settings/tokens/new
+   - Note: "Docker registry access"
+   - Select scopes: `write:packages`, `read:packages`
+   - Generate token and save it securely
+
+2. **Login to GHCR on your local machine**:
    ```bash
-   cd web && cp .env.example .env \
-   && cd ../api && cp .env.example .env
+   echo YOUR_GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
    ```
-2. Navigate to root folder and execute docker-compose.yml file.    
-   This will spin up `web` container, `api` container alongside with `MongoDB` and `MongoExpress`. `TextBee` database will be automatically created.
+
+3. **Make your packages public** (optional, to avoid login on VPS):
+   - Go to https://github.com/YOUR_USERNAME?tab=packages
+   - Click on each package (`textbee-web`, `textbee-api`)
+   - Click "Package settings" → "Change visibility" → "Public"
+
+##### Build and Deploy Workflow
+
+**On your local machine:**
+
+1. After setting up Firebase, update your `.env` files:
    ```bash
+   cd web && cp .env.example .env.production && cd ..
+   cd api && cp .env.example .env.production && cd ..
+   ```
+
+2. Build the Android production APK:
+   ```bash
+   cd android
+   # For signed release (requires keystore):
+   ./gradlew assembleProdRelease
+
+   # OR for debug build (no keystore needed):
+   ./gradlew assembleProdDebug
+   cd ..
+   ```
+
+3. Copy the APK to the web folder:
+   ```bash
+   cd web
+   # For release build:
+   npm run copy-apk:prod
+
+   # OR for debug build:
+   npm run copy-apk:prod-debug
+   cd ..
+   ```
+
+4. Build and push Docker images:
+   ```bash
+   # Build images
+   docker build -t ghcr.io/YOUR_GITHUB_USERNAME/textbee-api:latest ./api
+   docker build -t ghcr.io/YOUR_GITHUB_USERNAME/textbee-web:latest ./web
+
+   # Push to GitHub Container Registry
+   docker push ghcr.io/YOUR_GITHUB_USERNAME/textbee-api:latest
+   docker push ghcr.io/YOUR_GITHUB_USERNAME/textbee-web:latest
+   ```
+
+**On your VPS:**
+
+1. Update `docker-compose.prebuilt.yaml` with your GitHub username (if not already done).
+
+2. Login to GHCR (only needed if packages are private):
+   ```bash
+   echo YOUR_GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+   ```
+
+3. Pull and run the containers:
+   ```bash
+   docker compose -f docker-compose.prebuilt.yaml pull
+   docker compose -f docker-compose.prebuilt.yaml up -d
+   ```
+
+4. To stop containers:
+   ```bash
+   docker compose -f docker-compose.prebuilt.yaml down
+   ```
+
+##### Updating Your Deployment
+
+When you make changes and need to redeploy:
+
+**Local machine:**
+```bash
+# Rebuild APK if Android code changed
+cd android && ./gradlew assembleProdDebug && cd ..
+
+# Copy APK
+cd web && npm run copy-apk:prod-debug && cd ..
+
+# Rebuild and push images
+docker build -t ghcr.io/YOUR_GITHUB_USERNAME/textbee-web:latest ./web
+docker push ghcr.io/YOUR_GITHUB_USERNAME/textbee-web:latest
+
+# If API changed:
+docker build -t ghcr.io/YOUR_GITHUB_USERNAME/textbee-api:latest ./api
+docker push ghcr.io/YOUR_GITHUB_USERNAME/textbee-api:latest
+```
+
+**VPS:**
+```bash
+docker compose -f docker-compose.prebuilt.yaml pull
+docker compose -f docker-compose.prebuilt.yaml up -d
+```
+
+#### Option 2: Build on VPS (Requires 4GB+ RAM)
+
+If your VPS has sufficient memory (4GB+ RAM), you can build directly on the server:
+
+1. After setting up Firebase, update your `.env` files:
+   ```bash
+   cd web && cp .env.example .env.production && cd ..
+   cd api && cp .env.example .env.production && cd ..
+   ```
+
+2. Build the Android production APK:
+   ```bash
+   cd android
+   ./gradlew assembleProdRelease
+   cd ..
+   ```
+
+3. Copy APK to web folder:
+   ```bash
+   cd web && npm run copy-apk:prod && cd ..
+   ```
+
+4. Build and start containers:
+   ```bash
+   docker compose build
    docker compose up -d
    ```
-   To stop the containers simply type
+
+5. To stop containers:
    ```bash
    docker compose down
-   ```   
+   ```
+
+This will spin up `web` container, `api` container alongside with `MongoDB` and `MongoExpress`. `TextBee` database will be automatically created.
+
+#### Important Notes
+
+- **Keystore Security**: Never commit `*.keystore` or `*.jks` files to git. They are in `.gitignore` for security.
+- **APK in Docker**: The APK must be copied to `web/public/textbee.apk` before building the Docker image, as it gets included in the build.
+- **Memory Issues**: If builds fail with "JavaScript heap out of memory", use Option 1 (build locally) or upgrade your VPS RAM.
+- **Environment Files**: Keep `.env.production` files out of git. They contain sensitive credentials.   
 
 ## Contributing
 

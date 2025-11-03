@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Inbox as InboxIcon, Calendar, ChevronDown, Search, Edit, Save, X, Plus, MessageSquarePlus, Mail, MailOpen, MessageCircle, Clock, Users, Megaphone, Star, Archive, Trash2, ArchiveRestore } from 'lucide-react'
+import { Inbox as InboxIcon, Calendar, ChevronDown, Search, Edit, Save, X, Plus, MessageSquarePlus, Mail, MailOpen, MessageCircle, Clock, Users, Megaphone, Star, Archive, Trash2, ArchiveRestore, Smartphone } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,11 +29,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { ApiEndpoints } from '@/config/api'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { contactsApi } from '@/lib/api/contacts'
 import { campaignsApi } from '@/lib/api/campaigns'
-import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus } from '@/lib/utils'
+import { cn, normalizePhoneNumber, formatMessageTime, groupMessagesWithDateSeparators, groupMessagesWithMetadataChanges, MessageWithDate, MessageGroup, getStatusDisplay, MessageStatus, formatPhoneNumberDisplay } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import { ConversationSummary, ConversationsResponse } from '@/lib/types'
 
@@ -50,6 +60,7 @@ interface Message {
   type: string
   status: string
   device: string | { _id: string }
+  senderPhoneNumber?: string
 }
 
 function DateSeparator({ dateLabel }: { dateLabel: string }) {
@@ -57,6 +68,20 @@ function DateSeparator({ dateLabel }: { dateLabel: string }) {
     <div className="flex items-center justify-center my-4">
       <div className="bg-muted/80 text-muted-foreground text-xs px-3 py-1 rounded-full">
         {dateLabel}
+      </div>
+    </div>
+  )
+}
+
+function MetadataChangeSeparator({ deviceId, phoneNumber }: { deviceId: string; phoneNumber: string }) {
+  const deviceDisplay = deviceId || 'Device unknown'
+  const phoneDisplay = phoneNumber ? formatPhoneNumberDisplay(phoneNumber) : 'Phone unknown'
+  const displayText = `${deviceDisplay} - ${phoneDisplay}`
+
+  return (
+    <div className="flex items-center justify-center my-4">
+      <div className="bg-yellow-50 text-yellow-800 text-xs px-3 py-1 rounded-full">
+        {displayText}
       </div>
     </div>
   )
@@ -97,7 +122,7 @@ function ConversationRow({
 }) {
   const displayName = conversation.contact?.firstName || conversation.contact?.lastName
     ? `${conversation.contact.firstName || ''} ${conversation.contact.lastName || ''}`.trim()
-    : conversation.normalizedPhoneNumber
+    : formatPhoneNumberDisplay(conversation.normalizedPhoneNumber)
 
   const formatDate = (date: Date | string) => {
     const dateObj = date instanceof Date ? date : new Date(date)
@@ -279,7 +304,7 @@ function ConversationList({
       filtered = filtered.filter(conv => {
         const displayName = conv.contact?.firstName || conv.contact?.lastName
           ? `${conv.contact.firstName || ''} ${conv.contact.lastName || ''}`.trim()
-          : conv.normalizedPhoneNumber
+          : formatPhoneNumberDisplay(conv.normalizedPhoneNumber)
         return displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                conv.normalizedPhoneNumber.includes(searchQuery) ||
                conv.phoneNumber.includes(searchQuery)
@@ -608,20 +633,80 @@ function MessengerInterface({
 }) {
   const [activeTab, setActiveTab] = useState('messages')
   const [newMessage, setNewMessage] = useState('')
+  const [selectedDeviceId, setSelectedDeviceId] = useState(conversation.deviceId)
+  const [showDeviceChangeDialog, setShowDeviceChangeDialog] = useState(false)
+  const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
+  // Fetch conversation metadata to get preferred device
+  const { data: conversationMetadata } = useQuery({
+    queryKey: ['conversation-metadata'],
+    queryFn: () =>
+      httpBrowserClient
+        .get(ApiEndpoints.users.getConversationMetadata())
+        .then((res) => res.data),
+  })
+
+  // Fetch devices list
+  const { data: devices } = useQuery({
+    queryKey: ['devices'],
+    queryFn: () =>
+      httpBrowserClient
+        .get(ApiEndpoints.gateway.listDevices())
+        .then((res) => res.data),
+  })
+
+  // Update selectedDeviceId when conversation metadata loads
+  useEffect(() => {
+    if (conversationMetadata && conversation.normalizedPhoneNumber) {
+      const metadata = conversationMetadata[conversation.normalizedPhoneNumber]
+      if (metadata?.preferredDeviceId) {
+        setSelectedDeviceId(metadata.preferredDeviceId)
+      } else if (conversation.deviceId) {
+        setSelectedDeviceId(conversation.deviceId)
+      }
+    }
+  }, [conversationMetadata, conversation.normalizedPhoneNumber, conversation.deviceId])
+
+  const updateDeviceMutation = useMutation({
+    mutationFn: async (deviceId: string) => {
+      const response = await httpBrowserClient.patch(
+        ApiEndpoints.users.updateConversationDevice(),
+        {
+          phoneNumber: conversation.normalizedPhoneNumber,
+          deviceId: deviceId
+        }
+      )
+      return response.data
+    },
+    onSuccess: () => {
+      toast({
+        title: "Device updated",
+        description: "Future messages will be sent from the selected device."
+      })
+      queryClient.invalidateQueries({ queryKey: ['conversation-metadata'] })
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update device",
+        description: error.response?.data?.message || error.message || "An error occurred.",
+        variant: "destructive"
+      })
+    }
+  })
+
   const sendSmsMutation = useMutation({
     mutationFn: async (messageText: string) => {
-      if (!conversation.deviceId) {
+      if (!selectedDeviceId) {
         throw new Error('No device available to send message')
       }
 
       const response = await httpBrowserClient.post(
-        ApiEndpoints.gateway.sendSMS(conversation.deviceId),
+        ApiEndpoints.gateway.sendSMS(selectedDeviceId),
         {
-          deviceId: conversation.deviceId,
+          deviceId: selectedDeviceId,
           recipients: [conversation.phoneNumber],
           message: messageText
         }
@@ -659,7 +744,7 @@ function MessengerInterface({
 
   const displayName = conversation.contact?.firstName || conversation.contact?.lastName
     ? `${conversation.contact.firstName || ''} ${conversation.contact.lastName || ''}`.trim()
-    : conversation.normalizedPhoneNumber
+    : formatPhoneNumberDisplay(conversation.normalizedPhoneNumber)
 
   // Filter messages for this conversation
   const conversationMessages = useMemo(() => {
@@ -695,21 +780,85 @@ function MessengerInterface({
     setNewMessage('')
   }
 
+  const handleDeviceChange = (newDeviceId: string) => {
+    if (newDeviceId === selectedDeviceId) return
+
+    setPendingDeviceId(newDeviceId)
+    setShowDeviceChangeDialog(true)
+  }
+
+  const confirmDeviceChange = () => {
+    if (pendingDeviceId) {
+      setSelectedDeviceId(pendingDeviceId)
+      updateDeviceMutation.mutate(pendingDeviceId)
+      setShowDeviceChangeDialog(false)
+      setPendingDeviceId(null)
+    }
+  }
+
+  const cancelDeviceChange = () => {
+    setShowDeviceChangeDialog(false)
+    setPendingDeviceId(null)
+  }
+
+  const selectedDevice = devices?.data?.find((d: any) => d._id === selectedDeviceId)
+  const pendingDevice = devices?.data?.find((d: any) => d._id === pendingDeviceId)
+  const selectedDevicePhone = selectedDevice?.phoneNumber || selectedDevice?.phoneNumber2
+  const pendingDevicePhone = pendingDevice?.phoneNumber || pendingDevice?.phoneNumber2
+
   return (
     <div className="flex flex-col h-full border-l">
-      {/* Header */}
-      <div className="p-4 border-b flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">{displayName}</h2>
-          {conversation.contact?.firstName && (
-            <p className="text-sm text-muted-foreground">{conversation.normalizedPhoneNumber}</p>
+      {/* Header with Device Selector */}
+      <div className="p-4 border-b">
+        {/* Contact name and close button */}
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <h2 className="text-lg font-semibold">{displayName}</h2>
+            {conversation.contact?.firstName && (
+              <p className="text-sm text-muted-foreground">{formatPhoneNumberDisplay(conversation.normalizedPhoneNumber)}</p>
+            )}
+          </div>
+          {onClose && (
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
           )}
         </div>
-        {onClose && (
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        )}
+
+        {/* Device Selector */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Sending from:</label>
+          <Select
+            value={selectedDeviceId || ''}
+            onValueChange={handleDeviceChange}
+            disabled={!devices?.data?.length}
+          >
+            <SelectTrigger className="w-full h-10">
+              <SelectValue placeholder="Select a device" />
+            </SelectTrigger>
+            <SelectContent>
+              {devices?.data?.map((device: any) => (
+                <SelectItem
+                  key={device._id}
+                  value={device._id}
+                  disabled={!device.enabled}
+                  className="py-2"
+                >
+                  <div className={cn("flex flex-col", !device.enabled && "opacity-50")}>
+                    <div className="flex items-center gap-2 font-medium">
+                      <Smartphone className="h-4 w-4" />
+                      <span>{device.brand} {device.model}</span>
+                      {!device.enabled && <span className="text-xs">(disabled)</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground ml-6 mt-0.5">
+                      {formatPhoneNumberDisplay(device.phoneNumber)} • ID: {device._id}
+                    </div>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Tabs - Messages, Info, Notes */}
@@ -773,16 +922,26 @@ function MessengerInterface({
                     date: new Date(message.receivedAt || message.requestedAt || 0),
                     isIncoming: !!message.sender,
                     status: message.status as MessageStatus,
+                    deviceId: typeof message.device === 'string' ? message.device : message.device?._id,
+                    senderPhoneNumber: message.senderPhoneNumber,
                     originalMessage: message
                   }))
 
-                  // Group messages with date separators
-                  const messageGroups = groupMessagesWithDateSeparators(formattedMessages)
+                  // Group messages with date and metadata change separators
+                  const messageGroups = groupMessagesWithMetadataChanges(formattedMessages)
 
                   return messageGroups.map((group, index) => {
                     if (group.type === 'date') {
                       return (
                         <DateSeparator key={`date-${index}`} dateLabel={group.dateLabel!} />
+                      )
+                    } else if (group.type === 'metadata-change') {
+                      return (
+                        <MetadataChangeSeparator
+                          key={`metadata-${index}`}
+                          deviceId={group.changeInfo!.deviceId}
+                          phoneNumber={group.changeInfo!.phoneNumber}
+                        />
                       )
                     } else {
                       const msg = group.message!
@@ -801,9 +960,9 @@ function MessengerInterface({
                               "max-w-[80%] rounded-lg px-3 py-2 text-sm",
                               msg.isIncoming
                                 ? "bg-background border text-foreground"
-                                : "bg-primary text-primary-foreground"
+                                : "bg-primary text-white"
                             )}>
-                              <p>{msg.message}</p>
+                              <p className="break-words whitespace-pre-wrap">{msg.message}</p>
                             </div>
                             {msg.isIncoming && (
                               <div className="text-xs text-muted-foreground">
@@ -829,28 +988,28 @@ function MessengerInterface({
 
             {/* Message input area - fixed at bottom */}
             <div className="flex-shrink-0 p-4 border-t bg-background">
-              {!conversation.deviceId && (
-                <div className="mb-2 text-sm text-yellow-600 bg-yellow-50 p-2 rounded">
+              {!selectedDeviceId && (
+                <div className="text-sm text-yellow-600 bg-yellow-50 p-2 rounded mb-2">
                   No device available to send messages
                 </div>
               )}
               <div className="flex space-x-2">
                 <Input
-                  placeholder={conversation.deviceId ? "Type a message..." : "No device available"}
+                  placeholder={selectedDeviceId ? "Type a message..." : "No device available"}
                   className="flex-1"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && conversation.deviceId && newMessage.trim()) {
+                    if (e.key === 'Enter' && !e.shiftKey && selectedDeviceId && newMessage.trim()) {
                       e.preventDefault()
                       handleSendMessage()
                     }
                   }}
-                  disabled={!conversation.deviceId}
+                  disabled={!selectedDeviceId}
                 />
                 <Button
                   onClick={handleSendMessage}
-                  disabled={!newMessage.trim() || sendSmsMutation.isPending || !conversation.deviceId}
+                  disabled={!newMessage.trim() || sendSmsMutation.isPending || !selectedDeviceId}
                 >
                   {sendSmsMutation.isPending ? 'Sending...' : 'Send'}
                 </Button>
@@ -885,6 +1044,30 @@ function MessengerInterface({
           </div>
         )}
       </div>
+
+      {/* Device Change Confirmation Dialog */}
+      <AlertDialog open={showDeviceChangeDialog} onOpenChange={setShowDeviceChangeDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change Sending Device?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Messages to <strong>{displayName}</strong> will now be sent from a different phone number.
+              {selectedDevicePhone && pendingDevicePhone && (
+                <>
+                  {' '}You're switching from <strong>{formatPhoneNumberDisplay(selectedDevicePhone)}</strong> to <strong>{formatPhoneNumberDisplay(pendingDevicePhone)}</strong>.
+                </>
+              )}
+              {' '}This could be confusing to your client who has been receiving messages from your current number. Are you sure you want to make this change?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelDeviceChange}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeviceChange}>
+              Yes, Change Device
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -898,8 +1081,21 @@ function ContactInfoEditor({
   conversationMessages: Message[]
   onContactUpdated: (contact: any) => void
 }) {
+  type EditableContact = Omit<NonNullable<typeof conversation.contact>, 'dncUpdatedAt'> & {
+    dncUpdatedAt?: Date
+  }
+
+  const toEditableContact = (c: any | undefined | null): EditableContact | undefined => {
+    if (!c) return undefined
+    return {
+      ...c,
+      dncUpdatedAt: c.dncUpdatedAt ? new Date(c.dncUpdatedAt) : undefined,
+    }
+  }
   const [isEditing, setIsEditing] = useState(false)
-  const [localContact, setLocalContact] = useState(conversation.contact)
+    const [localContact, setLocalContact] = useState<EditableContact | undefined>(
+      toEditableContact(conversation.contact)
+  )
   const [editData, setEditData] = useState({
     firstName: localContact?.firstName || '',
     lastName: localContact?.lastName || '',
@@ -928,7 +1124,7 @@ function ContactInfoEditor({
 
   // Update local contact when conversation.contact changes
   useEffect(() => {
-    setLocalContact(conversation.contact)
+    setLocalContact(toEditableContact(conversation.contact))
   }, [conversation.contact])
 
   // Update edit data when localContact changes
@@ -985,7 +1181,7 @@ function ContactInfoEditor({
       })
       setIsEditing(false)
       // Update local contact state immediately
-      setLocalContact(updatedContact)
+      setLocalContact(toEditableContact(updatedContact))
       onContactUpdated(updatedContact)
       queryClient.invalidateQueries({ queryKey: ['contacts-all'] })
       queryClient.invalidateQueries({ queryKey: ['all-messages'] })
@@ -1125,7 +1321,7 @@ function ContactInfoEditor({
               <span className="text-xs text-muted-foreground">
                 DNC Last Updated: {
                   localContact?.dncUpdatedAt
-                    ? new Date(localContact.dncUpdatedAt).toLocaleDateString()
+                    ? localContact.dncUpdatedAt.toLocaleDateString()
                     : 'Never'
                 }
               </span>
@@ -1208,7 +1404,7 @@ export default function InboxPage() {
   const [newConversation, setNewConversation] = useState<Conversation | null>(null)
   const [autoRefreshInterval] = useState(15) // Default to 15 seconds
   const [lastSeenTimestamps, setLastSeenTimestamps] = useState<Record<string, Date>>({})
-  const [selectedInboxFilter, setSelectedInboxFilter] = useState<'all' | 'unread' | 'unreplied' | 'awaiting-reply' | 'starred'>('all')
+  const [selectedInboxFilter, setSelectedInboxFilter] = useState<'all' | 'unread' | 'unreplied' | 'awaiting-reply' | 'starred' | 'engaged'>('engaged')
   const [selectedCampaignFilters, setSelectedCampaignFilters] = useState<string[]>([])
   const [debouncedCampaignFilters, setDebouncedCampaignFilters] = useState<string[]>([])
   const [selectedOtherFilter, setSelectedOtherFilter] = useState<'archived' | 'spam' | null>(null)
@@ -1298,8 +1494,9 @@ export default function InboxPage() {
     fetchNextPage,
     hasNextPage,
     refetch
-  } = useInfiniteQuery({
+  } = useInfiniteQuery<ConversationsResponse, Error>({
     queryKey: ['conversations', selectedInboxFilter, selectedOtherFilter, debouncedCampaignFilters, sortBy],
+    initialPageParam: 1,
     queryFn: async ({ pageParam = 1 }) => {
       console.log('🚀 API CALL TRIGGERED - queryFn executing')
       console.log('🚀 Page param:', pageParam)
@@ -1333,7 +1530,7 @@ export default function InboxPage() {
     staleTime: 30000, // Consider data fresh for 30 seconds
     refetchOnMount: false, // Prevent refetch on mount to avoid scroll jumps
     refetchOnWindowFocus: false, // Prevent refetch on focus to avoid scroll jumps
-  })
+  })  
 
   // Debug: Log query states
   useEffect(() => {
@@ -1400,7 +1597,7 @@ export default function InboxPage() {
 
     // Flatten all pages and convert date strings back to Date objects
     const allConversations = conversationsData.pages.flatMap(page =>
-      page.data.map(conv => ({
+      page.data.map(conv => ({ // Property 'data' does not exist on type 'unknown'.ts(2339)
         ...conv,
         lastMessageDate: new Date(conv.lastMessageDate),
         lastMessage: {
@@ -1469,6 +1666,7 @@ export default function InboxPage() {
       [conversation.normalizedPhoneNumber]: now
     }))
     setSelectedConversation(conversation)
+    setShowNewMessageSidebar(false)
 
     // Save to database
     try {
@@ -1752,6 +1950,20 @@ export default function InboxPage() {
               Inbox
             </div>
             <Button
+              variant={selectedInboxFilter === 'engaged' && !selectedOtherFilter ? 'default' : 'ghost'}
+              className='w-full justify-between text-sm'
+              onClick={() => {
+                setSelectedInboxFilter('engaged')
+                setSelectedOtherFilter(null)
+              }}
+            >
+              <div className="flex items-center">
+                <Users className='mr-2 h-4 w-4' />
+                Two-Way
+              </div>
+              <span className="text-xs opacity-70">({conversationCounts.engaged})</span>
+            </Button>
+            <Button
               variant={selectedInboxFilter === 'all' && !selectedOtherFilter ? 'default' : 'ghost'}
               className='w-full justify-between text-sm'
               onClick={() => {
@@ -1763,7 +1975,7 @@ export default function InboxPage() {
                 <Mail className='mr-2 h-4 w-4' />
                 All
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.all})</span>
+              <span className="text-xs opacity-70">({conversationCounts.all})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'unread' && !selectedOtherFilter ? 'default' : 'ghost'}
@@ -1777,7 +1989,7 @@ export default function InboxPage() {
                 <MailOpen className='mr-2 h-4 w-4' />
                 Unread
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.unread})</span>
+              <span className="text-xs opacity-70">({conversationCounts.unread})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'unreplied' && !selectedOtherFilter ? 'default' : 'ghost'}
@@ -1791,7 +2003,7 @@ export default function InboxPage() {
                 <MessageCircle className='mr-2 h-4 w-4' />
                 Unreplied
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.unreplied})</span>
+              <span className="text-xs opacity-70">({conversationCounts.unreplied})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'awaiting-reply' && !selectedOtherFilter ? 'default' : 'ghost'}
@@ -1805,7 +2017,7 @@ export default function InboxPage() {
                 <Clock className='mr-2 h-4 w-4' />
                 Awaiting reply
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.awaitingReply})</span>
+              <span className="text-xs opacity-70">({conversationCounts.awaitingReply})</span>
             </Button>
             <Button
               variant={selectedInboxFilter === 'starred' && !selectedOtherFilter ? 'default' : 'ghost'}
@@ -1819,7 +2031,7 @@ export default function InboxPage() {
                 <Star className='mr-2 h-4 w-4' />
                 Starred
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.starred})</span>
+              <span className="text-xs opacity-70">({conversationCounts.starred})</span>
             </Button>
           </div>
 
@@ -1842,7 +2054,7 @@ export default function InboxPage() {
                 <Archive className='mr-2 h-4 w-4' />
                 Archived
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.archived})</span>
+              <span className="text-xs opacity-70">({conversationCounts.archived})</span>
             </Button>
             <Button
               variant={selectedOtherFilter === 'spam' ? 'default' : 'ghost'}
@@ -1856,7 +2068,7 @@ export default function InboxPage() {
                 <Trash2 className='mr-2 h-4 w-4' />
                 Spam
               </div>
-              <span className="text-xs text-muted-foreground">({conversationCounts.spam})</span>
+              <span className="text-xs opacity-70">({conversationCounts.spam})</span>
             </Button>
           </div>
           </div>
@@ -1952,8 +2164,23 @@ function NewMessageSidebar({
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
   const [hasSelectedRecipient, setHasSelectedRecipient] = useState(false)
   const [selectedContactChip, setSelectedContactChip] = useState<any>(null)
+  const [highlightedIndex, setHighlightedIndex] = useState(0)
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
+  const [showDeviceChangeDialog, setShowDeviceChangeDialog] = useState(false)
+  const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null)
   const { toast } = useToast()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const contactRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  // Initialize device selection with first enabled device
+  useEffect(() => {
+    if (devices && devices.length > 0) {
+      const enabledDevice = devices.find(d => d.enabled)
+      if (enabledDevice && !selectedDeviceId) {
+        setSelectedDeviceId(enabledDevice._id)
+      }
+    }
+  }, [devices, selectedDeviceId])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -2004,6 +2231,21 @@ function NewMessageSidebar({
     setFilteredContacts(filtered)
     setShowSuggestions(true)
   }, [searchInput, contacts])
+
+  // Reset highlighted index when filtered contacts change
+  useEffect(() => {
+    setHighlightedIndex(0)
+  }, [filteredContacts])
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (contactRefs.current[highlightedIndex]) {
+      contactRefs.current[highlightedIndex]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      })
+    }
+  }, [highlightedIndex])
 
   // Handle contact selection
   const handleContactSelect = (contact: any) => {
@@ -2066,15 +2308,34 @@ function NewMessageSidebar({
     }
   }
 
-  // Handle key presses for Tab selection, Enter confirmation, and backspace
+  // Handle key presses for keyboard navigation and selection
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Tab' && filteredContacts.length > 0) {
-      e.preventDefault()
-      handleContactSelect(filteredContacts[0])
+    if (filteredContacts.length > 0) {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        handleContactSelect(filteredContacts[highlightedIndex])
+      } else if (e.key === 'Tab') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          // Navigate up with Shift+Tab
+          setHighlightedIndex(prev => prev > 0 ? prev - 1 : filteredContacts.length - 1)
+        } else {
+          // Navigate down with Tab
+          setHighlightedIndex(prev => prev < filteredContacts.length - 1 ? prev + 1 : 0)
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setHighlightedIndex(prev => prev < filteredContacts.length - 1 ? prev + 1 : 0)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setHighlightedIndex(prev => prev > 0 ? prev - 1 : filteredContacts.length - 1)
+      }
     } else if (e.key === 'Enter') {
       e.preventDefault()
       confirmPhoneNumberInput()
-    } else if (e.key === 'Backspace' && searchInput === '' && selectedContactChip) {
+    }
+
+    if (e.key === 'Backspace' && searchInput === '' && selectedContactChip) {
       // Delete the selected contact chip
       setSelectedContactChip(null)
       setSelectedContact(null)
@@ -2098,21 +2359,19 @@ function NewMessageSidebar({
   const createConversation = (targetPhone: string, contact?: any): Conversation => {
     const normalizedPhone = normalizePhoneNumber(targetPhone)
 
-    // Find existing messages for this phone number
     const existingMessages = allMessages.filter(msg => {
       const msgSender = msg.sender ? normalizePhoneNumber(msg.sender) : null
       const msgRecipient = msg.recipient ? normalizePhoneNumber(msg.recipient) : null
       return msgSender === normalizedPhone || msgRecipient === normalizedPhone
     })
 
-    // Get the most recent message for last message info
-    const sortedMessages = existingMessages.sort((a, b) => {
-      const dateA = new Date(a.receivedAt || a.requestedAt || 0)
-      const dateB = new Date(b.receivedAt || b.requestedAt || 0)
-      return dateB.getTime() - dateA.getTime()
+    const sorted = existingMessages.sort((a, b) => {
+      const aDate = new Date(a.receivedAt || a.requestedAt || 0)
+      const bDate = new Date(b.receivedAt || b.requestedAt || 0)
+      return bDate.getTime() - aDate.getTime()
     })
 
-    const lastMessage = sortedMessages[0]
+    const lastMessage = sorted[0]
     const deviceId = devices[0]?._id || ''
 
     return {
@@ -2120,26 +2379,47 @@ function NewMessageSidebar({
       normalizedPhoneNumber: normalizedPhone,
       deviceId,
       contact,
-      lastMessage: lastMessage ? {
-        message: lastMessage.message,
-        timestamp: new Date(lastMessage.receivedAt || lastMessage.requestedAt || new Date()),
-        isIncoming: !!lastMessage.sender
-      } : {
-        message: '',
-        timestamp: new Date(),
-        isIncoming: false
-      },
+      lastMessage: lastMessage
+        ? {
+            message: lastMessage.message,
+            timestamp: new Date(lastMessage.receivedAt || lastMessage.requestedAt || new Date()),
+            isIncoming: !!lastMessage.sender,
+          }
+        : { message: '', timestamp: new Date(), isIncoming: false },
       lastMessageDate: lastMessage
         ? new Date(lastMessage.receivedAt || lastMessage.requestedAt || new Date())
         : new Date(),
-      messageCount: existingMessages.length
+      messageCount: existingMessages.length,
+      unseenCount: 0,          // 👈 required by ConversationSummary
+      isStarred: false,
     }
+  }
+
+  // Device change handlers
+  const handleDeviceChange = (newDeviceId: string) => {
+    if (newDeviceId === selectedDeviceId) return
+
+    setPendingDeviceId(newDeviceId)
+    setShowDeviceChangeDialog(true)
+  }
+
+  const confirmDeviceChange = () => {
+    if (pendingDeviceId) {
+      setSelectedDeviceId(pendingDeviceId)
+      setShowDeviceChangeDialog(false)
+      setPendingDeviceId(null)
+    }
+  }
+
+  const cancelDeviceChange = () => {
+    setShowDeviceChangeDialog(false)
+    setPendingDeviceId(null)
   }
 
   // Send message mutation
   const sendMessageMutation = useMutation({
     mutationFn: async ({ phone, messageText }: { phone: string, messageText: string }) => {
-      const enabledDevice = devices.find(d => d.enabled)
+      const enabledDevice = devices.find(d => d._id === selectedDeviceId && d.enabled)
       if (!enabledDevice) {
         throw new Error('No enabled device available to send message')
       }
@@ -2193,10 +2473,10 @@ function NewMessageSidebar({
 
   const displayName = currentConversation?.contact?.firstName || currentConversation?.contact?.lastName
     ? `${currentConversation.contact.firstName || ''} ${currentConversation.contact.lastName || ''}`.trim()
-    : currentConversation?.normalizedPhoneNumber || 'New Message'
+    : currentConversation?.normalizedPhoneNumber ? formatPhoneNumberDisplay(currentConversation.normalizedPhoneNumber) : 'New Message'
 
 
-  const enabledDevice = devices.find(d => d.enabled)
+  const enabledDevice = devices.find(d => d._id === selectedDeviceId && d.enabled)
 
   return (
     <div className="flex flex-col h-full border-l overflow-hidden">
@@ -2205,7 +2485,7 @@ function NewMessageSidebar({
         <div>
           <h2 className="text-lg font-semibold">{displayName}</h2>
           {currentConversation?.contact?.firstName && (
-            <p className="text-sm text-muted-foreground">{currentConversation.normalizedPhoneNumber}</p>
+            <p className="text-sm text-muted-foreground">{formatPhoneNumberDisplay(currentConversation.normalizedPhoneNumber)}</p>
           )}
         </div>
         <Button variant="ghost" size="sm" onClick={onClose}>
@@ -2216,12 +2496,13 @@ function NewMessageSidebar({
       {/* Recipient Selection */}
       <div className="p-4 border-b">
         <div className="relative">
-          <label className="text-sm font-medium mb-2 block">To:</label>
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium whitespace-nowrap">To:</label>
 
-          {/* Selected Contact Chip or Input */}
-          <div className="flex flex-wrap gap-2 min-h-[40px] items-center border border-gray-200 rounded-md p-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+            {/* Selected Contact Chip or Input */}
+            <div className="flex flex-wrap gap-2 min-h-[40px] flex-1 items-center border border-gray-200 dark:border-gray-700 rounded-md p-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
             {selectedContactChip && (
-              <div className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm border border-blue-200">
+              <div className="inline-flex items-center gap-1 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full text-sm border border-blue-200 dark:border-blue-700">
                 <span>
                   {selectedContactChip.firstName || selectedContactChip.lastName
                     ? `${selectedContactChip.firstName || ''} ${selectedContactChip.lastName || ''}`.trim()
@@ -2238,8 +2519,8 @@ function NewMessageSidebar({
             )}
 
             {phoneNumber && !selectedContactChip && (
-              <div className="inline-flex items-center gap-1 bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-sm border border-gray-200">
-                <span>{phoneNumber}</span>
+              <div className="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-2 py-1 rounded-full text-sm border border-gray-200 dark:border-gray-600">
+                <span>{formatPhoneNumberDisplay(phoneNumber)}</span>
                 <button
                   onClick={clearSelection}
                   className="ml-1 hover:bg-gray-200 rounded-full p-0.5"
@@ -2260,17 +2541,19 @@ function NewMessageSidebar({
                 className="border-0 focus:ring-0 flex-1 pl-2 pr-2 py-1 min-w-0"
               />
             )}
+            </div>
           </div>
 
           {/* Contact Suggestions */}
           {showSuggestions && filteredContacts.length > 0 && !selectedContactChip && (
-            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+            <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg max-h-48 overflow-y-auto">
               {filteredContacts.map((contact, index) => (
                 <div
                   key={contact.id}
+                  ref={(el) => (contactRefs.current[index] = el)}
                   className={cn(
-                    "p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0",
-                    index === 0 && "bg-blue-50"
+                    "p-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer border-b last:border-b-0",
+                    index === highlightedIndex && "bg-blue-50 dark:bg-blue-900/20"
                   )}
                   onClick={() => handleContactSelect(contact)}
                 >
@@ -2280,14 +2563,51 @@ function NewMessageSidebar({
                       : contact.phone
                     }
                   </div>
-                  <div className="text-sm text-gray-500">{contact.phone}</div>
-                  {index === 0 && (
-                    <div className="text-xs text-blue-600 mt-1">Press Tab to select</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">{contact.phone}</div>
+                  {index === highlightedIndex && (
+                    <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">Press Enter to select</div>
                   )}
                 </div>
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Device Selector */}
+      <div className="p-4 border-b">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Sending from:</label>
+          <Select
+            value={selectedDeviceId || ''}
+            onValueChange={handleDeviceChange}
+            disabled={!devices?.length}
+          >
+            <SelectTrigger className="w-full h-10">
+              <SelectValue placeholder="Select a device" />
+            </SelectTrigger>
+            <SelectContent>
+              {devices?.map((device: any) => (
+                <SelectItem
+                  key={device._id}
+                  value={device._id}
+                  disabled={!device.enabled}
+                  className="py-2"
+                >
+                  <div className={cn("flex flex-col", !device.enabled && "opacity-50")}>
+                    <div className="flex items-center gap-2 font-medium">
+                      <Smartphone className="h-4 w-4" />
+                      <span>{device.brand} {device.model}</span>
+                      {!device.enabled && <span className="text-xs">(disabled)</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground ml-6 mt-0.5">
+                      {formatPhoneNumberDisplay(device.phoneNumber)} • ID: {device._id}
+                    </div>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -2307,11 +2627,13 @@ function NewMessageSidebar({
                 date: new Date(message.receivedAt || message.requestedAt || 0),
                 isIncoming: !!message.sender,
                 status: message.status as MessageStatus,
+                deviceId: typeof message.device === 'string' ? message.device : message.device?._id,
+                senderPhoneNumber: message.senderPhoneNumber,
                 originalMessage: message
               })) || []
 
-              // Group messages with date separators
-              const messageGroups = groupMessagesWithDateSeparators(formattedMessages)
+              // Group messages with date and metadata change separators
+              const messageGroups = groupMessagesWithMetadataChanges(formattedMessages)
 
               return (
                 <>
@@ -2319,6 +2641,14 @@ function NewMessageSidebar({
                     if (group.type === 'date') {
                       return (
                         <DateSeparator key={`date-${index}`} dateLabel={group.dateLabel!} />
+                      )
+                    } else if (group.type === 'metadata-change') {
+                      return (
+                        <MetadataChangeSeparator
+                          key={`metadata-${index}`}
+                          deviceId={group.changeInfo!.deviceId}
+                          phoneNumber={group.changeInfo!.phoneNumber}
+                        />
                       )
                     } else {
                       const msg = group.message!
@@ -2337,9 +2667,9 @@ function NewMessageSidebar({
                               "max-w-[80%] rounded-lg px-3 py-2 text-sm",
                               msg.isIncoming
                                 ? "bg-background border text-foreground"
-                                : "bg-primary text-primary-foreground"
+                                : "bg-primary text-white"
                             )}>
-                              <p>{msg.message}</p>
+                              <p className="break-words whitespace-pre-wrap">{msg.message}</p>
                             </div>
                             {msg.isIncoming && (
                               <div className="text-xs text-muted-foreground">
@@ -2405,6 +2735,22 @@ function NewMessageSidebar({
           </Button>
         </div>
       </div>
+
+      {/* Device Change Confirmation Dialog */}
+      <AlertDialog open={showDeviceChangeDialog} onOpenChange={setShowDeviceChangeDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change sending device?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will change the device used to send messages in this conversation.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelDeviceChange}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeviceChange}>Confirm</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

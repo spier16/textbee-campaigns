@@ -3,11 +3,22 @@ import { InjectModel } from '@nestjs/mongoose'
 import { Logger } from '@nestjs/common'
 import { Job } from 'bull'
 import { Model, Types } from 'mongoose'
-import { Campaign, CampaignDocument, CampaignStatus, ScheduleType } from '../schemas/campaign.schema'
-import { CampaignMessage, CampaignMessageDocument, MessageStatus } from '../schemas/campaign-message.schema'
+import {
+  Campaign,
+  CampaignDocument,
+  CampaignStatus,
+  ScheduleType,
+} from '../schemas/campaign.schema'
+import {
+  CampaignMessage,
+  CampaignMessageDocument,
+  MessageStatus,
+} from '../schemas/campaign-message.schema'
 import { Device, DeviceDocument } from '../../gateway/schemas/device.schema'
 import { SmsQueueService } from '../../gateway/queue/sms-queue.service'
 import { UsagePlanService } from '../../gateway/usage-plan.service'
+import { DeviceUsageCalculatorService } from '../../gateway/services/device-usage-calculator.service'
+import { RandomizedDelayService } from '../../gateway/services/randomized-delay.service'
 import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
 
@@ -22,12 +33,67 @@ export class CampaignQueueProcessor {
 
   constructor(
     @InjectModel(Campaign.name) private campaignModel: Model<CampaignDocument>,
-    @InjectModel(CampaignMessage.name) private campaignMessageModel: Model<CampaignMessageDocument>,
+    @InjectModel(CampaignMessage.name)
+    private campaignMessageModel: Model<CampaignMessageDocument>,
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     private smsQueueService: SmsQueueService,
     private usagePlanService: UsagePlanService,
+    private usageCalculator: DeviceUsageCalculatorService,
+    private randomizedDelayService: RandomizedDelayService,
     @InjectQueue('campaign-queue') private campaignQueue: Queue,
   ) {}
+
+  @Process({
+    name: 'start-campaign',
+    concurrency: 3,
+  })
+  async startCampaign(job: Job<CampaignProcessJob>) {
+    const { campaignId, userId } = job.data
+    this.logger.debug(`Starting campaign ${campaignId} for user ${userId}`)
+
+    try {
+      const campaign = await this.campaignModel.findById(campaignId)
+      if (!campaign) {
+        this.logger.error(`Campaign ${campaignId} not found`)
+        return
+      }
+
+      if (campaign.status !== CampaignStatus.SCHEDULED) {
+        this.logger.debug(
+          `Campaign ${campaignId} is not scheduled (status: ${campaign.status}), skipping`,
+        )
+        return
+      }
+
+      // Update status to running
+      await this.campaignModel.findByIdAndUpdate(campaignId, {
+        status: CampaignStatus.RUNNING,
+        startedAt: new Date(),
+      })
+
+      this.logger.log(
+        `Campaign ${campaignId} started, transitioning to process-campaign`,
+      )
+
+      // Immediately trigger campaign processing
+      await this.campaignQueue.add(
+        'process-campaign',
+        { campaignId, userId },
+        {
+          attempts: 3,
+          backoff: {
+            type: 'exponential' as const,
+            delay: 5000,
+          },
+          removeOnComplete: 10,
+          removeOnFail: 50,
+        },
+      )
+    } catch (error) {
+      this.logger.error(`Error starting campaign ${campaignId}:`, error)
+      throw error
+    }
+  }
 
   @Process({
     name: 'process-campaign',
@@ -52,7 +118,9 @@ export class CampaignQueueProcessor {
       // Get available devices for this campaign
       const devices = await this.deviceModel
         .find({
-          _id: { $in: campaign.sendDevices.map(id => new Types.ObjectId(id)) },
+          _id: {
+            $in: campaign.sendDevices.map((id) => new Types.ObjectId(id)),
+          },
           user: new Types.ObjectId(userId),
           enabled: true,
         })
@@ -64,10 +132,11 @@ export class CampaignQueueProcessor {
         return
       }
 
-      // Schedule messages based on campaign type and current time
-      this.logger.debug(`Found ${devices.length} devices for campaign ${campaignId}, calling scheduleMessages`)
-      await this.scheduleMessages(campaign, devices)
-
+      // Queue all messages with initial not_before calculation
+      this.logger.debug(
+        `Found ${devices.length} devices for campaign ${campaignId}, calling queueAllMessages`,
+      )
+      await this.queueAllMessages(campaign)
     } catch (error) {
       this.logger.error(`Error processing campaign ${campaignId}:`, error)
       const campaign = await this.campaignModel.findById(campaignId)
@@ -77,36 +146,133 @@ export class CampaignQueueProcessor {
     }
   }
 
+  // DEPRECATED - These job handlers are no longer used with the new queue architecture
+  // Device workers now continuously pull from the unified message queue
+  // Keeping these for backwards compatibility during migration
+  @Process({
+    name: 'dispatch-campaign-messages',
+    concurrency: 5,
+  })
+  async dispatchCampaignMessages(job: Job<{ campaignId: string }>) {
+    this.logger.warn(
+      `dispatch-campaign-messages job is deprecated with new queue architecture`,
+    )
+    // No-op - device workers handle message dispatch now
+  }
+
   @Process({
     name: 'schedule-messages',
     concurrency: 10,
   })
   async scheduleMessagesJob(job: Job<{ campaignId: string }>) {
-    const { campaignId } = job.data
-
-    const campaign = await this.campaignModel.findById(campaignId)
-    if (!campaign || campaign.status !== CampaignStatus.RUNNING) {
-      return
-    }
-
-    const devices = await this.deviceModel
-      .find({
-        _id: { $in: campaign.sendDevices.map(id => new Types.ObjectId(id)) },
-        user: new Types.ObjectId(campaign.user.toString()),
-        enabled: true,
-      })
-      .exec()
-
-    await this.scheduleMessages(campaign, devices)
+    this.logger.warn(
+      `schedule-messages job is deprecated with new queue architecture`,
+    )
+    // No-op - device workers handle message dispatch now
   }
 
-  private async scheduleMessages(campaign: CampaignDocument, devices: DeviceDocument[]) {
+  /**
+   * Queue all pending messages for a campaign with calculated not_before timestamps
+   * This replaces the complex batch scheduling logic with a simple upfront queueing approach
+   */
+  private async queueAllMessages(campaign: CampaignDocument) {
+    const now = new Date()
+    this.logger.debug(`queueAllMessages called for campaign ${campaign._id}`)
+
+    // Calculate initial not_before based on campaign's sending windows
+    const notBefore = this.calculateInitialNotBefore(campaign, now)
+    this.logger.debug(
+      `Calculated not_before: ${notBefore.toISOString()} for campaign ${campaign._id}`,
+    )
+
+    // Bulk update all PENDING messages to QUEUED with not_before and queuedAt
+    const result = await this.campaignMessageModel.updateMany(
+      {
+        campaign: campaign._id,
+        status: MessageStatus.PENDING,
+      },
+      {
+        $set: {
+          status: MessageStatus.QUEUED,
+          campaignStatus: campaign.status, // Denormalize for efficient worker filtering
+          not_before: notBefore,
+          queuedAt: now,
+        },
+      },
+    )
+
+    this.logger.log(
+      `Queued ${result.modifiedCount} messages for campaign ${campaign._id} with not_before: ${notBefore.toISOString()}`,
+    )
+
+    // Update campaign stats
+    await this.updateCampaignStats(campaign)
+  }
+
+  /**
+   * Calculate the initial not_before timestamp based on campaign's sending windows
+   * Returns the earliest valid time messages can be sent
+   */
+  private calculateInitialNotBefore(
+    campaign: CampaignDocument,
+    now: Date,
+  ): Date {
+    if (!campaign.sendingWindows?.length) {
+      this.logger.warn(
+        `Campaign ${campaign._id} has no sending windows, using now`,
+      )
+      return now
+    }
+
+    // Check if now is within any window
+    for (const window of campaign.sendingWindows) {
+      const start = new Date(`${window.startDate}T${window.startTime}:00Z`)
+      const end = new Date(`${window.endDate}T${window.endTime}:59Z`)
+      if (now >= start && now <= end) {
+        this.logger.debug(
+          `Current time is within window ${window.startDate} ${window.startTime} - ${window.endDate} ${window.endTime}`,
+        )
+        return now
+      }
+    }
+
+    // Find next window start
+    const futureWindows = campaign.sendingWindows
+      .map((w) => ({
+        start: new Date(`${w.startDate}T${w.startTime}:00Z`),
+        window: w,
+      }))
+      .filter(({ start }) => start > now)
+      .sort((a, b) => a.start.getTime() - b.start.getTime())
+
+    if (futureWindows.length > 0) {
+      const nextWindow = futureWindows[0]
+      this.logger.debug(
+        `Next window starts at ${nextWindow.start.toISOString()}`,
+      )
+      return nextWindow.start
+    }
+
+    // No future windows available
+    this.logger.warn(
+      `No future sending windows found for campaign ${campaign._id}, using now`,
+    )
+    return now
+  }
+
+  // OLD METHOD - TO BE REMOVED
+  private async scheduleMessages_OLD(
+    campaign: CampaignDocument,
+    devices: DeviceDocument[],
+  ) {
     const now = new Date()
     this.logger.debug(`scheduleMessages called for campaign ${campaign._id}`)
 
     // Check if we're in a valid sending window
     if (!this.isInSendingWindow(campaign, now)) {
-      this.logger.debug(`Campaign ${campaign._id} not in sending window, rescheduling`)
+      this.logger.debug(
+        `Campaign ${campaign._id} not in sending window, rescheduling`,
+      )
       // Reschedule for next available window
       await this.rescheduleForNextWindow(campaign)
       return
@@ -124,11 +290,15 @@ export class CampaignQueueProcessor {
       .sort({ priority: -1, createdAt: 1 })
       .exec()
 
-    this.logger.debug(`Found ${pendingMessages.length} pending messages for campaign ${campaign._id}`)
+    this.logger.debug(
+      `Found ${pendingMessages.length} pending messages for campaign ${campaign._id}`,
+    )
 
     if (pendingMessages.length === 0) {
       // Campaign is complete
-      this.logger.debug(`No pending messages found for campaign ${campaign._id}, checking completion`)
+      this.logger.debug(
+        `No pending messages found for campaign ${campaign._id}, checking completion`,
+      )
       await this.checkCampaignCompletion(campaign)
       return
     }
@@ -142,24 +312,32 @@ export class CampaignQueueProcessor {
     // Track the next available time for each device to ensure proper spacing
     const deviceNextAvailableTime = new Map<string, Date>()
 
-    this.logger.debug(`Attempting to schedule ${pendingMessages.length} messages across ${devices.length} devices`)
+    this.logger.debug(
+      `Attempting to schedule ${pendingMessages.length} messages across ${devices.length} devices`,
+    )
 
     for (const message of pendingMessages) {
       const device = devices[deviceIndex % devices.length]
       const deviceId = device._id.toString()
       devicesChecked++
 
-      this.logger.debug(`Checking device ${device._id} (${device.brand} ${device.model}) for message ${message._id}`)
+      this.logger.debug(
+        `Checking device ${device._id} (${device.brand} ${device.model}) for message ${message._id}`,
+      )
 
       // Check device availability and rate limits
       const canSend = await this.canDeviceSendNow(device)
       if (!canSend) {
-        this.logger.debug(`Device ${device._id} cannot send now - checking next device`)
+        this.logger.debug(
+          `Device ${device._id} cannot send now - checking next device`,
+        )
         deviceIndex++
 
         // If we've checked all devices and none can send, break to avoid infinite loop
         if (devicesChecked >= devices.length * pendingMessages.length) {
-          this.logger.warn(`All devices unavailable after checking ${devicesChecked} combinations`)
+          this.logger.warn(
+            `All devices unavailable after checking ${devicesChecked} combinations`,
+          )
           break
         }
         continue
@@ -167,22 +345,36 @@ export class CampaignQueueProcessor {
 
       allDevicesUnavailable = false
 
-      // Calculate next available slot, considering previous messages scheduled for this device
+      // Calculate next available slot with randomization, considering previous messages scheduled for this device
       let scheduledTime: Date
       if (deviceNextAvailableTime.has(deviceId)) {
-        // Device already has messages scheduled, add tier delay to the last scheduled time
-        const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
-        const delayMs = currentTier ? currentTier.timeDelayBetweenMessages * 1000 : 300000 // Default 5 min
-        scheduledTime = new Date(deviceNextAvailableTime.get(deviceId).getTime() + delayMs)
+        // Device already has messages scheduled, add randomized tier delay to the last scheduled time
+        const currentTier =
+          await this.usagePlanService.getCurrentTierForDevice(device)
+        const minWaitSeconds = currentTier ? currentTier.min_wait_seconds : 300 // Default 5 min
+        const randomizedWaitSeconds =
+          this.randomizedDelayService.calculateRandomizedWait(minWaitSeconds)
+        const delayMs = randomizedWaitSeconds * 1000
+        scheduledTime = new Date(
+          deviceNextAvailableTime.get(deviceId).getTime() + delayMs,
+        )
+        this.logger.debug(
+          `Scheduling next message for device ${device._id} with randomized delay: ${randomizedWaitSeconds}s (min: ${minWaitSeconds}s)`,
+        )
       } else {
         // First message for this device - check if it's the very first message of the campaign
-        const isFirstMessageOfCampaign = await this.isFirstMessageOfCampaign(campaign, device)
+        const isFirstMessageOfCampaign = await this.isFirstMessageOfCampaign(
+          campaign,
+          device,
+        )
         if (isFirstMessageOfCampaign) {
           // Send immediately for the first message of the campaign
           scheduledTime = new Date()
-          this.logger.debug(`First message of campaign - scheduling immediately for device ${device._id}`)
+          this.logger.debug(
+            `First message of campaign - scheduling immediately for device ${device._id}`,
+          )
         } else {
-          // Not the first message globally, use normal calculation
+          // Not the first message globally, use normal calculation with randomization
           scheduledTime = await this.calculateNextAvailableSlot(device)
         }
       }
@@ -190,7 +382,9 @@ export class CampaignQueueProcessor {
       // Update the device's next available time
       deviceNextAvailableTime.set(deviceId, scheduledTime)
 
-      this.logger.debug(`Scheduling message ${message._id} on device ${device._id} for ${scheduledTime}`)
+      this.logger.debug(
+        `Scheduling message ${message._id} on device ${device._id} for ${scheduledTime}`,
+      )
 
       message.status = MessageStatus.SCHEDULED
       message.assignedDevice = device._id.toString()
@@ -200,19 +394,25 @@ export class CampaignQueueProcessor {
       deviceIndex++
     }
 
-    this.logger.debug(`Successfully scheduled ${messagesToSchedule.length} out of ${pendingMessages.length} pending messages`)
+    this.logger.debug(
+      `Successfully scheduled ${messagesToSchedule.length} out of ${pendingMessages.length} pending messages`,
+    )
 
     // Save scheduled messages
     if (messagesToSchedule.length > 0) {
-      await Promise.all(messagesToSchedule.map(msg => msg.save()))
+      await Promise.all(messagesToSchedule.map((msg) => msg.save()))
 
       // Queue messages for sending
       await this.queueScheduledMessages(messagesToSchedule)
 
-      this.logger.debug(`Queued ${messagesToSchedule.length} messages for campaign ${campaign._id}`)
+      this.logger.debug(
+        `Queued ${messagesToSchedule.length} messages for campaign ${campaign._id}`,
+      )
     } else if (allDevicesUnavailable) {
       // All devices are unavailable - schedule retry with longer delay
-      this.logger.warn(`No devices available for campaign ${campaign._id}, scheduling retry in 5 minutes`)
+      this.logger.warn(
+        `No devices available for campaign ${campaign._id}, scheduling retry in 5 minutes`,
+      )
       await this.scheduleNextBatch(campaign, 5 * 60 * 1000) // 5 minute delay
       return
     }
@@ -233,98 +433,57 @@ export class CampaignQueueProcessor {
   }
 
   private isInSendingWindow(campaign: CampaignDocument, now: Date): boolean {
-    const campaignDate = now.toISOString().split('T')[0]
-
-    // Check if we're within campaign date range
-    if (campaignDate < campaign.campaignStartDate || campaignDate > campaign.campaignEndDate) {
+    // Check if campaign has any sending windows defined
+    if (!campaign.sendingWindows || campaign.sendingWindows.length === 0) {
+      this.logger.warn(
+        `Campaign ${campaign._id} has no sending windows defined`,
+      )
       return false
     }
 
-    // For 'now' and 'later' schedule types, we can send anytime within date range
-    if (campaign.scheduleType === ScheduleType.NOW || campaign.scheduleType === ScheduleType.LATER) {
-      return true
-    }
-
-    // For 'windows' schedule type
-    if (campaign.scheduleType === ScheduleType.WINDOWS && campaign.sendingWindows) {
-      return campaign.sendingWindows.some(window => {
-        const windowStart = new Date(`${window.startDate}T${window.startTime}`)
-        const windowEnd = new Date(`${window.endDate}T${window.endTime}`)
-        return now >= windowStart && now <= windowEnd
-      })
-    }
-
-    // For 'weekday' schedule type
-    if (campaign.scheduleType === ScheduleType.WEEKDAY && campaign.weekdayWindows && campaign.weekdayEnabled) {
-      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-      const currentDay = dayNames[now.getDay()]
-
-      if (!campaign.weekdayEnabled[currentDay]) {
-        return false
-      }
-
-      const todayWindows = campaign.weekdayWindows[currentDay]
-      if (!todayWindows || todayWindows.length === 0) {
-        return false
-      }
-
-      const currentTime = now.getHours() * 60 + now.getMinutes()
-
-      return todayWindows.some(window => {
-        const [startHour, startMin] = window.startTime.split(':').map(Number)
-        const [endHour, endMin] = window.endTime.split(':').map(Number)
-        const startTime = startHour * 60 + startMin
-        const endTime = endHour * 60 + endMin
-
-        return currentTime >= startTime && currentTime <= endTime
-      })
-    }
-
-    return false
+    // Check if current time falls within any of the defined windows
+    // All times in sendingWindows are stored in UTC for consistency
+    return campaign.sendingWindows.some((window) => {
+      const windowStart = new Date(
+        `${window.startDate}T${window.startTime}:00Z`,
+      )
+      const windowEnd = new Date(`${window.endDate}T${window.endTime}:59Z`)
+      return now >= windowStart && now <= windowEnd
+    })
   }
 
   private async canDeviceSendNow(device: DeviceDocument): Promise<boolean> {
     try {
-      this.logger.debug(`Checking device ${device._id} availability:`)
-      this.logger.debug(`- Enabled: ${device.enabled}`)
-      this.logger.debug(`- On cooldown: ${device.is_on_cooldown}`)
-      this.logger.debug(`- Cooldown until: ${device.cooldown_until}`)
-      this.logger.debug(`- Messages sent today: ${device.messages_sent_today}`)
-      this.logger.debug(`- Messages sent this hour: ${device.messages_sent_this_hour}`)
-
       // Check if device is enabled
       if (!device.enabled) {
         this.logger.debug(`Device ${device._id} is disabled`)
         return false
       }
 
-      // Check if device is on cooldown
-      if (device.is_on_cooldown && device.cooldown_until) {
-        if (new Date() < device.cooldown_until) {
-          this.logger.debug(`Device ${device._id} is on cooldown until ${device.cooldown_until}`)
-          return false
-        }
-      }
-
-      // Check current tier limits
-      const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
-      if (!currentTier) {
-        this.logger.debug(`Device ${device._id} has no current tier`)
+      // Check if device is on cooldown (rolling window based)
+      if (device.is_on_cooldown) {
+        this.logger.debug(`Device ${device._id} is on cooldown`)
         return false
       }
 
-      this.logger.debug(`Device ${device._id} tier ${currentTier.tier}: dailyLimit=${currentTier.dailyLimit}, timeDelay=${currentTier.timeDelayBetweenMessages}s`)
+      // Get current usage stats (rolling window)
+      const stats = await this.usageCalculator.getDeviceUsageStats(device)
 
-      // Check if daily limit exceeded
-      if (device.messages_sent_today >= currentTier.dailyLimit) {
-        this.logger.debug(`Device ${device._id} has exceeded daily limit: ${device.messages_sent_today}/${currentTier.dailyLimit}`)
-        return false
-      }
+      this.logger.debug(`Checking device ${device._id} availability:`)
+      this.logger.debug(`- Enabled: ${device.enabled}`)
+      this.logger.debug(`- On cooldown: ${device.is_on_cooldown}`)
+      this.logger.debug(
+        `- Messages in window: ${stats.messagesSentInWindow}/${stats.currentTierLimit}`,
+      )
+      this.logger.debug(
+        `- Usage percentage: ${stats.usagePercentage.toFixed(1)}%`,
+      )
 
-      // Check hourly rate limit (simplified)
-      const maxHourlyMessages = Math.floor(3600 / currentTier.timeDelayBetweenMessages)
-      if (device.messages_sent_this_hour >= maxHourlyMessages) {
-        this.logger.debug(`Device ${device._id} has exceeded hourly limit: ${device.messages_sent_this_hour}/${maxHourlyMessages}`)
+      // Check if limit exceeded in rolling window
+      if (stats.isOverLimit) {
+        this.logger.debug(
+          `Device ${device._id} has exceeded limit in rolling window: ${stats.messagesSentInWindow}/${stats.currentTierLimit}`,
+        )
         return false
       }
 
@@ -336,29 +495,47 @@ export class CampaignQueueProcessor {
     }
   }
 
-  private async calculateNextAvailableSlot(device: DeviceDocument): Promise<Date> {
+  private async calculateNextAvailableSlot(
+    device: DeviceDocument,
+  ): Promise<Date> {
     const now = new Date()
 
     // Get current tier to determine delay
-    const currentTier = await this.usagePlanService.getCurrentTierForDevice(device)
+    const currentTier =
+      await this.usagePlanService.getCurrentTierForDevice(device)
     if (!currentTier) {
       return now
     }
 
-    // Add delay based on tier settings
-    const delayMs = currentTier.timeDelayBetweenMessages * 1000
+    // Add randomized delay based on tier settings
+    const randomizedWaitSeconds =
+      this.randomizedDelayService.calculateRandomizedWait(
+        currentTier.min_wait_seconds,
+      )
+    const delayMs = randomizedWaitSeconds * 1000
     return new Date(now.getTime() + delayMs)
   }
 
   /**
    * Check if this is the very first message being scheduled for the campaign
    */
-  private async isFirstMessageOfCampaign(campaign: CampaignDocument, device: DeviceDocument): Promise<boolean> {
+  private async isFirstMessageOfCampaign(
+    campaign: CampaignDocument,
+    device: DeviceDocument,
+  ): Promise<boolean> {
     // Check if any messages have already been scheduled or sent for this campaign
-    const processedMessagesCount = await this.campaignMessageModel.countDocuments({
-      campaign: campaign._id,
-      status: { $in: [MessageStatus.SCHEDULED, MessageStatus.QUEUED, MessageStatus.SENDING, MessageStatus.SENT] }
-    })
+    const processedMessagesCount =
+      await this.campaignMessageModel.countDocuments({
+        campaign: campaign._id,
+        status: {
+          $in: [
+            MessageStatus.SCHEDULED,
+            MessageStatus.QUEUED,
+            MessageStatus.SENDING,
+            MessageStatus.SENT,
+          ],
+        },
+      })
 
     return processedMessagesCount === 0
   }
@@ -369,14 +546,18 @@ export class CampaignQueueProcessor {
 
     for (const message of messages) {
       if (!message.assignedDevice || !message.scheduledTime) {
-        this.logger.warn(`Message ${message._id} missing device or scheduled time, skipping`)
+        this.logger.warn(
+          `Message ${message._id} missing device or scheduled time, skipping`,
+        )
         continue
       }
 
       // Verify device exists
       const device = await this.deviceModel.findById(message.assignedDevice)
       if (!device) {
-        this.logger.warn(`Message ${message._id} device ${message.assignedDevice} not found, skipping`)
+        this.logger.warn(
+          `Message ${message._id} device ${message.assignedDevice} not found, skipping`,
+        )
         continue
       }
 
@@ -393,17 +574,21 @@ export class CampaignQueueProcessor {
 
     // Add jobs to SMS queue with proper delays
     if (queueJobs.length > 0) {
-      this.logger.debug(`Preparing to queue ${queueJobs.length} campaign messages via GatewayService`)
+      this.logger.debug(
+        `Preparing to queue ${queueJobs.length} campaign messages via GatewayService`,
+      )
 
       // Mark messages as queued BEFORE adding to queue to prevent race condition
       await this.campaignMessageModel.updateMany(
-        { _id: { $in: messages.map(m => m._id) } },
-        { status: MessageStatus.QUEUED }
+        { _id: { $in: messages.map((m) => m._id) } },
+        { status: MessageStatus.QUEUED },
       )
 
       await this.smsQueueService.addCampaignMessagesJobs(queueJobs)
 
-      this.logger.debug(`Successfully queued ${queueJobs.length} campaign messages for GatewayService delivery`)
+      this.logger.debug(
+        `Successfully queued ${queueJobs.length} campaign messages for GatewayService delivery`,
+      )
     }
   }
 
@@ -413,7 +598,9 @@ export class CampaignQueueProcessor {
     if (nextWindow) {
       const delay = Math.max(0, nextWindow.getTime() - Date.now())
 
-      this.logger.debug(`Rescheduling campaign ${campaign._id} for ${nextWindow} (delay: ${delay}ms)`)
+      this.logger.debug(
+        `Rescheduling campaign ${campaign._id} for ${nextWindow} (delay: ${delay}ms)`,
+      )
 
       // Schedule the campaign to be processed at the next window
       await this.campaignQueue.add(
@@ -424,7 +611,7 @@ export class CampaignQueueProcessor {
           attempts: 2,
           removeOnComplete: 5,
           removeOnFail: 10,
-        }
+        },
       )
     }
   }
@@ -432,17 +619,37 @@ export class CampaignQueueProcessor {
   private getNextSendingWindow(campaign: CampaignDocument): Date | null {
     const now = new Date()
 
-    // Implementation depends on schedule type
-    // This would calculate the next available sending window
-    // For now, return 1 hour from now as a simple fallback
-    return new Date(now.getTime() + 60 * 60 * 1000)
+    if (!campaign.sendingWindows || campaign.sendingWindows.length === 0) {
+      this.logger.warn(
+        `Campaign ${campaign._id} has no sending windows defined`,
+      )
+      return null
+    }
+
+    // Parse all windows and convert to Date objects
+    // All times in sendingWindows are stored in UTC
+    const futureWindows = campaign.sendingWindows
+      .map((window) => ({
+        start: new Date(`${window.startDate}T${window.startTime}:00Z`),
+        end: new Date(`${window.endDate}T${window.endTime}:59Z`),
+      }))
+      .filter((window) => window.start > now) // Only future windows
+      .sort((a, b) => a.start.getTime() - b.start.getTime()) // Sort chronologically
+
+    // Return the start time of the next window, or null if no future windows exist
+    return futureWindows.length > 0 ? futureWindows[0].start : null
   }
 
-  private async scheduleNextBatch(campaign: CampaignDocument, customDelay?: number) {
+  private async scheduleNextBatch(
+    campaign: CampaignDocument,
+    customDelay?: number,
+  ) {
     // Schedule next batch processing in 1 minute (or custom delay)
     const delay = customDelay || 60 * 1000 // Default 1 minute
 
-    this.logger.debug(`Scheduling next batch for campaign ${campaign._id} in ${delay}ms`)
+    this.logger.debug(
+      `Scheduling next batch for campaign ${campaign._id} in ${delay}ms`,
+    )
 
     // Schedule the next batch processing
     await this.campaignQueue.add(
@@ -453,7 +660,7 @@ export class CampaignQueueProcessor {
         attempts: 2,
         removeOnComplete: 5,
         removeOnFail: 10,
-      }
+      },
     )
   }
 
@@ -463,9 +670,9 @@ export class CampaignQueueProcessor {
       {
         $group: {
           _id: '$status',
-          count: { $sum: 1 }
-        }
-      }
+          count: { $sum: 1 },
+        },
+      },
     ])
 
     let sentMessages = 0
@@ -499,7 +706,13 @@ export class CampaignQueueProcessor {
   private async checkCampaignCompletion(campaign: CampaignDocument) {
     const pendingCount = await this.campaignMessageModel.countDocuments({
       campaign: campaign._id,
-      status: { $in: [MessageStatus.PENDING, MessageStatus.SCHEDULED, MessageStatus.QUEUED] }
+      status: {
+        $in: [
+          MessageStatus.PENDING,
+          MessageStatus.SCHEDULED,
+          MessageStatus.QUEUED,
+        ],
+      },
     })
 
     if (pendingCount === 0) {
@@ -511,7 +724,10 @@ export class CampaignQueueProcessor {
     }
   }
 
-  private async markCampaignAsFailed(campaign: CampaignDocument, error: string) {
+  private async markCampaignAsFailed(
+    campaign: CampaignDocument,
+    error: string,
+  ) {
     await this.campaignModel.findByIdAndUpdate(campaign._id, {
       status: CampaignStatus.FAILED,
       lastError: error,

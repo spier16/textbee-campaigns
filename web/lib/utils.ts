@@ -1,8 +1,43 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { parsePhoneNumberFromString } from 'libphonenumber-js'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+/**
+ * Formats a phone number for display with automatic country detection and fallbacks
+ * @param phoneNumber - The phone number to format (can be null/undefined)
+ * @returns Formatted phone number string or fallback message
+ * @example
+ * formatPhoneNumberDisplay('+12345678901') // Returns: "+1 234 567-8901"
+ * formatPhoneNumberDisplay('2345678901') // Returns: "+1 234 567-8901" (assumes US)
+ * formatPhoneNumberDisplay(null) // Returns: "Not detected"
+ */
+export function formatPhoneNumberDisplay(phoneNumber: string | null | undefined): string {
+  if (!phoneNumber) return 'Not detected'
+
+  try {
+    // Try to parse with automatic country detection
+    const parsed = parsePhoneNumberFromString(phoneNumber)
+    if (parsed && parsed.isValid()) {
+      // Use INTERNATIONAL format: "+1 234 567-8901"
+      return parsed.formatInternational()
+    }
+
+    // Fallback: Try parsing as US number
+    const usNumber = parsePhoneNumberFromString(phoneNumber, 'US')
+    if (usNumber && usNumber.isValid()) {
+      return usNumber.formatInternational()
+    }
+
+    // Return original if parsing fails
+    return phoneNumber
+  } catch (error) {
+    // Gracefully handle errors - return original number
+    return phoneNumber
+  }
 }
 
 export function normalizePhoneNumber(phoneNumber: string): string {
@@ -33,7 +68,8 @@ export function formatMessageTime(date: Date): string {
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
-    hour12: true
+    hour12: true,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   })
 }
 
@@ -68,14 +104,20 @@ export interface MessageWithDate {
   date: Date
   isIncoming: boolean
   status?: MessageStatus
+  deviceId?: string
+  senderPhoneNumber?: string
   [key: string]: any
 }
 
 export interface MessageGroup {
-  type: 'date' | 'message'
+  type: 'date' | 'message' | 'metadata-change'
   date?: Date
   dateLabel?: string
   message?: MessageWithDate
+  changeInfo?: {
+    deviceId: string
+    phoneNumber: string
+  }
 }
 
 export function groupMessagesWithDateSeparators(messages: MessageWithDate[]): MessageGroup[] {
@@ -102,6 +144,72 @@ export function groupMessagesWithDateSeparators(messages: MessageWithDate[]): Me
       type: 'message',
       message
     })
+  }
+
+  return groups
+}
+
+export function groupMessagesWithMetadataChanges(messages: MessageWithDate[]): MessageGroup[] {
+  if (!messages || messages.length === 0) return []
+
+  // Normalize empty values to null for consistent comparison
+  // Also handle the string "undefined" which sometimes comes from the backend
+  const normalizeValue = (val: string | undefined) => {
+    if (!val || val.trim() === '' || val === 'undefined') {
+      return null
+    }
+    return val
+  }
+
+  const groups: MessageGroup[] = []
+  let lastDate: Date | null = null
+  let lastDeviceId: string | null = null
+  let lastPhoneNumber: string | null = null
+
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]
+    const messageDate = message.date
+
+    // Normalize current message values
+    const currentDeviceId = normalizeValue(message.deviceId)
+    const currentPhoneNumber = normalizeValue(message.senderPhoneNumber)
+
+    // Check if device ID or phone number changed from previous message
+    // For the first message, show bubble if device/phone info exists
+    // For subsequent messages, show bubble only if changed
+    const isFirstMessage = i === 0
+    const deviceChanged = lastDeviceId !== currentDeviceId
+    const phoneChanged = lastPhoneNumber !== currentPhoneNumber
+
+    if ((isFirstMessage || deviceChanged || phoneChanged) && (currentDeviceId || currentPhoneNumber)) {
+      groups.push({
+        type: 'metadata-change',
+        changeInfo: {
+          deviceId: currentDeviceId || '',
+          phoneNumber: currentPhoneNumber || ''
+        }
+      })
+    }
+
+    // Add date separator if this is the first message or if the date has changed
+    if (!lastDate || !isSameDay(lastDate, messageDate)) {
+      groups.push({
+        type: 'date',
+        date: messageDate,
+        dateLabel: formatDateSeparator(messageDate)
+      })
+      lastDate = messageDate
+    }
+
+    // Add the message
+    groups.push({
+      type: 'message',
+      message
+    })
+
+    // Update tracking variables with normalized values
+    lastDeviceId = currentDeviceId
+    lastPhoneNumber = currentPhoneNumber
   }
 
   return groups

@@ -33,6 +33,12 @@ export class RegisterDeviceInputDTO {
 
   @ApiProperty({ type: String })
   appVersionCode?: number
+
+  @ApiProperty({ type: String })
+  phoneNumber?: string
+
+  @ApiProperty({ type: String })
+  phoneNumber2?: string
 }
 
 export class SMSData {
@@ -122,6 +128,21 @@ export class ReceivedSMSDTO {
     description: 'The time the message was created',
   })
   receivedAtInMillis?: number
+
+  @ApiProperty({
+    type: Number,
+    required: false,
+    description: 'Device timezone offset in minutes from UTC',
+  })
+  deviceTimezoneOffsetMinutes?: number
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    description:
+      'The phone number of the device that received the SMS (useful for dual-SIM)',
+  })
+  senderPhoneNumber?: string
 }
 
 export class DeviceDTO {
@@ -142,6 +163,15 @@ export class DeviceDTO {
 
   @ApiProperty({ type: String })
   buildId: string
+
+  @ApiProperty({ type: String })
+  phoneNumber?: string
+
+  @ApiProperty({ type: String })
+  phoneNumber2?: string
+
+  @ApiProperty({ type: Date })
+  phoneNumberLastUpdated?: Date
 }
 
 export class RetrieveSMSDTO {
@@ -201,28 +231,28 @@ export class PaginationMetaDTO {
     required: true,
     description: 'Current page number',
   })
-  page: number;
+  page: number
 
   @ApiProperty({
     type: Number,
     required: true,
     description: 'Number of items per page',
   })
-  limit: number;
+  limit: number
 
   @ApiProperty({
     type: Number,
     required: true,
     description: 'Total number of items',
   })
-  total: number;
+  total: number
 
   @ApiProperty({
     type: Number,
     required: true,
     description: 'Total number of pages',
   })
-  totalPages: number;
+  totalPages: number
 }
 
 export class RetrieveSMSResponseDTO {
@@ -298,4 +328,37 @@ export class UpdateSMSStatusDTO {
     description: 'Error message if the message failed',
   })
   errorMessage?: string
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    description: 'The phone number that sent the SMS',
+  })
+  senderPhoneNumber?: string
+}
+
+export class GetStatsQueryDTO {
+  @ApiProperty({
+    type: String,
+    required: false,
+    description: 'Start date for filtering stats (ISO date string)',
+    example: '2025-01-01T00:00:00Z',
+  })
+  startDate?: string
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    description: 'End date for filtering stats (ISO date string)',
+    example: '2025-01-31T23:59:59Z',
+  })
+  endDate?: string
+
+  @ApiProperty({
+    type: [String],
+    required: false,
+    description: 'Array of device IDs to filter stats by',
+    example: ['device1', 'device2'],
+  })
+  deviceIds?: string[]
 }

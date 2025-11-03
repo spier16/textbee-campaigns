@@ -27,4 +27,5 @@ export class PolarWebhookPayload {
   productName: string
 }
 
-export const PolarWebhookPayloadSchema = SchemaFactory.createForClass(PolarWebhookPayload)
+export const PolarWebhookPayloadSchema =
+  SchemaFactory.createForClass(PolarWebhookPayload)

@@ -1,3 +1,5 @@
+'use client'
+
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,13 +15,45 @@ import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QrCode, Copy, Smartphone, Download, AlertTriangle } from 'lucide-react'
-import React, { useState } from 'react'
-import QRCode from 'react-qr-code'
+import React, { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
+
+const QRCode = dynamic(() => import('react-qr-code'), {
+  ssr: false,
+  loading: () => <div className="h-[200px] w-[200px] bg-muted animate-pulse rounded" />
+})
+
+// Safe QR Code wrapper component
+function SafeQRCode({ value }: { value: string }) {
+  try {
+    if (!value || typeof value !== 'string' || value.length === 0) {
+      return <div className="h-[200px] w-[200px] bg-muted flex items-center justify-center rounded text-xs text-muted-foreground">Invalid QR Code</div>
+    }
+    return (
+      <QRCode
+        value={value}
+        size={200}
+        level="M"
+        bgColor="#ffffff"
+        fgColor="#000000"
+        style={{ maxWidth: "100%", height: "auto" }}
+      />
+    )
+  } catch (error) {
+    console.error('QR Code generation error:', error)
+    return <div className="h-[200px] w-[200px] bg-muted flex items-center justify-center rounded text-xs text-muted-foreground">QR Code Error</div>
+  }
+}
 
 export default function GenerateApiKey() {
   const [isGenerateKeyModalOpen, setIsGenerateKeyModalOpen] = useState(false)
   const [isConfirmGenerateKeyModalOpen, setIsConfirmGenerateKeyModalOpen] =
     useState(false)
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const handleConfirmGenerateKey = () => {
     setIsConfirmGenerateKeyModalOpen(true)
@@ -71,13 +105,9 @@ export default function GenerateApiKey() {
           <DialogHeader>
             <DialogTitle>Create new API Key</DialogTitle>
             <DialogDescription>
-              <div className='space-y-2 text-sm text-muted-foreground'>
-                <p>
-                  By clicking generate, you will be able to view your API key.
-                  Make sure to save it before closing the modal as you will not
-                  be able to view it again.
-                </p>
-              </div>
+              By clicking generate, you will be able to view your API key.
+              Make sure to save it before closing the modal as you will not
+              be able to view it again.
             </DialogDescription>
           </DialogHeader>
           <div className='flex flex-col space-y-4'>
@@ -112,8 +142,10 @@ export default function GenerateApiKey() {
 
           <div className='space-y-6'>
             <div className='flex justify-center p-4 bg-muted dark:bg-white rounded-lg '>
-              {generatedApiKey?.data && (
-                <QRCode value={generatedApiKey?.data} size={120} />
+              {isMounted && generatedApiKey?.data ? (
+                <SafeQRCode value={generatedApiKey.data} />
+              ) : (
+                <div className="h-[200px] w-[200px] bg-muted animate-pulse rounded" />
               )}
             </div>
 

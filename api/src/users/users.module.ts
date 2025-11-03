@@ -1,8 +1,14 @@
 import { forwardRef, Module } from '@nestjs/common'
 import { MongooseModule } from '@nestjs/mongoose'
 import { User, UserSchema } from './schemas/user.schema'
-import { ConversationReadStatus, ConversationReadStatusSchema } from './schemas/conversation-read-status.schema'
-import { ConversationMetadata, ConversationMetadataSchema } from './schemas/conversation-metadata.schema'
+import {
+  ConversationReadStatus,
+  ConversationReadStatusSchema,
+} from './schemas/conversation-read-status.schema'
+import {
+  ConversationMetadata,
+  ConversationMetadataSchema,
+} from './schemas/conversation-metadata.schema'
 import { UsersController } from './users.controller'
 import { UsersService } from './users.service'
 import { BillingModule } from 'src/billing/billing.module'

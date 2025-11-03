@@ -29,7 +29,7 @@ import {
   CreateContactDto,
   CreateGroupDto,
   GetUniqueContactCountDto,
-  GetUniqueContactsDto
+  GetUniqueContactsDto,
 } from './contacts.dto'
 import { Response as ExpressResponse } from 'express'
 
@@ -51,20 +51,17 @@ export class ContactsController {
 
   @Get('spreadsheets')
   @ApiOperation({ summary: 'Get user contact spreadsheets' })
-  async getSpreadsheets(
-    @Request() req,
-    @Query() query: GetSpreadsheetsDto,
-  ) {
+  async getSpreadsheets(@Request() req, @Query() query: GetSpreadsheetsDto) {
     return this.contactsService.getSpreadsheets(req.user.id, query)
   }
 
   @Get('spreadsheets/:id')
   @ApiOperation({ summary: 'Get a specific contact spreadsheet' })
-  async getSpreadsheet(
-    @Request() req,
-    @Param('id') id: string,
-  ) {
-    const spreadsheet = await this.contactsService.getSpreadsheetById(req.user.id, id)
+  async getSpreadsheet(@Request() req, @Param('id') id: string) {
+    const spreadsheet = await this.contactsService.getSpreadsheetById(
+      req.user.id,
+      id,
+    )
     return {
       id: spreadsheet._id.toString(),
       originalFileName: spreadsheet.originalFileName,
@@ -80,20 +77,14 @@ export class ContactsController {
   @Delete('spreadsheets/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a contact spreadsheet' })
-  async deleteSpreadsheet(
-    @Request() req,
-    @Param('id') id: string,
-  ) {
+  async deleteSpreadsheet(@Request() req, @Param('id') id: string) {
     return this.contactsService.deleteSpreadsheet(req.user.id, id)
   }
 
   @Post('spreadsheets/delete-multiple')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete multiple contact spreadsheets' })
-  async deleteMultipleSpreadsheets(
-    @Request() req,
-    @Body('ids') ids: string[],
-  ) {
+  async deleteMultipleSpreadsheets(@Request() req, @Body('ids') ids: string[]) {
     if (!ids || ids.length === 0) {
       throw new BadRequestException('No spreadsheet IDs provided')
     }
@@ -107,10 +98,8 @@ export class ContactsController {
     @Param('id') id: string,
     @Response() res: ExpressResponse,
   ) {
-    const { fileName, content } = await this.contactsService.downloadSpreadsheet(
-      req.user.id,
-      id,
-    )
+    const { fileName, content } =
+      await this.contactsService.downloadSpreadsheet(req.user.id, id)
 
     // Decode base64 content
     const csvContent = Buffer.from(content, 'base64').toString('utf-8')
@@ -131,31 +120,28 @@ export class ContactsController {
       throw new BadRequestException('No spreadsheet IDs provided')
     }
 
-    const spreadsheets = await this.contactsService.downloadMultipleSpreadsheets(
-      req.user.id,
-      ids,
-    )
+    const spreadsheets =
+      await this.contactsService.downloadMultipleSpreadsheets(req.user.id, ids)
 
     // For now, we'll return the first file. In production, you'd want to create a ZIP
     if (spreadsheets.length === 1) {
       const { fileName, content } = spreadsheets[0]
       const csvContent = Buffer.from(content, 'base64').toString('utf-8')
-      
+
       res.setHeader('Content-Type', 'text/csv')
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
       res.send(csvContent)
     } else {
       // TODO: Implement ZIP creation for multiple files
-      throw new BadRequestException('Multiple file download not yet implemented')
+      throw new BadRequestException(
+        'Multiple file download not yet implemented',
+      )
     }
   }
 
   @Post('spreadsheets/preview')
   @ApiOperation({ summary: 'Preview CSV file content' })
-  async previewCsv(
-    @Request() req,
-    @Body() previewData: PreviewCsvDto,
-  ) {
+  async previewCsv(@Request() req, @Body() previewData: PreviewCsvDto) {
     return this.contactsService.previewCsv(previewData)
   }
 
@@ -186,55 +172,44 @@ export class ContactsController {
 
   @Get('templates/:id')
   @ApiOperation({ summary: 'Get a specific template' })
-  async getTemplate(
-    @Request() req,
-    @Param('id') id: string,
-  ) {
+  async getTemplate(@Request() req, @Param('id') id: string) {
     return this.contactsService.getTemplateById(req.user.id, id)
   }
 
   @Delete('templates/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a template' })
-  async deleteTemplate(
-    @Request() req,
-    @Param('id') id: string,
-  ) {
+  async deleteTemplate(@Request() req, @Param('id') id: string) {
     return this.contactsService.deleteTemplate(req.user.id, id)
   }
 
   @Post('')
   @ApiOperation({ summary: 'Create a new contact' })
-  async createContact(
-    @Request() req,
-    @Body() createData: CreateContactDto,
-  ) {
+  async createContact(@Request() req, @Body() createData: CreateContactDto) {
     return this.contactsService.createContact(req.user.id, createData)
   }
 
   @Get('')
   @ApiOperation({ summary: 'Get individual contacts' })
-  async getContacts(
-    @Request() req,
-    @Query() query: GetContactsDto,
-  ) {
+  async getContacts(@Request() req, @Query() query: GetContactsDto) {
     return this.contactsService.getContacts(req.user.id, query)
   }
 
   @Post('groups')
   @ApiOperation({ summary: 'Create a new contact group' })
-  async createGroup(
-    @Request() req,
-    @Body() createGroupData: CreateGroupDto,
-  ) {
+  async createGroup(@Request() req, @Body() createGroupData: CreateGroupDto) {
     return this.contactsService.createGroup(req.user.id, createGroupData)
   }
 
   @Get('stats')
   @ApiOperation({ summary: 'Get contact statistics' })
   async getStats(@Request() req) {
-    const { totalContacts } = await this.contactsService.getSpreadsheets(req.user.id, {})
-    const { total: totalSpreadsheets } = await this.contactsService.getSpreadsheets(req.user.id, {})
+    const { totalContacts } = await this.contactsService.getSpreadsheets(
+      req.user.id,
+      {},
+    )
+    const { total: totalSpreadsheets } =
+      await this.contactsService.getSpreadsheets(req.user.id, {})
 
     return {
       totalContacts,
@@ -244,19 +219,13 @@ export class ContactsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a specific contact by ID' })
-  async getContact(
-    @Request() req,
-    @Param('id') id: string,
-  ) {
+  async getContact(@Request() req, @Param('id') id: string) {
     return this.contactsService.getContactById(req.user.id, id)
   }
 
   @Get(':id/groups')
   @ApiOperation({ summary: 'Get groups for a specific contact' })
-  async getContactGroups(
-    @Request() req,
-    @Param('id') id: string,
-  ) {
+  async getContactGroups(@Request() req, @Param('id') id: string) {
     return this.contactsService.getContactGroups(req.user.id, id)
   }
 
@@ -273,20 +242,14 @@ export class ContactsController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a contact' })
-  async deleteContact(
-    @Request() req,
-    @Param('id') id: string,
-  ) {
+  async deleteContact(@Request() req, @Param('id') id: string) {
     return this.contactsService.deleteContact(req.user.id, id)
   }
 
   @Post('delete-multiple')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete multiple contacts' })
-  async deleteMultipleContacts(
-    @Request() req,
-    @Body('ids') ids: string[],
-  ) {
+  async deleteMultipleContacts(@Request() req, @Body('ids') ids: string[]) {
     if (!ids || ids.length === 0) {
       throw new BadRequestException('No contact IDs provided')
     }
@@ -294,7 +257,9 @@ export class ContactsController {
   }
 
   @Post('spreadsheets/unique-count')
-  @ApiOperation({ summary: 'Get unique contact count across multiple spreadsheets' })
+  @ApiOperation({
+    summary: 'Get unique contact count across multiple spreadsheets',
+  })
   async getUniqueContactCount(
     @Request() req,
     @Body() body: GetUniqueContactCountDto,
@@ -306,16 +271,13 @@ export class ContactsController {
       req.user.id,
       body.spreadsheetIds,
       body.excludeDnc ?? true,
-      body.includePreviouslyMessaged ?? false
+      body.includePreviouslyMessaged ?? false,
     )
   }
 
   @Post('spreadsheets/unique-contacts')
   @ApiOperation({ summary: 'Get unique contacts across multiple spreadsheets' })
-  async getUniqueContacts(
-    @Request() req,
-    @Body() body: GetUniqueContactsDto,
-  ) {
+  async getUniqueContacts(@Request() req, @Body() body: GetUniqueContactsDto) {
     if (!body.spreadsheetIds || body.spreadsheetIds.length === 0) {
       return { data: [], total: 0 }
     }
@@ -323,7 +285,7 @@ export class ContactsController {
       req.user.id,
       body.spreadsheetIds,
       body.excludeDnc ?? true,
-      body.includePreviouslyMessaged ?? false
+      body.includePreviouslyMessaged ?? false,
     )
   }
 }

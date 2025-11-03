@@ -164,9 +164,7 @@ export class WebhookService {
     )
 
     if (!webhookSubscription) {
-      console.log(
-        `Webhook subscription not found for ${webhookSubscriptionId}`,
-      )
+      console.log(`Webhook subscription not found for ${webhookSubscriptionId}`)
       return
     }
 
@@ -217,7 +215,6 @@ export class WebhookService {
 
       webhookSubscription.deliveryFailureCount += 1
       webhookSubscription.lastDeliveryFailureAt = now
-
     } finally {
       webhookSubscription.deliveryAttemptCount += 1
       await webhookSubscription.save()
@@ -250,7 +247,7 @@ export class WebhookService {
 
   // Check for notifications that need to be delivered every 3 minutes
   @Cron('0 */3 * * * *', {
-    disabled: process.env.NODE_ENV !== 'production'
+    disabled: process.env.NODE_ENV !== 'production',
   })
   async checkForNotificationsToDeliver() {
     const now = new Date()

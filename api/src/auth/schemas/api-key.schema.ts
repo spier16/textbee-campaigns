@@ -13,7 +13,7 @@ export class ApiKey {
 
   @Prop({ type: String, default: 'API Key' })
   name: string
-  
+
   @Prop({ type: String })
   hashedApiKey: string
 
