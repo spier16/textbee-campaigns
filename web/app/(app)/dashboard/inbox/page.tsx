@@ -670,6 +670,26 @@ function MessengerInterface({
     }
   }, [conversationMetadata, conversation.normalizedPhoneNumber, conversation.deviceId])
 
+  // Ensure we default to an enabled device when devices load
+  useEffect(() => {
+    if (devices?.data && selectedDeviceId) {
+      const selectedDevice = devices.data.find((d: any) => d._id === selectedDeviceId)
+      // If selected device is disabled or doesn't exist, switch to first enabled device
+      if (!selectedDevice || !selectedDevice.enabled) {
+        const firstEnabledDevice = devices.data.find((d: any) => d.enabled)
+        if (firstEnabledDevice) {
+          setSelectedDeviceId(firstEnabledDevice._id)
+        }
+      }
+    } else if (devices?.data && !selectedDeviceId) {
+      // If no device is selected, default to first enabled device
+      const firstEnabledDevice = devices.data.find((d: any) => d.enabled)
+      if (firstEnabledDevice) {
+        setSelectedDeviceId(firstEnabledDevice._id)
+      }
+    }
+  }, [devices?.data, selectedDeviceId])
+
   const updateDeviceMutation = useMutation({
     mutationFn: async (deviceId: string) => {
       const response = await httpBrowserClient.patch(
@@ -703,6 +723,12 @@ function MessengerInterface({
         throw new Error('No device available to send message')
       }
 
+      // Validate that the selected device is enabled
+      const selectedDevice = devices?.data?.find((d: any) => d._id === selectedDeviceId)
+      if (!selectedDevice?.enabled) {
+        throw new Error('Selected device is not enabled. Please enable the device or select a different one.')
+      }
+
       const response = await httpBrowserClient.post(
         ApiEndpoints.gateway.sendSMS(selectedDeviceId),
         {
@@ -728,9 +754,15 @@ function MessengerInterface({
       console.error('Conversation deviceId:', conversation.deviceId)
       console.error('Phone number:', conversation.phoneNumber)
 
+      // Extract error message - backend sends in .error field, not .message
+      const errorMessage = error.response?.data?.error
+        || error.response?.data?.message
+        || error.message
+        || "An error occurred while sending the message."
+
       toast({
         title: "Failed to send message",
-        description: error.response?.data?.message || error.message || "An error occurred while sending the message.",
+        description: errorMessage,
         variant: "destructive"
       })
     }
@@ -858,6 +890,12 @@ function MessengerInterface({
               ))}
             </SelectContent>
           </Select>
+          {/* Warning for disabled device */}
+          {selectedDeviceId && devices?.data?.find((d: any) => d._id === selectedDeviceId && !d.enabled) && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 p-2 rounded mt-2">
+              ⚠️ The selected device is currently disabled. Please enable it or select a different device to send messages.
+            </div>
+          )}
         </div>
       </div>
 
@@ -988,32 +1026,52 @@ function MessengerInterface({
 
             {/* Message input area - fixed at bottom */}
             <div className="flex-shrink-0 p-4 border-t bg-background">
-              {!selectedDeviceId && (
-                <div className="text-sm text-yellow-600 bg-yellow-50 p-2 rounded mb-2">
-                  No device available to send messages
-                </div>
-              )}
-              <div className="flex space-x-2">
-                <Input
-                  placeholder={selectedDeviceId ? "Type a message..." : "No device available"}
-                  className="flex-1"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && selectedDeviceId && newMessage.trim()) {
-                      e.preventDefault()
-                      handleSendMessage()
-                    }
-                  }}
-                  disabled={!selectedDeviceId}
-                />
-                <Button
-                  onClick={handleSendMessage}
-                  disabled={!newMessage.trim() || sendSmsMutation.isPending || !selectedDeviceId}
-                >
-                  {sendSmsMutation.isPending ? 'Sending...' : 'Send'}
-                </Button>
-              </div>
+              {(() => {
+                const selectedDevice = devices?.data?.find((d: any) => d._id === selectedDeviceId)
+                const isDeviceEnabled = selectedDevice?.enabled ?? false
+
+                return (
+                  <>
+                    {!selectedDeviceId && (
+                      <div className="text-sm text-yellow-600 bg-yellow-50 p-2 rounded mb-2">
+                        No device available to send messages
+                      </div>
+                    )}
+                    {selectedDeviceId && !isDeviceEnabled && (
+                      <div className="text-sm text-red-600 bg-red-50 p-2 rounded mb-2">
+                        Selected device is disabled. Enable it or select another device to send messages.
+                      </div>
+                    )}
+                    <div className="flex space-x-2">
+                      <Input
+                        placeholder={
+                          !selectedDeviceId
+                            ? "No device available"
+                            : !isDeviceEnabled
+                            ? "Device is disabled"
+                            : "Type a message..."
+                        }
+                        className="flex-1"
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey && isDeviceEnabled && newMessage.trim()) {
+                            e.preventDefault()
+                            handleSendMessage()
+                          }
+                        }}
+                        disabled={!selectedDeviceId || !isDeviceEnabled}
+                      />
+                      <Button
+                        onClick={handleSendMessage}
+                        disabled={!newMessage.trim() || sendSmsMutation.isPending || !selectedDeviceId || !isDeviceEnabled}
+                      >
+                        {sendSmsMutation.isPending ? 'Sending...' : 'Send'}
+                      </Button>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           </>
         )}

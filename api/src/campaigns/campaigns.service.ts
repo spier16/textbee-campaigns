@@ -1113,16 +1113,15 @@ export class CampaignsService {
     )
 
     // Get messaged phones from CampaignMessage records
+    // Only include messages that were actually attempted/sent (not just queued)
     const campaignMessageQuery: any = {
       user: new Types.ObjectId(userId),
       campaignIsDeleted: { $ne: true },
       status: {
         $in: [
-          MessageStatus.QUEUED,
-          MessageStatus.CLAIMED,
-          MessageStatus.SENDING,
-          MessageStatus.SENT,
-          MessageStatus.FAILED,
+          MessageStatus.SENDING, // Currently being sent
+          MessageStatus.SENT, // Successfully sent
+          MessageStatus.FAILED, // Attempted but failed
         ],
       },
     }

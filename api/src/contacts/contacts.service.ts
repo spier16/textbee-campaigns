@@ -1177,8 +1177,8 @@ export class ContactsService {
           smsQuery,
         )
 
-        // Also check CampaignMessage records for messages in any active or completed state
-        // This catches messages that are queued, in progress, sent, or failed
+        // Also check CampaignMessage records for messages that were actually attempted/sent
+        // Only include SENDING, SENT, FAILED (not QUEUED/CLAIMED which haven't been attempted yet)
         // Exclude messages from deleted campaigns (campaignIsDeleted: true)
         const campaignMessagePhones = await this.campaignMessageModel.distinct(
           'recipient',
@@ -1187,11 +1187,9 @@ export class ContactsService {
             campaignIsDeleted: { $ne: true },
             status: {
               $in: [
-                MessageStatus.QUEUED,
-                MessageStatus.CLAIMED,
-                MessageStatus.SENDING,
-                MessageStatus.SENT,
-                MessageStatus.FAILED,
+                MessageStatus.SENDING, // Currently being sent
+                MessageStatus.SENT, // Successfully sent
+                MessageStatus.FAILED, // Attempted but failed
               ],
             },
           },
@@ -1314,8 +1312,8 @@ export class ContactsService {
           smsQuery,
         )
 
-        // Also check CampaignMessage records for messages in any active or completed state
-        // This catches messages that are queued, in progress, sent, or failed
+        // Also check CampaignMessage records for messages that were actually attempted/sent
+        // Only include SENDING, SENT, FAILED (not QUEUED/CLAIMED which haven't been attempted yet)
         // Exclude messages from deleted campaigns (campaignIsDeleted: true)
         const campaignMessagePhones = await this.campaignMessageModel.distinct(
           'recipient',
@@ -1324,11 +1322,9 @@ export class ContactsService {
             campaignIsDeleted: { $ne: true },
             status: {
               $in: [
-                MessageStatus.QUEUED,
-                MessageStatus.CLAIMED,
-                MessageStatus.SENDING,
-                MessageStatus.SENT,
-                MessageStatus.FAILED,
+                MessageStatus.SENDING, // Currently being sent
+                MessageStatus.SENT, // Successfully sent
+                MessageStatus.FAILED, // Attempted but failed
               ],
             },
           },

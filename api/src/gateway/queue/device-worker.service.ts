@@ -725,6 +725,7 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
     if (smsExists) return true
 
     // Check CampaignMessage records (excluding current campaign and deleted campaigns)
+    // Only count messages that were actually attempted (not just queued)
     const messageExists = await this.campaignMessageModel.exists({
       user: new Types.ObjectId(userId),
       campaign: { $ne: new Types.ObjectId(excludeCampaignId) },
@@ -732,11 +733,9 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       campaignIsDeleted: { $ne: true },
       status: {
         $in: [
-          MessageStatus.QUEUED,
-          MessageStatus.CLAIMED,
-          MessageStatus.SENDING,
-          MessageStatus.SENT,
-          MessageStatus.FAILED,
+          MessageStatus.SENDING, // Currently being sent
+          MessageStatus.SENT, // Successfully sent
+          MessageStatus.FAILED, // Attempted but failed
         ],
       },
     })
