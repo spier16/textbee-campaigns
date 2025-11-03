@@ -233,14 +233,26 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
           }
 
           // 4. Send message (CLAIMED → SENDING → SENT)
-          await this.sendMessage(freshDevice, message, campaign)
-
-          // 5. Calculate delay and wait
-          const delay = await this.calculateNextDelay(freshDevice)
-          this.logger.debug(
-            `Device ${deviceId} waiting ${delay}ms before next claim`,
+          const sendStatus = await this.sendMessage(
+            freshDevice,
+            message,
+            campaign,
           )
-          await this.sleep(delay)
+
+          // 5. Calculate delay and wait (skip cooldown if message was skipped)
+          if (sendStatus === 'skipped') {
+            // Message was skipped - immediately try next message without cooldown
+            this.logger.debug(
+              `Message skipped, device ${deviceId} will immediately claim next message`,
+            )
+          } else {
+            // Message was sent or failed - apply normal cooldown
+            const delay = await this.calculateNextDelay(freshDevice)
+            this.logger.debug(
+              `Device ${deviceId} waiting ${delay}ms before next claim`,
+            )
+            await this.sleep(delay)
+          }
 
           await this.renewLease(leaseKey)
         } catch (error) {
@@ -298,12 +310,13 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Send a claimed message
+   * Returns status: 'sent' | 'skipped' | 'failed'
    */
   private async sendMessage(
     device: DeviceDocument,
     message: CampaignMessageDocument,
     campaign: CampaignDocument,
-  ) {
+  ): Promise<'sent' | 'skipped' | 'failed'> {
     try {
       // Redundancy check: Validate contact hasn't been messaged if campaign excludes previously messaged
       if (!campaign.includePreviouslyMessaged) {
@@ -322,7 +335,11 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(
             `Skipping message ${message._id} to ${message.recipient} - already messaged (campaign: ${campaign._id})`,
           )
-          return // Don't send
+
+          // Update campaign stats for skipped message
+          await this.updateCampaignStatsAfterSkip(campaign._id)
+
+          return 'skipped' // Don't send
         }
       }
 
@@ -361,10 +378,12 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       await this.updateCampaignStatsAfterSend(campaign._id)
 
       this.logger.log(`Message ${message._id} sent successfully`)
+      return 'sent'
     } catch (error) {
       // Handle retry with backoff
       this.logger.error(`Failed to send message ${message._id}:`, error)
       await this.handleSendFailure(message, campaign, error)
+      return 'failed'
     }
   }
 
@@ -607,11 +626,12 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
    */
   private async updateCampaignStatsAfterSend(campaignId: Types.ObjectId) {
     try {
-      // Increment sent count and decrement pending count
+      // Increment sent count and decrement pending/queued counts
       await this.campaignModel.findByIdAndUpdate(campaignId, {
         $inc: {
           sentMessages: 1,
           pendingMessages: -1,
+          queuedMessages: -1,
         },
         $set: {
           lastMessageSentAt: new Date(),
@@ -637,11 +657,12 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
    */
   private async updateCampaignStatsAfterFailure(campaignId: Types.ObjectId) {
     try {
-      // Increment failed count and decrement pending count
+      // Increment failed count and decrement pending/queued counts
       await this.campaignModel.findByIdAndUpdate(campaignId, {
         $inc: {
           failedMessages: 1,
           pendingMessages: -1,
+          queuedMessages: -1,
         },
       })
 
@@ -654,6 +675,33 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error(
         `Error updating campaign stats after failure for campaign ${campaignId}:`,
+        error,
+      )
+    }
+  }
+
+  /**
+   * Update campaign statistics after a message is skipped
+   */
+  private async updateCampaignStatsAfterSkip(campaignId: Types.ObjectId) {
+    try {
+      // Decrement pending/queued counts (cancelled messages are not counted as failed or sent)
+      await this.campaignModel.findByIdAndUpdate(campaignId, {
+        $inc: {
+          pendingMessages: -1,
+          queuedMessages: -1,
+        },
+      })
+
+      this.logger.debug(
+        `Updated campaign ${campaignId} stats: decremented queuedMessages after skip`,
+      )
+
+      // Check if campaign is complete
+      await this.checkCampaignCompletion(campaignId)
+    } catch (error) {
+      this.logger.error(
+        `Error updating campaign stats after skip for campaign ${campaignId}:`,
         error,
       )
     }

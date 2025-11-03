@@ -116,6 +116,9 @@ export class Campaign {
   @Prop({ type: Number, default: 0 })
   pendingMessages: number
 
+  @Prop({ type: Number, default: 0 })
+  queuedMessages: number
+
   @Prop({ type: Date })
   startedAt?: Date
 

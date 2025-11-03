@@ -114,6 +114,7 @@ export interface Campaign {
   sentMessages: number
   failedMessages: number
   pendingMessages: number
+  queuedMessages: number
   startedAt?: string
   completedAt?: string
   lastMessageSentAt?: string

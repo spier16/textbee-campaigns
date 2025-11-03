@@ -665,6 +665,10 @@ export class CampaignQueueProcessor {
   }
 
   private async updateCampaignStats(campaign: CampaignDocument) {
+    this.logger.debug(
+      `[DEBUG] updateCampaignStats called for campaign ${campaign._id}`,
+    )
+
     const stats = await this.campaignMessageModel.aggregate([
       { $match: { campaign: campaign._id } },
       {
@@ -675,9 +679,14 @@ export class CampaignQueueProcessor {
       },
     ])
 
+    this.logger.debug(
+      `[DEBUG] Message stats aggregation result: ${JSON.stringify(stats)}`,
+    )
+
     let sentMessages = 0
     let failedMessages = 0
     let pendingMessages = 0
+    let queuedMessages = 0
 
     for (const stat of stats) {
       switch (stat._id) {
@@ -690,17 +699,38 @@ export class CampaignQueueProcessor {
         case MessageStatus.PENDING:
         case MessageStatus.SCHEDULED:
         case MessageStatus.QUEUED:
+        case MessageStatus.CLAIMED:
+        case MessageStatus.SENDING:
           pendingMessages += stat.count
+          queuedMessages += stat.count
           break
       }
     }
 
-    await this.campaignModel.findByIdAndUpdate(campaign._id, {
+    this.logger.log(
+      `[DEBUG] Calculated stats for campaign ${campaign._id}: sent=${sentMessages}, failed=${failedMessages}, pending=${pendingMessages}, queued=${queuedMessages}`,
+    )
+
+    const updateData = {
       sentMessages,
       failedMessages,
       pendingMessages,
+      queuedMessages,
       lastMessageSentAt: new Date(),
-    })
+    }
+    this.logger.debug(
+      `[DEBUG] About to update campaign with data: ${JSON.stringify(updateData)}`,
+    )
+
+    const result = await this.campaignModel.findByIdAndUpdate(
+      campaign._id,
+      updateData,
+      { new: true },
+    )
+
+    this.logger.log(
+      `[DEBUG] Updated campaign ${campaign._id} in database. Result queuedMessages=${result?.queuedMessages}`,
+    )
   }
 
   private async checkCampaignCompletion(campaign: CampaignDocument) {

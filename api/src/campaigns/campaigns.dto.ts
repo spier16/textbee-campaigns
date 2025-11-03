@@ -251,6 +251,9 @@ export class CampaignResponseDto {
   @ApiProperty()
   pendingMessages: number
 
+  @ApiProperty()
+  queuedMessages: number
+
   @ApiProperty({ required: false })
   startedAt?: Date
 

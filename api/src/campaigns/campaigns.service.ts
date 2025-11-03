@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { InjectQueue } from '@nestjs/bull'
@@ -60,6 +61,8 @@ import {
 
 @Injectable()
 export class CampaignsService {
+  private readonly logger = new Logger(CampaignsService.name)
+
   constructor(
     @InjectModel(MessageTemplateGroup.name)
     private messageTemplateGroupModel: Model<MessageTemplateGroupDocument>,
@@ -443,6 +446,7 @@ export class CampaignsService {
       sentMessages: 0,
       failedMessages: 0,
       pendingMessages: totalContacts,
+      queuedMessages: 0, // Messages start as PENDING, become QUEUED when campaign runs
     })
 
     const savedCampaign = await campaign.save()
@@ -660,6 +664,7 @@ export class CampaignsService {
     }
 
     // Check if campaign should exclude previously messaged contacts
+    let messagesDeleted = false
     if (!campaign.includePreviouslyMessaged) {
       // Get list of contacts that have been messaged (excluding this campaign)
       const messagedPhones = await this.getMessagedContacts(
@@ -669,7 +674,7 @@ export class CampaignsService {
 
       // Delete queued/pending messages for contacts who have been messaged since campaign was deleted
       if (messagedPhones.length > 0) {
-        await this.campaignMessageModel.deleteMany({
+        const deleteResult = await this.campaignMessageModel.deleteMany({
           campaign: campaign._id,
           recipient: { $in: messagedPhones },
           status: {
@@ -680,6 +685,10 @@ export class CampaignsService {
             ],
           },
         })
+        messagesDeleted = deleteResult.deletedCount > 0
+        this.logger.log(
+          `Deleted ${deleteResult.deletedCount} messages for previously messaged contacts`,
+        )
       }
     }
 
@@ -688,6 +697,11 @@ export class CampaignsService {
       { campaign: campaign._id },
       { $set: { campaignIsDeleted: false } },
     )
+
+    // Recalculate campaign stats if messages were deleted
+    if (messagesDeleted) {
+      await this.recalculateCampaignStats(campaign._id.toString())
+    }
 
     // Restore the campaign with its original status
     const restoredStatus = campaign.statusBeforeDelete || campaign.status
@@ -707,7 +721,39 @@ export class CampaignsService {
       { new: true },
     )
 
-    return this.formatCampaignResponse(updatedCampaign)
+    // Check if campaign should be marked as completed after restoration
+    await this.campaignQueueService.resumeCampaign(
+      campaign._id.toString(),
+      user._id.toString(),
+    )
+
+    // Manually trigger completion check in case all messages are done
+    const pendingCount = await this.campaignMessageModel.countDocuments({
+      campaign: campaign._id,
+      status: {
+        $in: [
+          MessageStatus.PENDING,
+          MessageStatus.SCHEDULED,
+          MessageStatus.QUEUED,
+          MessageStatus.CLAIMED,
+          MessageStatus.SENDING,
+        ],
+      },
+    })
+
+    if (pendingCount === 0) {
+      await this.campaignModel.findByIdAndUpdate(campaign._id, {
+        status: CampaignStatus.COMPLETED,
+        completedAt: new Date(),
+      })
+      this.logger.log(
+        `Campaign ${campaign._id} marked as completed after restoration - no pending messages`,
+      )
+    }
+
+    // Fetch updated campaign with latest stats
+    const finalCampaign = await this.campaignModel.findById(campaign._id)
+    return this.formatCampaignResponse(finalCampaign)
   }
 
   // Private helper methods
@@ -924,6 +970,7 @@ export class CampaignsService {
       sentMessages: campaign.sentMessages,
       failedMessages: campaign.failedMessages,
       pendingMessages: campaign.pendingMessages,
+      queuedMessages: campaign.queuedMessages,
       startedAt: campaign.startedAt,
       completedAt: campaign.completedAt,
       lastMessageSentAt: campaign.lastMessageSentAt,
@@ -1144,5 +1191,79 @@ export class CampaignsService {
     ]
 
     return allMessagedPhones
+  }
+
+  /**
+   * Recalculate campaign statistics by counting actual CampaignMessage records
+   * Used after message deletion during restoration to ensure stats accuracy
+   */
+  private async recalculateCampaignStats(campaignId: string) {
+    this.logger.debug(`Recalculating stats for campaign ${campaignId}`)
+
+    // Aggregate messages by status
+    const stats = await this.campaignMessageModel.aggregate([
+      {
+        $match: {
+          campaign: new Types.ObjectId(campaignId),
+        },
+      },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+        },
+      },
+    ])
+
+    // Initialize counters
+    let sentMessages = 0
+    let failedMessages = 0
+    let queuedMessages = 0
+    let totalMessages = 0
+
+    // Count messages by status
+    for (const stat of stats) {
+      totalMessages += stat.count
+
+      if (stat._id === MessageStatus.SENT) {
+        sentMessages = stat.count
+      } else if (stat._id === MessageStatus.FAILED) {
+        failedMessages = stat.count
+      } else if (
+        [
+          MessageStatus.PENDING,
+          MessageStatus.SCHEDULED,
+          MessageStatus.QUEUED,
+          MessageStatus.CLAIMED,
+          MessageStatus.SENDING,
+        ].includes(stat._id)
+      ) {
+        queuedMessages += stat.count
+      }
+    }
+
+    // pendingMessages includes all non-final statuses (queued + cancelled)
+    const pendingMessages = totalMessages - sentMessages - failedMessages
+
+    // Update campaign with recalculated stats
+    await this.campaignModel.findByIdAndUpdate(campaignId, {
+      totalMessages,
+      sentMessages,
+      failedMessages,
+      pendingMessages,
+      queuedMessages,
+    })
+
+    this.logger.log(
+      `Recalculated stats for campaign ${campaignId}: total=${totalMessages}, sent=${sentMessages}, failed=${failedMessages}, pending=${pendingMessages}, queued=${queuedMessages}`,
+    )
+
+    return {
+      totalMessages,
+      sentMessages,
+      failedMessages,
+      pendingMessages,
+      queuedMessages,
+    }
   }
 }
