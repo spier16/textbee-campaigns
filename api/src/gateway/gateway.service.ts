@@ -1,4 +1,10 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common'
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Inject,
+  forwardRef,
+} from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { Device, DeviceDocument } from './schemas/device.schema'
 import { Model, Types } from 'mongoose'
@@ -23,6 +29,7 @@ import { BillingService } from '../billing/billing.service'
 import { SmsQueueService } from './queue/sms-queue.service'
 import { UsagePlan, UsagePlanDocument } from './schemas/usage-plan.schema'
 import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
+import { DeviceWorkerService } from './queue/device-worker.service'
 import { PREDEFINED_PLANS } from './constants/usage-plan-templates'
 
 @Injectable()
@@ -38,6 +45,8 @@ export class GatewayService {
     private billingService: BillingService,
     private smsQueueService: SmsQueueService,
     private usageCalculator: DeviceUsageCalculatorService,
+    @Inject(forwardRef(() => DeviceWorkerService))
+    private deviceWorkerService: DeviceWorkerService,
   ) {}
 
   private async getUsagePlanById(
@@ -73,7 +82,25 @@ export class GatewayService {
         enabled: true,
       })
     } else {
-      return await this.deviceModel.create({ ...input, user })
+      const newDevice = await this.deviceModel.create({ ...input, user })
+
+      // Start worker loop if device is enabled
+      if (newDevice.enabled) {
+        try {
+          await this.deviceWorkerService.startDeviceWorker(newDevice)
+          console.log(
+            `[DeviceRegistration] Started worker loop for newly registered device ${newDevice._id}`,
+          )
+        } catch (error) {
+          console.error(
+            `[DeviceRegistration] Failed to start worker loop for device ${newDevice._id}:`,
+            error,
+          )
+          // Don't fail registration if worker spawn fails
+        }
+      }
+
+      return newDevice
     }
   }
 
@@ -134,6 +161,9 @@ export class GatewayService {
       )
     }
 
+    // Track old enabled status for worker lifecycle management
+    const oldEnabledStatus = device.enabled
+
     if (input.enabled !== false) {
       input.enabled = true
     }
@@ -169,11 +199,46 @@ export class GatewayService {
       )
     }
 
-    return await this.deviceModel.findByIdAndUpdate(
+    const updatedDevice = await this.deviceModel.findByIdAndUpdate(
       deviceId,
       { $set: updateData },
       { new: true },
     )
+
+    // Handle worker lifecycle based on enabled status change
+    if (updatedDevice) {
+      const newEnabledStatus = updatedDevice.enabled
+
+      if (!oldEnabledStatus && newEnabledStatus) {
+        // Device was disabled, now enabled - start worker
+        try {
+          await this.deviceWorkerService.startDeviceWorker(updatedDevice)
+          console.log(
+            `[DeviceUpdate] Started worker loop for device ${deviceId} (enabled: false -> true)`,
+          )
+        } catch (error) {
+          console.error(
+            `[DeviceUpdate] Failed to start worker loop for device ${deviceId}:`,
+            error,
+          )
+        }
+      } else if (oldEnabledStatus && !newEnabledStatus) {
+        // Device was enabled, now disabled - stop worker
+        try {
+          await this.deviceWorkerService.stopDeviceWorker(deviceId)
+          console.log(
+            `[DeviceUpdate] Stopped worker loop for device ${deviceId} (enabled: true -> false)`,
+          )
+        } catch (error) {
+          console.error(
+            `[DeviceUpdate] Failed to stop worker loop for device ${deviceId}:`,
+            error,
+          )
+        }
+      }
+    }
+
+    return updatedDevice
   }
 
   async deleteDevice(deviceId: string): Promise<any> {

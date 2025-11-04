@@ -3,6 +3,8 @@ import {
   Logger,
   OnModuleInit,
   OnModuleDestroy,
+  Inject,
+  forwardRef,
 } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
@@ -55,6 +57,7 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
     private campaignMessageModel: Model<CampaignMessageDocument>,
     @InjectModel(SMS.name) private smsModel: Model<SMSDocument>,
     @InjectQueue('sms') private smsQueue: Queue,
+    @Inject(forwardRef(() => GatewayService))
     private gatewayService: GatewayService,
     private usagePlanService: UsagePlanService,
     private usageCalculator: DeviceUsageCalculatorService,
@@ -381,7 +384,16 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       return 'sent'
     } catch (error) {
       // Handle retry with backoff
-      this.logger.error(`Failed to send message ${message._id}:`, error)
+      this.logger.error(`Failed to send message ${message._id}:`)
+
+      // Log detailed error information for HttpException
+      if (error.name === 'HttpException' && error.getResponse) {
+        const response = error.getResponse()
+        this.logger.error(`HttpException details:`, JSON.stringify(response, null, 2))
+      } else {
+        this.logger.error(error.stack || error)
+      }
+
       await this.handleSendFailure(message, campaign, error)
       return 'failed'
     }
@@ -396,7 +408,16 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
     error: Error,
   ) {
     message.retryCount = (message.retryCount || 0) + 1
-    message.lastError = error.message
+
+    // Store detailed error information
+    if (error.name === 'HttpException' && (error as any).getResponse) {
+      const response = (error as any).getResponse()
+      message.lastError = typeof response === 'string'
+        ? response
+        : JSON.stringify(response)
+    } else {
+      message.lastError = error.message
+    }
 
     if (message.retryCount >= message.maxRetries) {
       // Move to DLQ
