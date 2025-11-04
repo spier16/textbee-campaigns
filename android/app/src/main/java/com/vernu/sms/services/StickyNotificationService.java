@@ -5,6 +5,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ServiceInfo;
+import android.os.Build;
 import android.os.IBinder;
 import android.provider.Telephony;
 import android.util.Log;
@@ -42,7 +44,12 @@ public class StickyNotificationService extends Service {
 
         if (stickyNotificationEnabled) {
             Notification notification = createNotification();
-            startForeground(1, notification);
+            // For Android 14+ (API 34+), specify the foreground service type
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            } else {
+                startForeground(1, notification);
+            }
             Log.i(TAG, "Started foreground service with sticky notification");
         } else {
             Log.i(TAG, "Sticky notification disabled by user preference");
