@@ -435,6 +435,12 @@ export class CampaignsService {
       )
     const totalContacts = uniqueContactResult.uniqueContactCount
 
+    // Validate timezone conversion (ensure sending windows are in UTC)
+    this.validateSendingWindowsAreUTC(
+      createCampaignDto.sendingWindows,
+      createCampaignDto.timezone,
+    )
+
     // Create campaign
     const campaign = new this.campaignModel({
       ...createCampaignDto,
@@ -1264,6 +1270,72 @@ export class CampaignsService {
       failedMessages,
       pendingMessages,
       queuedMessages,
+    }
+  }
+
+  /**
+   * Validate that sending windows are in UTC format
+   *
+   * This is a defense-in-depth check to ensure the frontend properly converted
+   * local timezone to UTC. If times appear to be in a non-UTC timezone, log a warning.
+   *
+   * Detection logic:
+   * - If timezone is UTC, no conversion needed
+   * - If all window times end in "00" (e.g., 09:00, 14:00, 20:00), they're likely
+   *   in local timezone (not UTC), since UTC times would be offset (e.g., 14:00, 19:00, 01:00)
+   * - This is a heuristic, not foolproof, but catches most cases
+   */
+  private validateSendingWindowsAreUTC(
+    sendingWindows: any[],
+    timezone: string,
+  ): void {
+    // Skip validation if timezone is UTC (no conversion needed)
+    if (!timezone || timezone === 'UTC') {
+      return
+    }
+
+    // Skip if no windows provided
+    if (!sendingWindows || sendingWindows.length === 0) {
+      return
+    }
+
+    // Check if all times are "round" hours (e.g., 09:00, 14:00, 20:00)
+    // This is a heuristic that suggests they might still be in local timezone
+    const allTimesAreRoundHours = sendingWindows.every((window) => {
+      const startMinutes = window.startTime?.split(':')[1]
+      const endMinutes = window.endTime?.split(':')[1]
+      return startMinutes === '00' && endMinutes === '00'
+    })
+
+    if (allTimesAreRoundHours && sendingWindows.length < 10) {
+      // This could indicate the frontend didn't convert to UTC
+      // Log a warning for monitoring
+      this.logger.warn(
+        `⚠️  Campaign sending windows may not be in UTC. Timezone: ${timezone}, ` +
+          `Windows: ${JSON.stringify(sendingWindows.slice(0, 2))}. ` +
+          `If times are incorrect, check frontend timezone conversion.`,
+      )
+    }
+
+    // Additional validation: Check if times look suspiciously like common business hours
+    const firstWindow = sendingWindows[0]
+    if (firstWindow) {
+      const startHour = parseInt(firstWindow.startTime?.split(':')[0] || '0', 10)
+      const endHour = parseInt(firstWindow.endTime?.split(':')[0] || '0', 10)
+
+      // Business hours are typically 8 AM - 8 PM (08:00 - 20:00)
+      // If we see these exact times for a non-UTC timezone, it's suspicious
+      if (
+        (startHour === 9 && endHour === 20) || // 9 AM - 8 PM
+        (startHour === 8 && endHour === 17) || // 8 AM - 5 PM
+        (startHour === 10 && endHour === 18) // 10 AM - 6 PM
+      ) {
+        this.logger.warn(
+          `⚠️  Campaign windows (${firstWindow.startTime}-${firstWindow.endTime}) ` +
+            `look like business hours in local timezone (${timezone}), not UTC. ` +
+            `Expected UTC conversion. Verify frontend timezone conversion is working.`,
+        )
+      }
     }
   }
 }

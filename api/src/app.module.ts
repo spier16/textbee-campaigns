@@ -23,6 +23,7 @@ import { ContactsModule } from './contacts/contacts.module'
 import { CampaignsModule } from './campaigns/campaigns.module'
 import { ModernizeSchemasMigration } from './migrations/modernize-schemas.migration'
 import { MigrateCampaignSchedulingMigration } from './migrations/migrate-campaign-scheduling.migration'
+import { FixCampaignTimezonesMigration } from './migrations/fix-campaign-timezones.migration'
 
 @Injectable()
 export class LoggerMiddleware implements NestMiddleware {
@@ -74,6 +75,7 @@ export class LoggerMiddleware implements NestMiddleware {
     },
     ModernizeSchemasMigration,
     MigrateCampaignSchedulingMigration,
+    FixCampaignTimezonesMigration,
   ],
 })
 export class AppModule implements NestModule {

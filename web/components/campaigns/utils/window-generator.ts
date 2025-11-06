@@ -6,43 +6,35 @@
  */
 
 import { CreateCampaignData, SendingWindow } from '../types/campaign.types'
+import { zonedTimeToUtc, format } from 'date-fns-tz'
 
 /**
  * Convert local time to UTC ISO string
+ *
+ * Takes a date/time in a specific timezone and converts it to UTC.
+ * Example: "2025-01-15" "09:00" "America/Chicago" -> "2025-01-15 15:00" (UTC)
+ *
+ * @param dateStr - Date in YYYY-MM-DD format
+ * @param timeStr - Time in HH:mm format (24-hour)
+ * @param timezone - IANA timezone identifier (e.g., "America/Chicago")
+ * @returns UTC datetime string in "YYYY-MM-DD HH:mm" format
  */
 function convertToUTC(dateStr: string, timeStr: string, timezone: string): string {
-  // Create a date object in the specified timezone
-  const localDateTimeStr = `${dateStr}T${timeStr}:00`
+  try {
+    // Construct a datetime string in the local timezone
+    const localDateTimeStr = `${dateStr}T${timeStr}:00`
 
-  // Parse as local time in the specified timezone
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  })
+    // Parse as a date in the specified timezone and convert to UTC
+    // This properly handles DST transitions
+    const utcDate = zonedTimeToUtc(localDateTimeStr, timezone)
 
-  // Create a date in the user's timezone
-  const parts = localDateTimeStr.split('T')
-  const [year, month, day] = parts[0].split('-')
-  const [hour, minute] = parts[1].split(':')
-
-  // Create UTC date string by interpreting the local time as if it were in the target timezone
-  const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`)
-
-  // Get UTC offset for the timezone at this specific date
-  const utcDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }))
-  const tzDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }))
-  const offset = tzDate.getTime() - utcDate.getTime()
-
-  // Apply offset to get correct UTC time
-  const correctedDate = new Date(date.getTime() - offset)
-
-  return correctedDate.toISOString().slice(0, 19).replace('T', ' ')
+    // Format as "YYYY-MM-DD HH:mm" for database storage
+    return format(utcDate, 'yyyy-MM-dd HH:mm', { timeZone: 'UTC' })
+  } catch (error) {
+    console.error(`Error converting time to UTC: ${dateStr} ${timeStr} ${timezone}`, error)
+    // Fallback: return original time (will be incorrect but prevents crash)
+    return `${dateStr} ${timeStr}`
+  }
 }
 
 /**
