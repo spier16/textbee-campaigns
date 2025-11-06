@@ -2,82 +2,35 @@
  * Window Generator Utility
  *
  * Converts different campaign schedule types into unified sendingWindows format.
- * All times are converted to UTC for consistent backend storage.
+ * All times are stored in LOCAL timezone. The backend handles conversion to UTC at runtime.
  */
 
 import { CreateCampaignData, SendingWindow } from '../types/campaign.types'
-import { zonedTimeToUtc, format } from 'date-fns-tz'
-
-/**
- * Convert local time to UTC ISO string
- *
- * Takes a date/time in a specific timezone and converts it to UTC.
- * Example: "2025-01-15" "09:00" "America/Chicago" -> "2025-01-15 15:00" (UTC)
- *
- * @param dateStr - Date in YYYY-MM-DD format
- * @param timeStr - Time in HH:mm format (24-hour)
- * @param timezone - IANA timezone identifier (e.g., "America/Chicago")
- * @returns UTC datetime string in "YYYY-MM-DD HH:mm" format
- */
-function convertToUTC(dateStr: string, timeStr: string, timezone: string): string {
-  try {
-    // Construct a datetime string in the local timezone
-    const localDateTimeStr = `${dateStr}T${timeStr}:00`
-
-    // Parse as a date in the specified timezone and convert to UTC
-    // This properly handles DST transitions
-    const utcDate = zonedTimeToUtc(localDateTimeStr, timezone)
-
-    // Format as "YYYY-MM-DD HH:mm" for database storage
-    return format(utcDate, 'yyyy-MM-dd HH:mm', { timeZone: 'UTC' })
-  } catch (error) {
-    console.error(`Error converting time to UTC: ${dateStr} ${timeStr} ${timezone}`, error)
-    // Fallback: return original time (will be incorrect but prevents crash)
-    return `${dateStr} ${timeStr}`
-  }
-}
-
-/**
- * Format UTC datetime for database storage (YYYY-MM-DD and HH:mm format)
- */
-function formatUTCDateTime(isoString: string): { date: string; time: string } {
-  const [datePart, timePart] = isoString.split(' ')
-  const [hour, minute] = timePart.split(':')
-
-  return {
-    date: datePart,
-    time: `${hour}:${minute}`
-  }
-}
 
 /**
  * Generate windows for "Start sending now" mode
- * Creates a single window covering the entire campaign duration
+ * Creates a single window covering the entire campaign duration (in local timezone)
  */
 export function generateWindowsForNow(
   campaignStartDate: string,
   campaignEndDate: string,
   timezone: string
 ): SendingWindow[] {
-  const startUTC = convertToUTC(campaignStartDate, '00:00', timezone)
-  const endUTC = convertToUTC(campaignEndDate, '23:59', timezone)
-
-  const start = formatUTCDateTime(startUTC)
-  const end = formatUTCDateTime(endUTC)
+  console.log(`[TIMEZONE DEBUG] NOW mode: ${campaignStartDate} 00:00 to ${campaignEndDate} 23:59 (${timezone} - stored as local time)`)
 
   return [
     {
-      startDate: start.date,
-      startTime: start.time,
-      endDate: end.date,
-      endTime: end.time
+      startDate: campaignStartDate,
+      startTime: '00:00',
+      endDate: campaignEndDate,
+      endTime: '23:59'
     }
   ]
 }
 
 /**
  * Generate windows for "Schedule start for later" mode
- * Creates a single window from the scheduled start time to campaign end
+ * Creates a single window from the scheduled start time to campaign end (in local timezone)
  */
 export function generateWindowsForLater(
   scheduledDate: string,
@@ -85,25 +38,21 @@ export function generateWindowsForLater(
   campaignEndDate: string,
   timezone: string
 ): SendingWindow[] {
-  const startUTC = convertToUTC(scheduledDate, scheduledTime, timezone)
-  const endUTC = convertToUTC(campaignEndDate, '23:59', timezone)
-
-  const start = formatUTCDateTime(startUTC)
-  const end = formatUTCDateTime(endUTC)
+  console.log(`[TIMEZONE DEBUG] LATER mode: ${scheduledDate} ${scheduledTime} to ${campaignEndDate} 23:59 (${timezone} - stored as local time)`)
 
   return [
     {
-      startDate: start.date,
-      startTime: start.time,
-      endDate: end.date,
-      endTime: end.time
+      startDate: scheduledDate,
+      startTime: scheduledTime,
+      endDate: campaignEndDate,
+      endTime: '23:59'
     }
   ]
 }
 
 /**
  * Generate windows for "Define by weekday" mode
- * Expands weekday patterns into explicit date-specific windows
+ * Expands weekday patterns into explicit date-specific windows (in local timezone)
  */
 export function generateWindowsForWeekday(
   campaignData: CreateCampaignData
@@ -117,6 +66,8 @@ export function generateWindowsForWeekday(
   const startDate = new Date(campaignData.campaignStartDate + 'T00:00:00')
   const endDate = new Date(campaignData.campaignEndDate + 'T23:59:59')
   const timezone = campaignData.timezone
+
+  console.log(`[TIMEZONE DEBUG] WEEKDAY mode: Generating windows for ${campaignData.campaignStartDate} to ${campaignData.campaignEndDate} (${timezone} - stored as local time)`)
 
   // Iterate through each day in the campaign range
   const currentDate = new Date(startDate)
@@ -143,18 +94,12 @@ export function generateWindowsForWeekday(
           const endTimeMinutes = window.endTime.split(':').reduce((acc, time) => (60 * acc) + +time, 0)
 
           if (endTimeMinutes > startTimeMinutes) {
-            // Convert to UTC
-            const startUTC = convertToUTC(dateStr, window.startTime, timezone)
-            const endUTC = convertToUTC(dateStr, window.endTime, timezone)
-
-            const start = formatUTCDateTime(startUTC)
-            const end = formatUTCDateTime(endUTC)
-
+            // Store in local timezone - backend will convert at runtime
             windows.push({
-              startDate: start.date,
-              startTime: start.time,
-              endDate: end.date,
-              endTime: end.time
+              startDate: dateStr,
+              startTime: window.startTime,
+              endDate: dateStr,
+              endTime: window.endTime
             })
           }
         }
@@ -165,35 +110,15 @@ export function generateWindowsForWeekday(
     currentDate.setDate(currentDate.getDate() + 1)
   }
 
+  console.log(`[TIMEZONE DEBUG] WEEKDAY mode: Generated ${windows.length} windows`)
+
   return windows
 }
 
-/**
- * Convert "Define by slot" windows to UTC
- * The windows are already in the correct format, just need timezone conversion
- */
-export function convertWindowsToUTC(
-  windows: SendingWindow[],
-  timezone: string
-): SendingWindow[] {
-  return windows.map(window => {
-    const startUTC = convertToUTC(window.startDate, window.startTime, timezone)
-    const endUTC = convertToUTC(window.endDate, window.endTime, timezone)
-
-    const start = formatUTCDateTime(startUTC)
-    const end = formatUTCDateTime(endUTC)
-
-    return {
-      startDate: start.date,
-      startTime: start.time,
-      endDate: end.date,
-      endTime: end.time
-    }
-  })
-}
 
 /**
  * Main function to generate sendingWindows based on campaign schedule type
+ * All times are returned in LOCAL timezone - backend will convert at runtime
  */
 export function generateSendingWindows(campaignData: CreateCampaignData): SendingWindow[] {
   const { scheduleType, timezone } = campaignData
@@ -226,7 +151,9 @@ export function generateSendingWindows(campaignData: CreateCampaignData): Sendin
         console.warn('Schedule type is "windows" but no sendingWindows defined')
         return []
       }
-      return convertWindowsToUTC(campaignData.sendingWindows, timezone)
+      console.log(`[TIMEZONE DEBUG] WINDOWS mode: Using ${campaignData.sendingWindows.length} custom windows (${timezone} - stored as local time)`)
+      // Windows are already in local time, return as-is
+      return campaignData.sendingWindows
 
     default:
       console.error(`Unknown schedule type: ${scheduleType}`)

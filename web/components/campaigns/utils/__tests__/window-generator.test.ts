@@ -1,7 +1,8 @@
 /**
- * Manual test file for timezone conversion in window-generator
+ * Manual test file for window-generator local timezone storage
  *
- * This file can be executed with ts-node to verify timezone conversions are working correctly.
+ * This file verifies that campaign windows are stored in LOCAL timezone (not UTC).
+ * The backend will handle conversion to UTC at runtime.
  *
  * Usage: npx ts-node -r tsconfig-paths/register web/components/campaigns/utils/__tests__/window-generator.test.ts
  */
@@ -46,15 +47,14 @@ function testNowModeChicago() {
   const windows = generateSendingWindows(campaignData)
 
   log(`Input: 2025-01-15 00:00 to 2025-01-16 23:59 (America/Chicago)`, 'blue')
-  log(`Output: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (UTC)`, 'blue')
+  log(`Output: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (LOCAL TIME - stored as-is)`, 'blue')
 
-  // In CST (UTC-6), 00:00 local = 06:00 UTC
-  // In CST (UTC-6), 23:59 local = 05:59 UTC next day
+  // Times should be stored in LOCAL timezone, not converted to UTC
   assert(windows.length === 1, 'Should generate 1 window for NOW mode')
   assert(windows[0].startDate === '2025-01-15', 'Start date should be 2025-01-15')
-  assert(windows[0].startTime === '06:00', 'Start time should be 06:00 UTC (00:00 CST + 6 hours)')
-  assert(windows[0].endDate === '2025-01-17', 'End date should be 2025-01-17 (crosses day boundary)')
-  assert(windows[0].endTime === '05:59', 'End time should be 05:59 UTC (23:59 CST + 6 hours)')
+  assert(windows[0].startTime === '00:00', 'Start time should be 00:00 (local time, not UTC)')
+  assert(windows[0].endDate === '2025-01-16', 'End date should be 2025-01-16')
+  assert(windows[0].endTime === '23:59', 'End time should be 23:59 (local time, not UTC)')
 }
 
 // Test 2: LATER mode - America/Los_Angeles timezone
@@ -71,16 +71,15 @@ function testLaterModeLosAngeles() {
 
   const windows = generateSendingWindows(campaignData)
 
-  log(`Input: 2025-06-15 09:00 to 2025-06-16 23:59 (America/Los_Angeles, PDT)`, 'blue')
-  log(`Output: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (UTC)`, 'blue')
+  log(`Input: 2025-06-15 09:00 to 2025-06-16 23:59 (America/Los_Angeles)`, 'blue')
+  log(`Output: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (LOCAL TIME - stored as-is)`, 'blue')
 
-  // In PDT (UTC-7), 09:00 local = 16:00 UTC
-  // In PDT (UTC-7), 23:59 local = 06:59 UTC next day
+  // Times should be stored in LOCAL timezone, not converted to UTC
   assert(windows.length === 1, 'Should generate 1 window for LATER mode')
   assert(windows[0].startDate === '2025-06-15', 'Start date should be 2025-06-15')
-  assert(windows[0].startTime === '16:00', 'Start time should be 16:00 UTC (09:00 PDT + 7 hours)')
-  assert(windows[0].endDate === '2025-06-17', 'End date should be 2025-06-17')
-  assert(windows[0].endTime === '06:59', 'End time should be 06:59 UTC (23:59 PDT + 7 hours)')
+  assert(windows[0].startTime === '09:00', 'Start time should be 09:00 (local time, not UTC)')
+  assert(windows[0].endDate === '2025-06-16', 'End date should be 2025-06-16')
+  assert(windows[0].endTime === '23:59', 'End time should be 23:59 (local time, not UTC)')
 }
 
 // Test 3: WINDOWS mode - Multiple custom windows
@@ -108,16 +107,15 @@ function testWindowsMode() {
 
   const windows = generateSendingWindows(campaignData)
 
-  log(`Input Window 1: 2025-01-20 09:00-17:00 (America/New_York, EST)`, 'blue')
-  log(`Output Window 1: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (UTC)`, 'blue')
+  log(`Input Window 1: 2025-01-20 09:00-17:00 (America/New_York)`, 'blue')
+  log(`Output Window 1: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (LOCAL TIME - stored as-is)`, 'blue')
 
-  // In EST (UTC-5), 09:00 local = 14:00 UTC
-  // In EST (UTC-5), 17:00 local = 22:00 UTC
+  // Times should be stored in LOCAL timezone, not converted to UTC
   assert(windows.length === 2, 'Should generate 2 windows for WINDOWS mode')
-  assert(windows[0].startTime === '14:00', 'Window 1 start should be 14:00 UTC (09:00 EST + 5 hours)')
-  assert(windows[0].endTime === '22:00', 'Window 1 end should be 22:00 UTC (17:00 EST + 5 hours)')
-  assert(windows[1].startTime === '15:00', 'Window 2 start should be 15:00 UTC (10:00 EST + 5 hours)')
-  assert(windows[1].endTime === '23:00', 'Window 2 end should be 23:00 UTC (18:00 EST + 5 hours)')
+  assert(windows[0].startTime === '09:00', 'Window 1 start should be 09:00 (local time, not UTC)')
+  assert(windows[0].endTime === '17:00', 'Window 1 end should be 17:00 (local time, not UTC)')
+  assert(windows[1].startTime === '10:00', 'Window 2 start should be 10:00 (local time, not UTC)')
+  assert(windows[1].endTime === '18:00', 'Window 2 end should be 18:00 (local time, not UTC)')
 }
 
 // Test 4: WEEKDAY mode - Weekday patterns
@@ -151,22 +149,21 @@ function testWeekdayMode() {
 
   const windows = generateSendingWindows(campaignData)
 
-  log(`Input: Mon-Wed 09:00-17:00 (America/Denver, MST)`, 'blue')
+  log(`Input: Mon-Wed 09:00-17:00 (America/Denver)`, 'blue')
   log(`Output: ${windows.length} windows generated`, 'blue')
   if (windows.length > 0) {
-    log(`First window: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (UTC)`, 'blue')
+    log(`First window: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (LOCAL TIME - stored as-is)`, 'blue')
   }
 
-  // In MST (UTC-7), 09:00 local = 16:00 UTC
-  // In MST (UTC-7), 17:00 local = 00:00 UTC next day
+  // Times should be stored in LOCAL timezone, not converted to UTC
   assert(windows.length === 3, 'Should generate 3 windows (Mon, Tue, Wed)')
-  assert(windows[0].startTime === '16:00', 'Monday start should be 16:00 UTC (09:00 MST + 7 hours)')
-  assert(windows[0].endTime === '00:00', 'Monday end should be 00:00 UTC (17:00 MST + 7 hours)')
+  assert(windows[0].startTime === '09:00', 'Monday start should be 09:00 (local time, not UTC)')
+  assert(windows[0].endTime === '17:00', 'Monday end should be 17:00 (local time, not UTC)')
 }
 
-// Test 5: UTC timezone (no conversion needed)
+// Test 5: UTC timezone (stored in local time, which happens to be UTC)
 function testUTCTimezone() {
-  log('\n=== Test 5: UTC timezone (no conversion) ===', 'cyan')
+  log('\n=== Test 5: UTC timezone ===', 'cyan')
 
   const campaignData: CreateCampaignData = {
     scheduleType: 'now',
@@ -178,18 +175,18 @@ function testUTCTimezone() {
   const windows = generateSendingWindows(campaignData)
 
   log(`Input: 2025-01-15 00:00 to 2025-01-16 23:59 (UTC)`, 'blue')
-  log(`Output: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (UTC)`, 'blue')
+  log(`Output: ${windows[0].startDate} ${windows[0].startTime} to ${windows[0].endDate} ${windows[0].endTime} (LOCAL TIME - stored as-is)`, 'blue')
 
-  // UTC should remain unchanged
+  // Times stored in local time (which for UTC timezone is the same as UTC)
   assert(windows[0].startDate === '2025-01-15', 'Start date should be 2025-01-15')
-  assert(windows[0].startTime === '00:00', 'Start time should be 00:00 UTC (no conversion)')
+  assert(windows[0].startTime === '00:00', 'Start time should be 00:00 (local time)')
   assert(windows[0].endDate === '2025-01-16', 'End date should be 2025-01-16')
-  assert(windows[0].endTime === '23:59', 'End time should be 23:59 UTC (no conversion)')
+  assert(windows[0].endTime === '23:59', 'End time should be 23:59 (local time)')
 }
 
-// Test 6: DST transition - Spring forward (CST to CDT)
+// Test 6: DST transition - Local time preserved (this is the KEY advantage!)
 function testDSTSpringForward() {
-  log('\n=== Test 6: DST Spring Forward - America/Chicago ===', 'cyan')
+  log('\n=== Test 6: DST Transition - Local Time Preserved ===', 'cyan')
 
   const campaignData: CreateCampaignData = {
     scheduleType: 'later',
@@ -202,17 +199,20 @@ function testDSTSpringForward() {
   const windows = generateSendingWindows(campaignData)
 
   log(`Input: 2025-03-09 09:00 (America/Chicago, during DST transition)`, 'blue')
-  log(`Output: ${windows[0].startDate} ${windows[0].startTime} (UTC)`, 'blue')
+  log(`Output: ${windows[0].startDate} ${windows[0].startTime} (LOCAL TIME - stored as-is)`, 'blue')
 
-  // After DST, Chicago is UTC-5 instead of UTC-6
+  // Times stay in local timezone - backend will handle DST conversion at runtime
+  // This preserves user intent: "9 AM local time" stays "9 AM local time" before AND after DST
   assert(windows[0].startDate === '2025-03-09', 'Start date should be 2025-03-09')
-  assert(windows[0].startTime === '15:00', 'Start time should be 15:00 UTC (09:00 CDT + 6 hours, DST active)')
+  assert(windows[0].startTime === '09:00', 'Start time should be 09:00 (local time preserved across DST)')
+
+  log(`\n✓ KEY BENEFIT: User intent "9 AM local" is preserved regardless of DST!`, 'green')
 }
 
 // Run all tests
 function runAllTests() {
   log('\n╔════════════════════════════════════════════════╗', 'yellow')
-  log('║   Window Generator Timezone Conversion Tests   ║', 'yellow')
+  log('║   Window Generator Local Timezone Tests        ║', 'yellow')
   log('╚════════════════════════════════════════════════╝', 'yellow')
 
   try {
@@ -226,7 +226,8 @@ function runAllTests() {
     log('\n╔════════════════════════════════════════════════╗', 'green')
     log('║            ✓ ALL TESTS PASSED ✓                ║', 'green')
     log('╚════════════════════════════════════════════════╝', 'green')
-    log('\nTimezone conversion is working correctly!\n', 'green')
+    log('\nLocal timezone storage is working correctly!\n', 'green')
+    log('Backend will handle conversion to UTC at runtime.\n', 'green')
   } catch (error) {
     log('\n╔════════════════════════════════════════════════╗', 'red')
     log('║            ✗ TESTS FAILED ✗                    ║', 'red')

@@ -1,153 +1,246 @@
-# Campaign Timezone Conversion Bug Fix
+# Campaign Timezone Architecture
 
-## Problem Summary
+## Overview
 
-A critical timezone conversion bug was discovered in the campaign scheduling system:
-
-- **Root Cause**: Frontend's `convertToUTC()` function in `web/components/campaigns/utils/window-generator.ts` was **not actually converting** local times to UTC
-- **Impact**: Campaign sending windows were stored in **local timezone** instead of UTC
-- **Backend Behavior**: Backend appends `'Z'` to times, **assuming they're already in UTC**
-- **Result**: Messages were being sent **5-6 hours earlier** than intended
-
-### Example
-
-| User Intent | What Was Stored | Backend Interpretation | Actual Send Time |
-|-------------|----------------|----------------------|------------------|
-| 9 AM - 8 PM Chicago | `"09:00"` - `"20:00"` | 9 AM - 8 PM **UTC** | **3 AM - 2 PM Chicago** |
+Campaign sending windows are **stored in local timezone** and **converted to UTC at runtime** on the backend. This architecture preserves user intent across Daylight Saving Time (DST) transitions.
 
 ---
 
-## Affected Schedule Modes
+## Why Local Time Storage?
 
-All 4 schedule modes were affected:
+### The DST Problem with UTC Storage
 
-1. ✅ **NOW** - Immediate sending
-2. ✅ **LATER** - Scheduled start time
-3. ✅ **WINDOWS** - Custom sending windows
-4. ✅ **WEEKDAY** - Weekday-based patterns
+When times are stored in UTC, user intent breaks during DST transitions:
 
----
+**Example:**
+- User sets: "Send 9 AM - 8 PM Chicago time every Friday"
+- Before DST (CST, UTC-6): 9 AM = 15:00 UTC ✓
+- After DST (CDT, UTC-5): 9 AM = 14:00 UTC
+- **But we stored 15:00 UTC**, which is now 10 AM local time ✗
 
-## Fix Applied
+**User intent broken**: They wanted "9 AM local time" but get "10 AM local time" after DST.
 
-### 1. Frontend Fix (web/components/campaigns/utils/window-generator.ts)
+### The Solution: Local Time + Runtime Conversion
 
-**Before (Broken)**:
-```typescript
-function convertToUTC(dateStr: string, timeStr: string, timezone: string): string {
-  // Broken logic using Intl.DateTimeFormat incorrectly
-  const utcDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }))
-  const tzDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }))
-  const offset = tzDate.getTime() - utcDate.getTime()
-  const correctedDate = new Date(date.getTime() - offset) // Wrong!
-  return correctedDate.toISOString().slice(0, 19).replace('T', ' ')
-}
-```
-
-**After (Fixed)**:
-```typescript
-import { zonedTimeToUtc, format } from 'date-fns-tz'
-
-function convertToUTC(dateStr: string, timeStr: string, timezone: string): string {
-  const localDateTimeStr = `${dateStr}T${timeStr}:00`
-  const utcDate = zonedTimeToUtc(localDateTimeStr, timezone)
-  return format(utcDate, 'yyyy-MM-dd HH:mm', { timeZone: 'UTC' })
-}
-```
-
-### 2. Backend Validation (api/src/campaigns/campaigns.service.ts)
-
-Added validation in `createCampaign()` to detect if times appear to be in local TZ:
-
-```typescript
-private validateSendingWindowsAreUTC(sendingWindows: any[], timezone: string): void {
-  // Heuristic checks to detect if times weren't converted to UTC
-  // Logs warnings if suspicious patterns detected
-}
-```
-
-### 3. Migration Script for Production Data
-
-Created `api/src/migrations/fix-campaign-timezones.migration.ts`:
-
-- Converts existing campaign windows from local TZ → UTC
-- Only processes active campaigns (RUNNING, SCHEDULED, PAUSED)
-- Backs up original windows before conversion
-- Supports dry-run mode for safety
+By storing times in local timezone:
+- Times represent what the user sees: "9:00 AM" stays "9:00 AM"
+- Backend converts to UTC at runtime using current DST rules
+- User intent preserved: "9 AM local" remains "9 AM local" year-round
 
 ---
 
-## Deployment Steps
+## Architecture
 
-### Step 1: Install Dependencies
+### Frontend (web/)
 
-```bash
-# Frontend
-cd web
-npm install
+**Responsibility**: Send all times in **LOCAL timezone** (no conversion needed).
 
-# Backend
-cd ../api
-npm install
+**Files Modified:**
+- [web/components/campaigns/utils/window-generator.ts](web/components/campaigns/utils/window-generator.ts)
+  - Removed all UTC conversion logic
+  - All `generate*` functions return local times as-is
+  - Added `[TIMEZONE DEBUG]` logging for testing
+
+**Example:**
+```typescript
+// User selects: 9:00 AM - 8:00 PM Chicago time
+// Frontend sends to API:
+{
+  startTime: "09:00",
+  endTime: "20:00",
+  timezone: "America/Chicago"
+}
 ```
 
-### Step 2: Test the Fix (Optional but Recommended)
+### Backend (api/)
 
-Run the frontend timezone conversion tests:
+**Responsibility**: Convert local times to UTC **at runtime** when scheduling/validating messages.
 
+**Files Modified:**
+
+1. **[api/src/campaigns/campaigns.service.ts](api/src/campaigns/campaigns.service.ts)**
+   - Added `convertLocalWindowToUTC()` utility function
+   - Uses `fromZonedTime()` from date-fns-tz
+   - Removed `validateSendingWindowsAreUTC()` validation
+
+2. **[api/src/campaigns/queue/campaign-queue.processor.ts](api/src/campaigns/queue/campaign-queue.processor.ts)**
+   - Updated `calculateInitialNotBefore()` to convert local → UTC
+   - Sets `not_before` as UTC timestamp for efficient comparison
+
+3. **[api/src/gateway/queue/device-worker.service.ts](api/src/gateway/queue/device-worker.service.ts)**
+   - Updated `isInSendingWindow()` to convert local → UTC at claim time
+   - Updated `getNextSendingWindow()` to convert local → UTC
+   - Ensures messages only send during valid windows
+
+**Conversion Logic:**
+```typescript
+import { fromZonedTime } from 'date-fns-tz'
+
+// Local time: "2025-01-15" "09:00" in "America/Chicago"
+const localStr = `${date}T${time}:00`
+const utcDate = fromZonedTime(localStr, timezone)
+// Result: Date object in UTC (handles DST automatically)
+```
+
+---
+
+## Database Schema
+
+### Campaign Schema
+
+```typescript
+{
+  timezone: string,              // e.g., "America/Chicago"
+  campaignStartDate: string,     // LOCAL date: "2025-01-15"
+  campaignEndDate: string,       // LOCAL date: "2025-01-20"
+  sendingWindows: [
+    {
+      startDate: string,         // LOCAL date: "2025-01-15"
+      startTime: string,         // LOCAL time: "09:00"
+      endDate: string,           // LOCAL date: "2025-01-15"
+      endTime: string            // LOCAL time: "20:00"
+    }
+  ],
+  weekdayWindows: {
+    monday: [
+      { startTime: "09:00", endTime: "17:00" }  // LOCAL times
+    ],
+    // ...
+  }
+}
+```
+
+### Message Schema
+
+```typescript
+{
+  not_before: Date,  // UTC timestamp (converted from local at scheduling time)
+  queuedAt: Date,    // UTC timestamp
+  // ...
+}
+```
+
+**Key Points:**
+- `sendingWindows` are in **local timezone**
+- `not_before` is in **UTC** (converted at runtime)
+- This allows fast UTC-based comparisons while preserving user intent
+
+---
+
+## Message Flow
+
+### 1. Campaign Creation
+```
+User sets windows → Frontend sends local times → Backend stores local times
+                                                    ↓
+                                             Database: "09:00" (local)
+```
+
+### 2. Campaign Start
+```
+Backend reads windows → Converts to UTC → Sets not_before
+                        (runtime)          ↓
+                                    Message.not_before = UTC timestamp
+```
+
+### 3. Message Claiming
+```
+Device worker claims message → Validates sending window
+                               (converts local → UTC at claim time)
+                               ↓
+                        Checks: now >= windowStart && now <= windowEnd
+```
+
+### 4. DST Transition
+```
+Before DST: "09:00" local → 15:00 UTC (offset -6)
+After DST:  "09:00" local → 14:00 UTC (offset -5)
+            ↑
+        Same local time = User intent preserved!
+```
+
+---
+
+## Testing
+
+### Frontend Test File
+
+[web/components/campaigns/utils/__tests__/window-generator.test.ts](web/components/campaigns/utils/__tests__/window-generator.test.ts)
+
+Run tests:
 ```bash
 cd web
 npx ts-node -r tsconfig-paths/register components/campaigns/utils/__tests__/window-generator.test.ts
 ```
 
+**Test Cases:**
+1. NOW mode - Verify local times stored as-is
+2. LATER mode - Verify local times stored as-is
+3. WINDOWS mode - Verify custom windows stored as-is
+4. WEEKDAY mode - Verify weekday patterns stored as-is
+5. UTC timezone - Verify local time (happens to be UTC)
+6. **DST transition** - Verify "9 AM" stays "9 AM" across DST
+
 Expected output:
 ```
-✓ All tests should pass
-✓ Timezone conversion is working correctly!
+✓ ALL TESTS PASSED ✓
+Local timezone storage is working correctly!
+Backend will handle conversion to UTC at runtime.
 ```
 
-### Step 3: Fix Existing Production Campaigns
+### Manual Testing
 
-**IMPORTANT**: This migration will modify your production database. Run dry-run first!
+1. **Create test campaign:**
+   ```
+   Schedule: Fridays, 9:00 AM - 8:00 PM
+   Timezone: America/Chicago
+   ```
 
-#### 3a. Dry Run (Preview Changes)
+2. **Verify database:**
+   ```javascript
+   db.campaigns.findOne({ name: "Test Campaign" })
+   // sendingWindows should show:
+   // startTime: "09:00", endTime: "20:00"  (LOCAL TIME)
+   ```
 
+3. **Check backend logs:**
+   ```
+   [TIMEZONE] Converting window: 2025-11-07 09:00 - 2025-11-07 20:00 (America/Chicago)
+   -> 2025-11-07T15:00:00.000Z - 2025-11-08T02:00:00.000Z (UTC)
+   ```
+
+4. **Verify messages:**
+   ```javascript
+   db.campaignMessages.findOne({ campaign: campaignId })
+   // not_before should be UTC timestamp (e.g., 2025-11-07T15:00:00.000Z)
+   ```
+
+---
+
+## Deployment
+
+### Dependencies
+
+Already installed (from previous session):
+- **Frontend**: `date-fns-tz@^3.0.0` (no longer used, but harmless)
+- **Backend**: `date-fns-tz@^3.0.0` (used for runtime conversion)
+
+### Deployment Steps
+
+#### 1. Development
 ```bash
+# Frontend
+cd web
+npm run dev
+
+# Backend
 cd api
-npx ts-node src/run-timezone-fix-migration.ts
+npm run start:dev
 ```
 
-This shows what will be changed **without** modifying the database.
-
-Example output:
-```
-Campaign 690a508c634db9dc3085a180 (Chase Solar) - America/Chicago:
-  Window 1: 2025-11-04 09:00 → 2025-11-04 15:00 (UTC)
-           2025-11-04 20:00 → 2025-11-05 02:00 (UTC)
-  ... and 26 more windows
-
-Timezone fix migration completed: 2 fixed, 0 skipped, 0 errors
-```
-
-#### 3b. Apply Fix (LIVE)
-
-After verifying the dry-run output, apply the changes:
-
+#### 2. Docker (Production)
 ```bash
-npx ts-node src/run-timezone-fix-migration.ts --apply
-```
-
-**Recovery**: If something goes wrong, original windows are backed up in:
-```
-campaign.metadata.originalWindowsBeforeTimezoneFix
-```
-
-### Step 4: Deploy Code Changes
-
-#### Docker Deployment (Production)
-
-```bash
-# Build and restart services
+# Build and deploy
 docker-compose -f docker-compose.prebuilt.yaml down
 docker-compose -f docker-compose.prebuilt.yaml build
 docker-compose -f docker-compose.prebuilt.yaml up -d
@@ -157,62 +250,78 @@ docker logs textbee-api --tail 100 -f
 docker logs textbee-web --tail 100 -f
 ```
 
-#### Development
+#### 3. Verify Deployment
 
-```bash
-# Install dependencies
-npm install  # in both web/ and api/
+1. Create new campaign with local times
+2. Check database shows local times (not UTC)
+3. Check backend logs show runtime conversion
+4. Verify messages send at correct local times
 
-# Restart dev servers
-npm run dev  # in both web/ and api/
+---
+
+## Key Differences from Previous Approach
+
+| Aspect | Old Approach (UTC Storage) | New Approach (Local Storage) |
+|--------|---------------------------|------------------------------|
+| **Storage** | UTC times in DB | Local times in DB |
+| **Frontend** | Convert local → UTC | Send local as-is |
+| **Backend** | Assume UTC, use directly | Convert local → UTC at runtime |
+| **DST Behavior** | Times shift ❌ | Times preserved ✓ |
+| **not_before** | UTC (from frontend) | UTC (from backend conversion) |
+| **User Intent** | Broken during DST | Preserved across DST |
+
+---
+
+## Logging
+
+### Frontend Logs (Browser Console)
+
+```
+[TIMEZONE DEBUG] WEEKDAY mode: Generating windows for 2025-11-06 to 2025-12-06 (America/Chicago - stored as local time)
+[TIMEZONE DEBUG] WEEKDAY mode: Generated 5 windows
 ```
 
-### Step 5: Verify Fix
+### Backend Logs
 
-1. **Create a new campaign** with specific time windows (e.g., 9 AM - 8 PM)
-2. **Check the database**:
-   ```bash
-   docker exec -it textbee-db mongosh -u adminUser -p adminPassword --authenticationDatabase admin
-   use textbee
-   db.campaigns.findOne({ name: "Your Test Campaign" })
-   ```
-3. **Verify times are in UTC**:
-   - For Chicago (UTC-6): 9 AM local → 15:00 UTC ✓
-   - For LA (UTC-8): 9 AM local → 17:00 UTC ✓
+```
+[TIMEZONE] Converting window: 2025-11-07 09:00 - 2025-11-07 20:00 (America/Chicago) -> 2025-11-07T15:00:00.000Z - 2025-11-08T02:00:00.000Z (UTC)
+[TIMEZONE] In sending window: 2025-11-07 09:00 - 2025-11-07 20:00 (America/Chicago) = 2025-11-07T15:00:00.000Z - 2025-11-08T02:00:00.000Z (UTC)
+[TIMEZONE] Next window starts at 2025-11-14T15:00:00.000Z (UTC)
+```
 
-4. **Monitor backend logs** for validation warnings:
-   ```bash
-   docker logs textbee-api --tail 100 -f | grep "⚠️"
-   ```
+**Log Cleanup:** The `[TIMEZONE DEBUG]` logs can be removed after testing is complete.
 
 ---
 
-## Files Modified
+## Edge Cases
 
-### Frontend
-- ✅ `web/package.json` - Added date-fns-tz
-- ✅ `web/components/campaigns/utils/window-generator.ts` - Fixed convertToUTC()
-- ✅ `web/components/campaigns/utils/__tests__/window-generator.test.ts` - New test file
+### 1. DST "Spring Forward"
+**Scenario**: 2 AM becomes 3 AM (1 hour lost)
 
-### Backend
-- ✅ `api/package.json` - Added date-fns-tz
-- ✅ `api/src/campaigns/campaigns.service.ts` - Added validation
-- ✅ `api/src/migrations/fix-campaign-timezones.migration.ts` - New migration
-- ✅ `api/src/run-timezone-fix-migration.ts` - New runner script
-- ✅ `api/src/app.module.ts` - Registered migration
+If user schedules for 2:30 AM during transition:
+- `fromZonedTime()` handles this gracefully
+- Time is interpreted as "after the gap" (3:30 AM actual)
 
----
+### 2. DST "Fall Back"
+**Scenario**: 2 AM happens twice (1 hour gained)
 
-## Verification Checklist
+If user schedules for 1:30 AM during transition:
+- First occurrence (before DST) is used
+- Ambiguity resolved by date-fns-tz
 
-- [ ] Dependencies installed (`npm install` in web/ and api/)
-- [ ] Tests pass (run window-generator.test.ts)
-- [ ] Migration dry-run successful (shows expected changes)
-- [ ] Migration applied (--apply flag)
-- [ ] Code deployed to production
-- [ ] New campaign created with correct UTC times in DB
-- [ ] Backend validation logs reviewed (no warnings for new campaigns)
-- [ ] Existing campaigns sending at correct times
+### 3. Campaign Spanning DST
+**Scenario**: Campaign runs both before and after DST change
+
+- Each window converted independently at runtime
+- Messages before DST use old offset
+- Messages after DST use new offset
+- **User sees consistent local times**
+
+### 4. Timezone Changes
+If campaign timezone is changed:
+- Existing windows are re-interpreted in new timezone
+- May result in different UTC times
+- **Recommendation**: Don't allow timezone changes for running campaigns
 
 ---
 
@@ -220,97 +329,90 @@ npm run dev  # in both web/ and api/
 
 If issues occur:
 
-1. **Revert code changes**:
-   ```bash
-   git revert <commit-hash>
-   ```
+### 1. Code Rollback
+```bash
+git revert <commit-hash>
+docker-compose -f docker-compose.prebuilt.yaml build
+docker-compose -f docker-compose.prebuilt.yaml up -d
+```
 
-2. **Restore original windows** (if migration was applied):
-   ```javascript
-   // In MongoDB
-   db.campaigns.find({
-     'metadata.timezoneFixAppliedAt': { $exists: true }
-   }).forEach(campaign => {
-     db.campaigns.updateOne(
-       { _id: campaign._id },
-       {
-         $set: {
-           sendingWindows: campaign.metadata.originalWindowsBeforeTimezoneFix
-         },
-         $unset: {
-           'metadata.originalWindowsBeforeTimezoneFix': '',
-           'metadata.timezoneFixAppliedAt': ''
-         }
-       }
-     )
-   })
-   ```
-
-3. **Redeploy previous version**
+### 2. Data Considerations
+- **Good news**: Existing production campaigns already in local time (never deployed UTC version)
+- No data migration needed
+- No window restoration required
 
 ---
 
-## Technical Details
+## Files Modified Summary
 
-### Timezone Conversion Logic
+### Frontend
+- ✅ [web/components/campaigns/utils/window-generator.ts](web/components/campaigns/utils/window-generator.ts)
+- ✅ [web/components/campaigns/utils/__tests__/window-generator.test.ts](web/components/campaigns/utils/__tests__/window-generator.test.ts)
 
-The fix uses `date-fns-tz` library for proper timezone handling:
+### Backend
+- ✅ [api/src/campaigns/campaigns.service.ts](api/src/campaigns/campaigns.service.ts)
+- ✅ [api/src/campaigns/queue/campaign-queue.processor.ts](api/src/campaigns/queue/campaign-queue.processor.ts)
+- ✅ [api/src/gateway/queue/device-worker.service.ts](api/src/gateway/queue/device-worker.service.ts)
+- ✅ [api/src/app.module.ts](api/src/app.module.ts)
+- ❌ Deleted: `api/src/migrations/fix-campaign-timezones.migration.ts`
+- ❌ Deleted: `api/src/run-timezone-fix-migration.ts`
 
-```typescript
-import { zonedTimeToUtc } from 'date-fns-tz'
+### Documentation
+- ✅ [TIMEZONE_FIX_README.md](TIMEZONE_FIX_README.md) (this file)
 
-// Input: "2025-01-15" "09:00" "America/Chicago"
-// Process:
-//   1. Construct: "2025-01-15T09:00:00"
-//   2. Interpret as: 9 AM in America/Chicago timezone
-//   3. Convert to UTC: Adds 6 hours (CST) or 5 hours (CDT)
-//   4. Output: "2025-01-15 15:00" (UTC)
-```
+---
 
-### DST Handling
+## Troubleshooting
 
-The library automatically handles Daylight Saving Time transitions:
+### Problem: Messages sending at wrong times
 
-- **Standard Time (CST)**: UTC-6 (9 AM → 15:00 UTC)
-- **Daylight Time (CDT)**: UTC-5 (9 AM → 14:00 UTC)
+**Check:**
+1. Frontend console: Are local times being sent?
+   ```
+   [TIMEZONE DEBUG] WEEKDAY mode: ... (stored as local time)
+   ```
 
-### Backend Interpretation
+2. Backend logs: Is conversion happening?
+   ```
+   [TIMEZONE] Converting window: 09:00 (America/Chicago) -> 15:00:00.000Z (UTC)
+   ```
 
-The backend expects UTC and appends 'Z' suffix:
+3. Database: Are times in local format?
+   ```javascript
+   db.campaigns.findOne()
+   // sendingWindows should show local times like "09:00", not UTC like "15:00"
+   ```
 
-```typescript
-const windowStart = new Date(`${window.startDate}T${window.startTime}:00Z`)
-//                                                                     ^^^ UTC indicator
-```
+### Problem: Conversion errors in logs
+
+**Cause**: Invalid timezone or malformed time strings
+
+**Fix**: Verify campaign timezone is valid IANA identifier (e.g., "America/Chicago", not "CST")
+
+### Problem: Messages not sending after DST change
+
+**Cause**: Cached window calculations (unlikely with runtime conversion)
+
+**Fix**: Restart backend or wait for next worker cycle
 
 ---
 
 ## Future Improvements
 
-1. **Add proper test framework** (Jest/Vitest) to web project
-2. **Unit tests** for all schedule mode conversions
-3. **E2E tests** for campaign creation flow
-4. **Monitoring** for timezone conversion accuracy
-5. **UI indicator** showing both local and UTC times to users
-
----
-
-## Questions or Issues?
-
-If you encounter any problems:
-
-1. Check logs: `docker logs textbee-api --tail 100`
-2. Verify database: `db.campaigns.find().pretty()`
-3. Review validation warnings in backend logs
-4. Contact development team with campaign ID and timezone details
+1. **Remove debug logging** after deployment stabilizes
+2. **Add UI indicator** showing both local and UTC times to users
+3. **Timezone validation** on frontend (dropdown of valid IANA timezones)
+4. **Campaign timezone lock** preventing timezone changes for running campaigns
+5. **DST notification** warning users about upcoming DST transitions
 
 ---
 
 ## Summary
 
-✅ **Frontend** now properly converts local times to UTC using date-fns-tz
-✅ **Backend** validates incoming times with heuristic checks
-✅ **Migration** fixes existing production campaigns
-✅ **Tests** verify conversion accuracy across timezones and DST
+✅ **Frontend** sends local times without conversion
+✅ **Backend** converts local → UTC at runtime
+✅ **Database** stores local times for human readability
+✅ **Message scheduling** uses UTC timestamps for performance
+✅ **DST handling** preserves user intent across transitions
 
-**Next campaigns will send at the correct times!**
+**The system now correctly handles timezones while preserving user intent!**

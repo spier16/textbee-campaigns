@@ -28,6 +28,7 @@ import { GatewayService } from '../gateway.service'
 import { UsagePlanService } from '../usage-plan.service'
 import { DeviceUsageCalculatorService } from '../services/device-usage-calculator.service'
 import { RandomizedDelayService } from '../services/randomized-delay.service'
+import { fromZonedTime } from 'date-fns-tz'
 
 /**
  * DeviceWorkerService
@@ -519,6 +520,9 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Check if current time is within campaign's valid sending windows
+   *
+   * IMPORTANT: Sending windows are stored in LOCAL timezone. This function
+   * converts them to UTC at runtime using the campaign's timezone.
    */
   private isInSendingWindow(campaign: CampaignDocument, now: Date): boolean {
     // Check if campaign has any sending windows defined
@@ -529,19 +533,32 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       return false
     }
 
+    const timezone = campaign.timezone || 'UTC'
+
     // Check if current time falls within any of the defined windows
-    // All times in sendingWindows are stored in UTC for consistency
+    // Convert from local timezone to UTC at runtime
     return campaign.sendingWindows.some((window) => {
-      const windowStart = new Date(
-        `${window.startDate}T${window.startTime}:00Z`,
-      )
-      const windowEnd = new Date(`${window.endDate}T${window.endTime}:59Z`)
-      return now >= windowStart && now <= windowEnd
+      const localStartStr = `${window.startDate}T${window.startTime}:00`
+      const localEndStr = `${window.endDate}T${window.endTime}:59`
+      const windowStart = fromZonedTime(localStartStr, timezone)
+      const windowEnd = fromZonedTime(localEndStr, timezone)
+
+      const isInWindow = now >= windowStart && now <= windowEnd
+      if (isInWindow) {
+        this.logger.debug(
+          `[TIMEZONE] In sending window: ${window.startDate} ${window.startTime} - ${window.endDate} ${window.endTime} (${timezone}) ` +
+          `= ${windowStart.toISOString()} - ${windowEnd.toISOString()} (UTC)`
+        )
+      }
+      return isInWindow
     })
   }
 
   /**
    * Find the next valid sending window for a campaign after a given time
+   *
+   * IMPORTANT: Sending windows are stored in LOCAL timezone. This function
+   * converts them to UTC at runtime using the campaign's timezone.
    */
   private getNextSendingWindow(
     campaign: CampaignDocument,
@@ -551,12 +568,18 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
       return null
     }
 
-    // Parse all windows and convert to Date objects
+    const timezone = campaign.timezone || 'UTC'
+
+    // Parse all windows and convert from local timezone to UTC
     const futureWindows = campaign.sendingWindows
-      .map((window) => ({
-        start: new Date(`${window.startDate}T${window.startTime}:00Z`),
-        end: new Date(`${window.endDate}T${window.endTime}:59Z`),
-      }))
+      .map((window) => {
+        const localStartStr = `${window.startDate}T${window.startTime}:00`
+        const localEndStr = `${window.endDate}T${window.endTime}:59`
+        return {
+          start: fromZonedTime(localStartStr, timezone),
+          end: fromZonedTime(localEndStr, timezone),
+        }
+      })
       .filter((window) => {
         // Include windows that haven't ended yet
         return window.end > afterTime
@@ -574,6 +597,9 @@ export class DeviceWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Otherwise, return the start of the next window
+    this.logger.debug(
+      `[TIMEZONE] Next window starts at ${firstWindow.start.toISOString()} (UTC)`
+    )
     return firstWindow.start
   }
 

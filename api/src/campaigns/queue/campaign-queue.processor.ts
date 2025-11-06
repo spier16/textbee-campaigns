@@ -21,6 +21,7 @@ import { DeviceUsageCalculatorService } from '../../gateway/services/device-usag
 import { RandomizedDelayService } from '../../gateway/services/randomized-delay.service'
 import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
+import { fromZonedTime } from 'date-fns-tz'
 
 interface CampaignProcessJob {
   campaignId: string
@@ -212,6 +213,9 @@ export class CampaignQueueProcessor {
   /**
    * Calculate the initial not_before timestamp based on campaign's sending windows
    * Returns the earliest valid time messages can be sent
+   *
+   * IMPORTANT: Sending windows are stored in LOCAL timezone. This function
+   * converts them to UTC at runtime using the campaign's timezone.
    */
   private calculateInitialNotBefore(
     campaign: CampaignDocument,
@@ -224,13 +228,20 @@ export class CampaignQueueProcessor {
       return now
     }
 
+    const timezone = campaign.timezone || 'UTC'
+
     // Check if now is within any window
     for (const window of campaign.sendingWindows) {
-      const start = new Date(`${window.startDate}T${window.startTime}:00Z`)
-      const end = new Date(`${window.endDate}T${window.endTime}:59Z`)
+      // Convert local times to UTC
+      const localStartStr = `${window.startDate}T${window.startTime}:00`
+      const localEndStr = `${window.endDate}T${window.endTime}:59`
+      const start = fromZonedTime(localStartStr, timezone)
+      const end = fromZonedTime(localEndStr, timezone)
+
       if (now >= start && now <= end) {
         this.logger.debug(
-          `Current time is within window ${window.startDate} ${window.startTime} - ${window.endDate} ${window.endTime}`,
+          `[TIMEZONE] Current time is within window ${window.startDate} ${window.startTime} - ${window.endDate} ${window.endTime} (${timezone}) ` +
+          `converted to ${start.toISOString()} - ${end.toISOString()} (UTC)`,
         )
         return now
       }
@@ -238,17 +249,19 @@ export class CampaignQueueProcessor {
 
     // Find next window start
     const futureWindows = campaign.sendingWindows
-      .map((w) => ({
-        start: new Date(`${w.startDate}T${w.startTime}:00Z`),
-        window: w,
-      }))
+      .map((w) => {
+        const localStartStr = `${w.startDate}T${w.startTime}:00`
+        const start = fromZonedTime(localStartStr, timezone)
+        return { start, window: w }
+      })
       .filter(({ start }) => start > now)
       .sort((a, b) => a.start.getTime() - b.start.getTime())
 
     if (futureWindows.length > 0) {
       const nextWindow = futureWindows[0]
       this.logger.debug(
-        `Next window starts at ${nextWindow.start.toISOString()}`,
+        `[TIMEZONE] Next window starts at ${nextWindow.window.startDate} ${nextWindow.window.startTime} (${timezone}) ` +
+        `= ${nextWindow.start.toISOString()} (UTC)`,
       )
       return nextWindow.start
     }
