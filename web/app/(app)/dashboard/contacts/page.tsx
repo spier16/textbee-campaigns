@@ -170,7 +170,7 @@ function ContactSidebar({
   }, [devices, conversationMetadata, contact.phone, selectedDeviceId])
 
   const { data: messagesData, refetch } = useQuery({
-    queryKey: ['contact-messages', contact.phone],
+    queryKey: ['contact-messages', contact.phone, normalizePhoneNumber(contact.phone)],
     enabled: !!devices?.data?.length,
     queryFn: async () => {
       if (!devices?.data?.length) return []
@@ -178,22 +178,14 @@ function ContactSidebar({
       const allMessages: Message[] = []
       const normalizedContactPhone = normalizePhoneNumber(contact.phone)
 
+      // Fetch messages for this specific contact from all devices
       for (const device of devices.data) {
         try {
           const response = await httpBrowserClient.get(
-            `${ApiEndpoints.gateway.getMessages(device._id)}?type=all&limit=1000`
+            `${ApiEndpoints.gateway.getMessages(device._id)}?type=all&limit=100&phoneNumber=${encodeURIComponent(normalizedContactPhone)}`
           )
           if (response.data?.data) {
-            const contactMessages = response.data.data.filter((msg: Message) => {
-              const messageSenderNormalized = msg.sender ? normalizePhoneNumber(msg.sender) : null
-              const messageRecipientNormalized = msg.recipient ? normalizePhoneNumber(msg.recipient) : null
-
-              return (
-                messageSenderNormalized === normalizedContactPhone ||
-                messageRecipientNormalized === normalizedContactPhone
-              )
-            })
-            allMessages.push(...contactMessages)
+            allMessages.push(...response.data.data)
           }
         } catch (error) {
           console.error(`Failed to fetch messages for device ${device._id}:`, error)
