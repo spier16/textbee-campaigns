@@ -82,3 +82,11 @@ SMSSchema.index({ device: 1, type: 1, receivedAt: -1 })
 
 // Index for rolling window usage calculations (campaign messages by device and time)
 SMSSchema.index({ device: 1, campaignId: 1, sentAt: -1 })
+
+// Indexes for conversation list aggregation (sender/recipient grouping)
+SMSSchema.index({ device: 1, sender: 1, createdAt: -1 })
+SMSSchema.index({ device: 1, recipient: 1, createdAt: -1 })
+
+// Indexes for unseen count queries
+SMSSchema.index({ device: 1, sender: 1, receivedAt: 1 })
+SMSSchema.index({ device: 1, sender: 1, requestedAt: 1 })

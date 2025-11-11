@@ -533,8 +533,17 @@ export class UsersService {
       },
     }
 
-    // Always include messages for processing, and conditionally include extra fields
-    groupStage.$group.messages = { $push: '$$ROOT' }
+    // Only push necessary fields instead of entire document for memory efficiency
+    groupStage.$group.messages = {
+      $push: {
+        sender: '$sender',
+        campaignId: '$campaignId',
+        type: '$type',
+        message: '$message',
+        messageDate: '$messageDate',
+        isIncoming: '$isIncoming',
+      },
+    }
 
     if (includeMessages) {
       groupStage.$group.deviceId = { $first: '$device' }
@@ -565,6 +574,12 @@ export class UsersService {
         lastMessage: '$lastMessageData.message',
         lastMessageIsIncoming: '$lastMessageData.isIncoming',
       },
+    })
+
+    // Sort by most recent message date (default sorting)
+    // Note: firstName/lastName sorting still needs to happen in JS after contact enrichment
+    pipeline.push({
+      $sort: { lastMessageDate: -1 },
     })
 
     return pipeline
@@ -666,79 +681,101 @@ export class UsersService {
       normalizedPhoneNumbers,
     )
 
-    // Process all conversations with contacts and metadata
-    const processedConversations = await Promise.all(
-      deduplicatedConversations.map(async (conv) => {
-        const normalizedPhone = conv.normalizedPhoneNumber
-        const contact =
-          contactsByPhone[conv.phoneNumber] || contactsByPhone[normalizedPhone]
-
-        // Apply metadata (archived, blocked, starred status)
-        const metadata = conversationMetadata[normalizedPhone] || {
-          isArchived: false,
-          isBlocked: false,
-          isStarred: false,
-          firstCampaignName: undefined,
-        }
-
-        // Calculate unseen count
-        const lastSeenAt = readStatuses[normalizedPhone] || new Date(0)
-        const unseenCount = await this.smsModel.countDocuments({
+    // Batch calculate unseen counts for all conversations in one query
+    const unseenCountsAggregation = await this.smsModel.aggregate([
+      {
+        $match: {
           device: { $in: deviceIds },
-          sender: conv.phoneNumber,
-          $or: [
-            { receivedAt: { $gt: lastSeenAt } },
-            { requestedAt: { $gt: lastSeenAt } },
-          ],
-        })
+          sender: { $in: deduplicatedConversations.map((c) => c.phoneNumber) },
+          $or: deduplicatedConversations.map((conv) => {
+            const normalizedPhone = conv.normalizedPhoneNumber
+            const lastSeenAt = readStatuses[normalizedPhone] || new Date(0)
+            return {
+              sender: conv.phoneNumber,
+              $or: [
+                { receivedAt: { $gt: lastSeenAt } },
+                { requestedAt: { $gt: lastSeenAt } },
+              ],
+            }
+          }),
+        },
+      },
+      {
+        $group: {
+          _id: '$sender',
+          unseenCount: { $sum: 1 },
+        },
+      },
+    ])
 
-        // Check if conversation has received messages (for engaged filter)
-        const hasReceivedMessage =
-          conv.messages?.some((msg) => msg.sender) || false
-
-        return {
-          phoneNumber: conv.phoneNumber,
-          normalizedPhoneNumber: normalizedPhone,
-          deviceId: conv.deviceId.toString(),
-          hasReceivedMessage,
-          contact: contact
-            ? {
-                id: contact._id.toString(),
-                firstName: contact.firstName,
-                lastName: contact.lastName,
-                email: contact.email,
-                propertyAddress: contact.propertyAddress,
-                propertyCity: contact.propertyCity,
-                propertyState: contact.propertyState,
-                propertyZip: contact.propertyZip,
-                parcelCounty: contact.parcelCounty,
-                parcelState: contact.parcelState,
-                parcelAcres: contact.parcelAcres,
-                apn: contact.apn,
-                mailingAddress: contact.mailingAddress,
-                mailingCity: contact.mailingCity,
-                mailingState: contact.mailingState,
-                mailingZip: contact.mailingZip,
-                dnc: contact.dnc,
-                dncUpdatedAt: contact.dncUpdatedAt,
-              }
-            : undefined,
-          lastMessage: {
-            message: conv.lastMessage || '',
-            timestamp: conv.lastMessageDate,
-            isIncoming: conv.lastMessageIsIncoming,
-          },
-          lastMessageDate: conv.lastMessageDate,
-          messageCount: conv.messageCount,
-          unseenCount,
-          isArchived: metadata.isArchived,
-          isBlocked: metadata.isBlocked,
-          isStarred: metadata.isStarred,
-          archivedAt: metadata.archivedAt,
-          firstCampaignName: metadata.firstCampaignName,
-        }
-      }),
+    // Create map for O(1) lookup
+    const unseenCountMap = new Map(
+      unseenCountsAggregation.map((c) => [c._id, c.unseenCount]),
     )
+
+    // Process all conversations with contacts and metadata
+    const processedConversations = deduplicatedConversations.map((conv) => {
+      const normalizedPhone = conv.normalizedPhoneNumber
+      const contact =
+        contactsByPhone[conv.phoneNumber] || contactsByPhone[normalizedPhone]
+
+      // Apply metadata (archived, blocked, starred status)
+      const metadata = conversationMetadata[normalizedPhone] || {
+        isArchived: false,
+        isBlocked: false,
+        isStarred: false,
+        firstCampaignName: undefined,
+      }
+
+      // Get unseen count from map
+      const unseenCount = unseenCountMap.get(conv.phoneNumber) || 0
+
+      // Check if conversation has received messages (for engaged filter)
+      const hasReceivedMessage =
+        conv.messages?.some((msg) => msg.sender) || false
+
+      return {
+        phoneNumber: conv.phoneNumber,
+        normalizedPhoneNumber: normalizedPhone,
+        deviceId: conv.deviceId.toString(),
+        hasReceivedMessage,
+        contact: contact
+          ? {
+              id: contact._id.toString(),
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+              propertyAddress: contact.propertyAddress,
+              propertyCity: contact.propertyCity,
+              propertyState: contact.propertyState,
+              propertyZip: contact.propertyZip,
+              parcelCounty: contact.parcelCounty,
+              parcelState: contact.parcelState,
+              parcelAcres: contact.parcelAcres,
+              apn: contact.apn,
+              mailingAddress: contact.mailingAddress,
+              mailingCity: contact.mailingCity,
+              mailingState: contact.mailingState,
+              mailingZip: contact.mailingZip,
+              dnc: contact.dnc,
+              dncUpdatedAt: contact.dncUpdatedAt,
+            }
+          : undefined,
+        lastMessage: {
+          message: conv.lastMessage || '',
+          timestamp: conv.lastMessageDate,
+          isIncoming: conv.lastMessageIsIncoming,
+        },
+        lastMessageDate: conv.lastMessageDate,
+        messageCount: conv.messageCount,
+        unseenCount,
+        isArchived: metadata.isArchived,
+        isBlocked: metadata.isBlocked,
+        isStarred: metadata.isStarred,
+        archivedAt: metadata.archivedAt,
+        firstCampaignName: metadata.firstCampaignName,
+      }
+    })
 
     // Apply filtering based on filter parameter
     let filteredConversations = processedConversations
@@ -812,11 +849,12 @@ export class UsersService {
       }
     }
 
-    // Apply sorting
-    const sortedConversations = [...filteredConversations]
+    // Apply sorting (MongoDB already sorted by newest, only need JS sort for firstName/lastName)
+    let sortedConversations = filteredConversations
 
     if (sortBy === 'firstName' || sortBy === 'lastName') {
-      sortedConversations.sort((a, b) => {
+      // Need to sort in JS since contact data is enriched after aggregation
+      sortedConversations = [...filteredConversations].sort((a, b) => {
         const getNameField = (conv, field) => {
           if (field === 'firstName') {
             return conv.contact?.firstName || conv.normalizedPhoneNumber
@@ -829,14 +867,8 @@ export class UsersService {
         const nameB = getNameField(b, sortBy).toLowerCase()
         return nameA.localeCompare(nameB)
       })
-    } else {
-      // Default to newest first
-      sortedConversations.sort(
-        (a, b) =>
-          new Date(b.lastMessageDate).getTime() -
-          new Date(a.lastMessageDate).getTime(),
-      )
     }
+    // else: Already sorted by newest in MongoDB aggregation pipeline
 
     // Apply pagination to filtered and sorted results
     const totalFiltered = sortedConversations.length
