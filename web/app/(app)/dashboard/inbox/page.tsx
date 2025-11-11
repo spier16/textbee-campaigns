@@ -778,24 +778,15 @@ function MessengerInterface({
     ? `${conversation.contact.firstName || ''} ${conversation.contact.lastName || ''}`.trim()
     : formatPhoneNumberDisplay(conversation.normalizedPhoneNumber)
 
-  // Filter messages for this conversation
+  // Sort messages for this conversation (already filtered by backend)
   const conversationMessages = useMemo(() => {
     return allMessages
-      .filter(msg => {
-        const messageSenderNormalized = msg.sender ? normalizePhoneNumber(msg.sender) : null
-        const messageRecipientNormalized = msg.recipient ? normalizePhoneNumber(msg.recipient) : null
-
-        return (
-          messageSenderNormalized === conversation.normalizedPhoneNumber ||
-          messageRecipientNormalized === conversation.normalizedPhoneNumber
-        )
-      })
       .sort((a, b) => {
         const dateA = new Date(a.receivedAt || a.requestedAt || 0)
         const dateB = new Date(b.receivedAt || b.requestedAt || 0)
         return dateA.getTime() - dateB.getTime()
       })
-  }, [allMessages, conversation.normalizedPhoneNumber])
+  }, [allMessages])
 
   // Scroll to bottom when conversation changes or new messages arrive
   useEffect(() => {
@@ -1597,18 +1588,18 @@ export default function InboxPage() {
 
   // Query messages from all devices (for message interface when conversation is selected)
   const { data: messagesData } = useQuery({
-    queryKey: ['all-messages'],
+    queryKey: ['conversation-messages', selectedConversation?.normalizedPhoneNumber],
     enabled: !!devices?.data?.length && !!selectedConversation,
     queryFn: async () => {
-      if (!devices?.data?.length) return []
+      if (!devices?.data?.length || !selectedConversation) return []
 
       const allMessages: Message[] = []
 
-      // Fetch messages from all devices
+      // Fetch messages for this specific conversation from all devices
       for (const device of devices.data) {
         try {
           const response = await httpBrowserClient.get(
-            `${ApiEndpoints.gateway.getMessages(device._id)}?type=all&limit=1000`
+            `${ApiEndpoints.gateway.getMessages(device._id)}?type=all&limit=100&phoneNumber=${encodeURIComponent(selectedConversation.normalizedPhoneNumber)}`
           )
           if (response.data?.data) {
             allMessages.push(...response.data.data)

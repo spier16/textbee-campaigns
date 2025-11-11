@@ -202,12 +202,14 @@ export class GatewayController {
       ? Math.min(parseInt(req.query.limit, 10), 100)
       : 50
     const type = req.query.type || ''
+    const phoneNumber = req.query.phoneNumber || undefined
 
     const result = await this.gatewayService.getMessages(
       deviceId,
       type,
       page,
       limit,
+      phoneNumber,
     )
     return result
   }

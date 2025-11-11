@@ -866,6 +866,7 @@ export class GatewayService {
     type = '',
     page = 1,
     limit = 50,
+    phoneNumber?: string,
   ): Promise<{ data: any[]; meta: any }> {
     const device = await this.deviceModel.findById(deviceId)
 
@@ -889,6 +890,15 @@ export class GatewayService {
       query.type = SMSType.SENT
     } else if (type === 'received') {
       query.type = SMSType.RECEIVED
+    }
+
+    // Filter by phone number if provided
+    if (phoneNumber) {
+      const normalizedPhone = normalizePhoneNumber(phoneNumber)
+      query.$or = [
+        { sender: normalizedPhone },
+        { recipient: normalizedPhone },
+      ]
     }
 
     // Get total count for pagination metadata
