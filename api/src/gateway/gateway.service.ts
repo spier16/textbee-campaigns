@@ -31,6 +31,7 @@ import { UsagePlan, UsagePlanDocument } from './schemas/usage-plan.schema'
 import { DeviceUsageCalculatorService } from './services/device-usage-calculator.service'
 import { DeviceWorkerService } from './queue/device-worker.service'
 import { PREDEFINED_PLANS } from './constants/usage-plan-templates'
+import { normalizePhoneNumber } from '../contacts/utils/phone.utils'
 
 @Injectable()
 export class GatewayService {
@@ -346,12 +347,13 @@ export class GatewayService {
     const fcmMessages: Message[] = []
 
     for (const recipient of recipients) {
+      const normalizedRecipient = normalizePhoneNumber(recipient)
       const sms = await this.smsModel.create({
         device: device._id,
         smsBatch: smsBatch._id,
         message: message,
         type: SMSType.SENT,
-        recipient,
+        recipient: normalizedRecipient,
         requestedAt: new Date(),
         status: 'pending',
         campaignId: campaignId, // Include campaignId if provided
@@ -571,12 +573,13 @@ export class GatewayService {
       }
 
       for (const recipient of recipients) {
+        const normalizedRecipient = normalizePhoneNumber(recipient)
         const sms = await this.smsModel.create({
           device: device._id,
           smsBatch: smsBatch._id,
           message: message,
           type: SMSType.SENT,
-          recipient,
+          recipient: normalizedRecipient,
           requestedAt: new Date(),
           status: 'pending',
         })
@@ -768,9 +771,11 @@ export class GatewayService {
       message: dto.message,
       type: SMSType.RECEIVED,
       status: 'received',
-      sender: dto.sender,
+      sender: normalizePhoneNumber(dto.sender),
       receivedAt,
-      senderPhoneNumber: dto.senderPhoneNumber,
+      senderPhoneNumber: dto.senderPhoneNumber
+        ? normalizePhoneNumber(dto.senderPhoneNumber)
+        : undefined,
     })
 
     this.deviceModel
@@ -976,7 +981,7 @@ export class GatewayService {
 
     // Include sender phone number if provided (for tracking dual-SIM)
     if (dto.senderPhoneNumber) {
-      updateData.senderPhoneNumber = dto.senderPhoneNumber
+      updateData.senderPhoneNumber = normalizePhoneNumber(dto.senderPhoneNumber)
     }
 
     // Update the SMS
