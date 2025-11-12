@@ -76,6 +76,20 @@ export class UsagePlanService {
     return await usagePlan.save()
   }
 
+  /**
+   * Get predefined usage plan templates with UI-friendly format
+   * Adds maxDailyLimit field for frontend display
+   */
+  async getTemplates() {
+    return PREDEFINED_PLANS.map((template) => ({
+      ...template,
+      maxDailyLimit:
+        template.tiers.length > 0
+          ? template.tiers[template.tiers.length - 1].messages_per_cycle
+          : 0,
+    }))
+  }
+
   async getUserUsagePlans(user: User): Promise<UsagePlan[]> {
     // Get user-created plans
     const userPlans = await this.usagePlanModel

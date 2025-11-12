@@ -35,6 +35,7 @@ export const ApiEndpoints = {
 
     // Usage Plan endpoints
     createUsagePlan: () => '/gateway/usage-plans',
+    getUsagePlanTemplates: () => '/gateway/usage-plans/templates',
     getUserUsagePlans: () => '/gateway/usage-plans',
     getUserUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,
     updateUsagePlan: (id: string) => `/gateway/usage-plans/${id}`,

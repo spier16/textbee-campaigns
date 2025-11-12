@@ -28,63 +28,20 @@ import { Plus, Trash2, ArrowUp, ArrowDown, Copy } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 
-// Pre-defined plan templates
-const PLAN_TEMPLATES = [
-  {
-    name: 'Verizon Business SIM',
-    description: 'Best for high-volume sending',
-    maxDailyLimit: 700,
-    tiers: [
-      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 70 },  // 10%
-      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 140 }, // 20%
-      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 280 }, // 40%
-      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 420 }, // 60%
-      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 560 },  // 80%
-      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 700 },  // 100%
-    ],
-  },
-  {
-    name: 'Verizon Prepaid SIM',
-    description: 'Reliable mid-volume option',
-    maxDailyLimit: 200,
-    tiers: [
-      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 20 },  // 10%
-      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 40 },  // 20%
-      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 80 },  // 40%
-      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 120 }, // 60%
-      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 160 },  // 80%
-      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 200 },  // 100%
-    ],
-  },
-  {
-    name: 'Total Wireless SIM',
-    description: "Reliable mid-volume option on Verizon's network",
-    maxDailyLimit: 150,
-    tiers: [
-      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 },  // 10%
-      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 },  // 20%
-      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 60 },  // 40%
-      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 90 },  // 60%
-      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 120 },  // 80%
-      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 150 },  // 100%
-    ],
-  },
-  {
-    name: 'Tracfone SIM',
-    description: 'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
-    maxDailyLimit: 150,
-    tiers: [
-      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 },  // 10%
-      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 },  // 20%
-      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 60 },  // 40%
-      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 90 },  // 60%
-      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 120 },  // 80%
-      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 150 },  // 100%
-    ],
-  },
-]
+interface PlanTemplate {
+  _id?: string
+  name: string
+  description: string
+  maxDailyLimit: number
+  tierPromotionCooldownHours?: number
+  tiers: {
+    tier: number
+    min_wait_seconds: number
+    messages_per_cycle: number
+  }[]
+}
 
 const tierSchema = z.object({
   tier: z.number().min(1),
@@ -190,6 +147,20 @@ export function CreateUsagePlanDialog({
   const { toast } = useToast()
   const isEditing = !!editingPlan
   const [selectedTemplate, setSelectedTemplate] = useState<string>('')
+
+  // Fetch templates from API
+  const { data: templatesData, isLoading: templatesLoading } = useQuery({
+    queryKey: ['usage-plan-templates'],
+    queryFn: async () => {
+      const response = await httpBrowserClient.get(
+        ApiEndpoints.gateway.getUsagePlanTemplates()
+      )
+      return response.data.data as PlanTemplate[]
+    },
+    enabled: open && !isEditing, // Only fetch when dialog is open and not editing
+  })
+
+  const planTemplates = templatesData || []
 
   const usagePlanSchema = createUsagePlanSchema(existingPlanNames, editingPlan?.name)
 
@@ -306,7 +277,7 @@ export function CreateUsagePlanDialog({
   }
 
   const applyTemplate = (templateName: string) => {
-    const template = PLAN_TEMPLATES.find(t => t.name === templateName)
+    const template = planTemplates.find(t => t.name === templateName)
     if (!template) return
 
     // Reset form fields array to remove existing tiers
@@ -314,8 +285,8 @@ export function CreateUsagePlanDialog({
 
     // Set form values
     form.setValue('name', template.name)
-    form.setValue('description', template.description)
-    form.setValue('tierPromotionCooldownHours', 24)
+    form.setValue('description', template.description || '')
+    form.setValue('tierPromotionCooldownHours', template.tierPromotionCooldownHours || 24)
     form.setValue('tiers', template.tiers)
     form.setValue('isDefault', false)
 
@@ -360,12 +331,20 @@ export function CreateUsagePlanDialog({
                   Choose from our optimized templates or create a custom plan from scratch.
                 </p>
                 <div className="space-y-3">
-                  <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
+                  <Select
+                    value={selectedTemplate}
+                    onValueChange={setSelectedTemplate}
+                    disabled={templatesLoading}
+                  >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a template (optional)" />
+                      <SelectValue placeholder={
+                        templatesLoading
+                          ? "Loading templates..."
+                          : "Select a template (optional)"
+                      } />
                     </SelectTrigger>
                     <SelectContent>
-                      {PLAN_TEMPLATES.map((template) => (
+                      {planTemplates.map((template) => (
                         <SelectItem key={template.name} value={template.name}>
                           <div className="flex flex-col items-start">
                             <span className="font-medium">{template.name}</span>

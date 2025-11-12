@@ -12,12 +12,12 @@ export const PREDEFINED_PLANS = [
     usageWindowMinutes: 1440, // 24 hours rolling window
     tierPromotionCooldownHours: 24,
     tiers: [
-      { tier: 1, min_wait_seconds: 300, messages_per_cycle: 70 }, // 10%
-      { tier: 2, min_wait_seconds: 240, messages_per_cycle: 140 }, // 20%
-      { tier: 3, min_wait_seconds: 180, messages_per_cycle: 280 }, // 40%
-      { tier: 4, min_wait_seconds: 120, messages_per_cycle: 420 }, // 60%
-      { tier: 5, min_wait_seconds: 90, messages_per_cycle: 560 }, // 80%
-      { tier: 6, min_wait_seconds: 60, messages_per_cycle: 700 }, // 100%
+      { tier: 1, min_wait_seconds: 230, messages_per_cycle: 70 }, // 10%
+      { tier: 2, min_wait_seconds: 115, messages_per_cycle: 140 }, // 20%
+      { tier: 3, min_wait_seconds: 58, messages_per_cycle: 280 }, // 40%
+      { tier: 4, min_wait_seconds: 38, messages_per_cycle: 420 }, // 60%
+      { tier: 5, min_wait_seconds: 30, messages_per_cycle: 560 }, // 80%
+      { tier: 6, min_wait_seconds: 30, messages_per_cycle: 700 }, // 100%
     ],
     isDefault: false,
     isActive: true,

@@ -264,6 +264,14 @@ export class GatewayController {
     return { data }
   }
 
+  @ApiOperation({ summary: 'Get predefined usage plan templates' })
+  @UseGuards(AuthGuard)
+  @Get('/usage-plans/templates')
+  async getUsagePlanTemplates() {
+    const data = await this.usagePlanService.getTemplates()
+    return { data }
+  }
+
   @ApiOperation({ summary: 'Get all usage plans for the user' })
   @UseGuards(AuthGuard)
   @Get('/usage-plans')
