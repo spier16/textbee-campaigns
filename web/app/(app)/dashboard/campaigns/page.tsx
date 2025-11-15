@@ -63,7 +63,7 @@ export default function CampaignsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [displayCount, setDisplayCount] = useState(25)
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'a-z' | 'z-a'>('newest')
-  const [campaignSortBy, setCampaignSortBy] = useState<'name' | 'status' | 'contacts' | 'queued' | 'sent' | 'deliveryRate' | 'responseRate' | 'groups' | 'dateCreated' | 'lastSent'>('dateCreated')
+  const [campaignSortBy, setCampaignSortBy] = useState<'name' | 'status' | 'contacts' | 'queued' | 'sent' | 'responsesCount' | 'deliveryRate' | 'responseRate' | 'groups' | 'dateCreated' | 'lastSent'>('dateCreated')
   const [campaignSortOrder, setCampaignSortOrder] = useState<'asc' | 'desc'>('desc')
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
@@ -566,6 +566,10 @@ export default function CampaignsPage() {
           aValue = a.sentMessages
           bValue = b.sentMessages
           break
+        case 'responsesCount':
+          aValue = a.responsesCount ?? 0
+          bValue = b.responsesCount ?? 0
+          break
         case 'deliveryRate':
           aValue = a.deliveryRate ?? 0
           bValue = b.deliveryRate ?? 0
@@ -808,7 +812,7 @@ export default function CampaignsPage() {
   }
 
 
-  const handleCampaignSort = (column: 'name' | 'status' | 'contacts' | 'queued' | 'sent' | 'deliveryRate' | 'responseRate' | 'groups' | 'dateCreated' | 'lastSent') => {
+  const handleCampaignSort = (column: 'name' | 'status' | 'contacts' | 'queued' | 'sent' | 'responsesCount' | 'deliveryRate' | 'responseRate' | 'groups' | 'dateCreated' | 'lastSent') => {
     if (campaignSortBy === column) {
       setCampaignSortOrder(campaignSortOrder === 'asc' ? 'desc' : 'asc')
     } else {
@@ -818,7 +822,7 @@ export default function CampaignsPage() {
     setCurrentPage(1)
   }
 
-  const renderSortIcon = (column: 'name' | 'status' | 'contacts' | 'queued' | 'sent' | 'deliveryRate' | 'responseRate' | 'groups' | 'dateCreated' | 'lastSent') => {
+  const renderSortIcon = (column: 'name' | 'status' | 'contacts' | 'queued' | 'sent' | 'responsesCount' | 'deliveryRate' | 'responseRate' | 'groups' | 'dateCreated' | 'lastSent') => {
     if (campaignSortBy !== column) return null
     return campaignSortOrder === 'asc' ?
       <ChevronUp className="h-4 w-4 ml-1" /> :
@@ -1207,6 +1211,15 @@ export default function CampaignsPage() {
                   </th>
                   <th
                     className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
+                    onClick={() => handleCampaignSort('responsesCount')}
+                  >
+                    <div className='flex items-center'>
+                      Responses
+                      {renderSortIcon('responsesCount')}
+                    </div>
+                  </th>
+                  <th
+                    className='text-left p-2 md:p-4 font-medium cursor-pointer hover:bg-muted/75 transition-colors text-xs md:text-sm lg:text-base'
                     onClick={() => handleCampaignSort('deliveryRate')}
                   >
                     <div className='flex items-center'>
@@ -1315,6 +1328,11 @@ export default function CampaignsPage() {
                     </td>
                     <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
                       {campaign.sentMessages.toLocaleString()}
+                    </td>
+                    <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
+                      {campaign.responsesCount !== undefined
+                        ? campaign.responsesCount.toLocaleString()
+                        : '-'}
                     </td>
                     <td className='p-2 md:p-4 text-muted-foreground text-xs md:text-sm lg:text-base'>
                       {campaign.deliveryRate !== undefined

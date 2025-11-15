@@ -10,7 +10,7 @@ export const PREDEFINED_PLANS = [
     name: 'Verizon Business SIM',
     description: 'Best for high-volume sending',
     usageWindowMinutes: 1440, // 24 hours rolling window
-    tierPromotionCooldownHours: 24,
+    tierPromotionCooldownHours: 12,
     tiers: [
       { tier: 1, min_wait_seconds: 230, messages_per_cycle: 70 }, // 10%
       { tier: 2, min_wait_seconds: 115, messages_per_cycle: 140 }, // 20%
@@ -29,7 +29,7 @@ export const PREDEFINED_PLANS = [
     name: 'Verizon Prepaid SIM',
     description: 'Reliable mid-volume option',
     usageWindowMinutes: 1440, // 24 hours rolling window
-    tierPromotionCooldownHours: 24,
+    tierPromotionCooldownHours: 12,
     tiers: [
       { tier: 1, min_wait_seconds: 300, messages_per_cycle: 20 }, // 10%
       { tier: 2, min_wait_seconds: 240, messages_per_cycle: 40 }, // 20%
@@ -48,7 +48,7 @@ export const PREDEFINED_PLANS = [
     name: 'Total Wireless SIM',
     description: "Reliable mid-volume option on Verizon's network",
     usageWindowMinutes: 1440, // 24 hours rolling window
-    tierPromotionCooldownHours: 24,
+    tierPromotionCooldownHours: 12,
     tiers: [
       { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 }, // 10%
       { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 }, // 20%
@@ -68,7 +68,7 @@ export const PREDEFINED_PLANS = [
     description:
       'Tracfone uses both T-Mobile & Verizon network, depending on your area code. Only use Tracfone if they provide Verizon SIM cards',
     usageWindowMinutes: 1440, // 24 hours rolling window
-    tierPromotionCooldownHours: 24,
+    tierPromotionCooldownHours: 12,
     tiers: [
       { tier: 1, min_wait_seconds: 300, messages_per_cycle: 15 }, // 10%
       { tier: 2, min_wait_seconds: 240, messages_per_cycle: 30 }, // 20%

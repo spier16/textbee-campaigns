@@ -317,6 +317,12 @@ export class CampaignResponseDto {
       'Percentage of recipients who replied after receiving campaign message',
   })
   responseRate?: number
+
+  @ApiProperty({
+    required: false,
+    description: 'Number of recipients who replied after receiving campaign message',
+  })
+  responsesCount?: number
 }
 
 // Template Preview Processing DTOs

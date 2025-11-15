@@ -136,6 +136,7 @@ export interface Campaign {
   statusBeforeDelete?: CampaignStatus
   deliveryRate?: number
   responseRate?: number
+  responsesCount?: number
 }
 
 // Template Preview Processing interfaces

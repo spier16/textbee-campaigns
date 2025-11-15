@@ -858,7 +858,7 @@ export class CampaignsService {
   private async calculateCampaignStats(
     campaignId: string,
     userId: Types.ObjectId,
-  ): Promise<{ deliveryRate?: number; responseRate?: number }> {
+  ): Promise<{ deliveryRate?: number; responseRate?: number; responsesCount?: number }> {
     const campaignIdStr = campaignId.toString()
 
     // Build base query for SMS belonging to this user
@@ -903,6 +903,7 @@ export class CampaignsService {
 
     // Calculate Response Rate
     let responseRate = 0
+    let responsesCount = 0
 
     // Get unique recipients who received campaign messages
     const campaignRecipients = await this.smsModel.aggregate([
@@ -949,18 +950,20 @@ export class CampaignsService {
         }
       }
 
+      responsesCount = respondedCount
       responseRate = (respondedCount / campaignRecipients.length) * 100
     }
 
     return {
       deliveryRate: Number(deliveryRate.toFixed(1)),
       responseRate: Number(responseRate.toFixed(1)),
+      responsesCount,
     }
   }
 
   private formatCampaignResponse(
     campaign: any,
-    stats?: { deliveryRate?: number; responseRate?: number },
+    stats?: { deliveryRate?: number; responseRate?: number; responsesCount?: number },
   ): CampaignResponseDto {
     return {
       _id: campaign._id.toString(),
@@ -991,6 +994,7 @@ export class CampaignsService {
       statusBeforeDelete: campaign.statusBeforeDelete,
       deliveryRate: stats?.deliveryRate,
       responseRate: stats?.responseRate,
+      responsesCount: stats?.responsesCount,
     }
   }
 
