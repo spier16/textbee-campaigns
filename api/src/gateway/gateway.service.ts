@@ -32,6 +32,7 @@ import { DeviceUsageCalculatorService } from './services/device-usage-calculator
 import { DeviceWorkerService } from './queue/device-worker.service'
 import { PREDEFINED_PLANS } from './constants/usage-plan-templates'
 import { normalizePhoneNumber } from '../contacts/utils/phone.utils'
+import { UsersService } from '../users/users.service'
 
 @Injectable()
 export class GatewayService {
@@ -48,6 +49,8 @@ export class GatewayService {
     private usageCalculator: DeviceUsageCalculatorService,
     @Inject(forwardRef(() => DeviceWorkerService))
     private deviceWorkerService: DeviceWorkerService,
+    @Inject(forwardRef(() => UsersService))
+    private usersService: UsersService,
   ) {}
 
   private async getUsagePlanById(
@@ -358,6 +361,13 @@ export class GatewayService {
         status: 'pending',
         campaignId: campaignId, // Include campaignId if provided
       })
+
+      // NEW: Sync to conversations collection
+      await this.usersService.upsertConversationOnMessage(
+        sms,
+        device.user as unknown as Types.ObjectId,
+      )
+
       const updatedSMSData = {
         smsId: sms._id,
         smsBatchId: smsBatch._id,
@@ -778,6 +788,12 @@ export class GatewayService {
         : undefined,
     })
 
+    // NEW: Sync to conversations collection
+    await this.usersService.upsertConversationOnMessage(
+      sms,
+      device.user as unknown as Types.ObjectId,
+    )
+
     this.deviceModel
       .findByIdAndUpdate(deviceId, {
         $inc: { receivedSMSCount: 1 },
@@ -995,7 +1011,20 @@ export class GatewayService {
     }
 
     // Update the SMS
-    await this.smsModel.findByIdAndUpdate(dto.smsId, { $set: updateData })
+    const updatedSMS = await this.smsModel.findByIdAndUpdate(
+      dto.smsId,
+      { $set: updateData },
+      { new: true },
+    )
+
+    // NEW: Sync status change to conversations collection
+    if (updatedSMS) {
+      await this.usersService.updateConversationOnStatusChange(
+        updatedSMS,
+        device.user as unknown as Types.ObjectId,
+        normalizedStatus,
+      )
+    }
 
     // Check if all SMS in batch have the same status, then update batch status
     if (dto.smsBatchId) {

@@ -9,6 +9,10 @@ import {
   ConversationMetadata,
   ConversationMetadataSchema,
 } from './schemas/conversation-metadata.schema'
+import {
+  Conversation,
+  ConversationSchema,
+} from './schemas/conversation.schema'
 import { UsersController } from './users.controller'
 import { UsersService } from './users.service'
 import { BillingModule } from 'src/billing/billing.module'
@@ -32,6 +36,10 @@ import { MailModule } from 'src/mail/mail.module'
       {
         name: ConversationMetadata.name,
         schema: ConversationMetadataSchema,
+      },
+      {
+        name: Conversation.name,
+        schema: ConversationSchema,
       },
       {
         name: Device.name,

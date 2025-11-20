@@ -9,6 +9,10 @@ import {
   ConversationMetadata,
   ConversationMetadataDocument,
 } from './schemas/conversation-metadata.schema'
+import {
+  Conversation,
+  ConversationDocument,
+} from './schemas/conversation.schema'
 import { Model, Types } from 'mongoose'
 import { Cron, CronExpression } from '@nestjs/schedule'
 import { MailService } from '../mail/mail.service'
@@ -27,6 +31,8 @@ export class UsersService {
     private conversationReadStatusModel: Model<ConversationReadStatusDocument>,
     @InjectModel(ConversationMetadata.name)
     private conversationMetadataModel: Model<ConversationMetadataDocument>,
+    @InjectModel(Conversation.name)
+    private conversationModel: Model<ConversationDocument>,
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     @InjectModel(SMS.name) private smsModel: Model<SMS>,
     @InjectModel(Contact.name) private contactModel: Model<Contact>,
@@ -212,11 +218,39 @@ export class UsersService {
     normalizedPhoneNumber: string,
     lastSeenAt: Date = new Date(),
   ) {
-    return await this.conversationReadStatusModel.findOneAndUpdate(
-      { user: new Types.ObjectId(userId), normalizedPhoneNumber },
+    const userObjectId = new Types.ObjectId(userId)
+
+    // Update read status (existing logic)
+    await this.conversationReadStatusModel.findOneAndUpdate(
+      { user: userObjectId, normalizedPhoneNumber },
       { lastSeenAt },
       { upsert: true, new: true },
     )
+
+    // NEW: Also update unseenCount in conversations collection
+    // Recalculate unseen count for this conversation
+    const userDevices = await this.deviceModel
+      .find({ user: userObjectId })
+      .select('_id')
+    const deviceIds = userDevices.map((device) => device._id)
+
+    if (deviceIds.length > 0) {
+      // Count unseen messages (messages received after lastSeenAt)
+      const unseenCount = await this.smsModel.countDocuments({
+        device: { $in: deviceIds },
+        sender: normalizedPhoneNumber, // Only incoming messages
+        $or: [
+          { receivedAt: { $gt: lastSeenAt } },
+          { requestedAt: { $gt: lastSeenAt } }, // Edge case handling
+        ],
+      })
+
+      // Update conversation with new unseen count
+      await this.conversationModel.findOneAndUpdate(
+        { userId: userObjectId, normalizedPhoneNumber },
+        { $set: { unseenCount } },
+      )
+    }
   }
 
   async getConversationReadStatuses(userId: string) {
@@ -275,10 +309,11 @@ export class UsersService {
   }
 
   async archiveConversations(userId: string, phoneNumbers: string[]) {
+    const userObjectId = new Types.ObjectId(userId)
     const operations = phoneNumbers.map((phoneNumber) => ({
       updateOne: {
         filter: {
-          user: new Types.ObjectId(userId),
+          user: userObjectId,
           normalizedPhoneNumber: phoneNumber,
         },
         update: {
@@ -292,14 +327,22 @@ export class UsersService {
     }))
 
     await this.conversationMetadataModel.bulkWrite(operations)
+
+    // NEW: Also update conversations collection
+    await this.conversationModel.updateMany(
+      { userId: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
+      { $set: { isArchived: true, archivedAt: new Date() } },
+    )
+
     return { success: true, archivedCount: phoneNumbers.length }
   }
 
   async unarchiveConversations(userId: string, phoneNumbers: string[]) {
+    const userObjectId = new Types.ObjectId(userId)
     const operations = phoneNumbers.map((phoneNumber) => ({
       updateOne: {
         filter: {
-          user: new Types.ObjectId(userId),
+          user: userObjectId,
           normalizedPhoneNumber: phoneNumber,
         },
         update: {
@@ -313,14 +356,22 @@ export class UsersService {
     }))
 
     await this.conversationMetadataModel.bulkWrite(operations)
+
+    // NEW: Also update conversations collection
+    await this.conversationModel.updateMany(
+      { userId: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
+      { $set: { isArchived: false, archivedAt: null } },
+    )
+
     return { success: true, unarchivedCount: phoneNumbers.length }
   }
 
   async blockContacts(userId: string, phoneNumbers: string[]) {
+    const userObjectId = new Types.ObjectId(userId)
     const operations = phoneNumbers.map((phoneNumber) => ({
       updateOne: {
         filter: {
-          user: new Types.ObjectId(userId),
+          user: userObjectId,
           normalizedPhoneNumber: phoneNumber,
         },
         update: {
@@ -337,14 +388,29 @@ export class UsersService {
     }))
 
     await this.conversationMetadataModel.bulkWrite(operations)
+
+    // NEW: Also update conversations collection
+    await this.conversationModel.updateMany(
+      { userId: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
+      {
+        $set: {
+          isBlocked: true,
+          blockedAt: new Date(),
+          isArchived: false, // Blocking removes from archive
+          archivedAt: null,
+        },
+      },
+    )
+
     return { success: true, blockedCount: phoneNumbers.length }
   }
 
   async unblockContacts(userId: string, phoneNumbers: string[]) {
+    const userObjectId = new Types.ObjectId(userId)
     const operations = phoneNumbers.map((phoneNumber) => ({
       updateOne: {
         filter: {
-          user: new Types.ObjectId(userId),
+          user: userObjectId,
           normalizedPhoneNumber: phoneNumber,
         },
         update: {
@@ -358,6 +424,13 @@ export class UsersService {
     }))
 
     await this.conversationMetadataModel.bulkWrite(operations)
+
+    // NEW: Also update conversations collection
+    await this.conversationModel.updateMany(
+      { userId: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
+      { $set: { isBlocked: false, blockedAt: null } },
+    )
+
     return { success: true, unblockedCount: phoneNumbers.length }
   }
 
@@ -366,8 +439,9 @@ export class UsersService {
     phoneNumber: string,
     isStarred: boolean,
   ) {
+    const userObjectId = new Types.ObjectId(userId)
     const result = await this.conversationMetadataModel.findOneAndUpdate(
-      { user: new Types.ObjectId(userId), normalizedPhoneNumber: phoneNumber },
+      { user: userObjectId, normalizedPhoneNumber: phoneNumber },
       {
         $set: {
           isStarred,
@@ -375,6 +449,12 @@ export class UsersService {
         },
       },
       { upsert: true, new: true },
+    )
+
+    // NEW: Also update conversations collection
+    await this.conversationModel.findOneAndUpdate(
+      { userId: userObjectId, normalizedPhoneNumber: phoneNumber },
+      { $set: { isStarred, starredAt: isStarred ? new Date() : null } },
     )
 
     return { success: true, isStarred: result.isStarred }
@@ -385,14 +465,21 @@ export class UsersService {
     phoneNumber: string,
     deviceId: string,
   ) {
+    const userObjectId = new Types.ObjectId(userId)
     const result = await this.conversationMetadataModel.findOneAndUpdate(
-      { user: new Types.ObjectId(userId), normalizedPhoneNumber: phoneNumber },
+      { user: userObjectId, normalizedPhoneNumber: phoneNumber },
       {
         $set: {
           preferredDeviceId: deviceId,
         },
       },
       { upsert: true, new: true },
+    )
+
+    // NEW: Also update conversations collection
+    await this.conversationModel.findOneAndUpdate(
+      { userId: userObjectId, normalizedPhoneNumber: phoneNumber },
+      { $set: { preferredDeviceId: deviceId } },
     )
 
     return { success: true, deviceId: result.preferredDeviceId }
@@ -486,10 +573,120 @@ export class UsersService {
     }
   }
 
+  // ========== Conversation Collection Sync Methods ==========
+
+  /**
+   * Upsert conversation document when a new message is created (incoming or outgoing)
+   *
+   * This method maintains the materialized conversation view by updating it
+   * whenever a new SMS is created. It handles both incoming and outgoing messages.
+   *
+   * @param sms - The SMS document that was just created
+   * @param deviceUserId - The user ID who owns the device (to avoid extra query)
+   */
+  async upsertConversationOnMessage(
+    sms: any,
+    deviceUserId: Types.ObjectId,
+  ): Promise<void> {
+    const phoneNumber = sms.sender || sms.recipient
+    const normalized = normalizePhoneNumber(phoneNumber)
+    const isIncoming = !!sms.sender
+    const messageDate = sms.receivedAt || sms.requestedAt
+
+    // Get current read status for unseen count calculation
+    const readStatus = await this.conversationReadStatusModel.findOne({
+      user: deviceUserId,
+      normalizedPhoneNumber: normalized,
+    })
+
+    const lastSeenAt = readStatus?.lastSeenAt || new Date(0)
+    const isUnseen = isIncoming && messageDate > lastSeenAt
+
+    // Prepare update operations
+    const updateOps: any = {
+      $set: {
+        phoneNumber: phoneNumber, // Will only set on insert
+        device: sms.device,
+        lastMessageId: sms._id,
+        lastMessage: sms.message,
+        lastMessageAt: messageDate,
+        lastSender: isIncoming ? 'contact' : 'user',
+        updatedAt: new Date(),
+      },
+      $inc: {
+        messageCount: 1,
+        unseenCount: isUnseen ? 1 : 0,
+      },
+      $setOnInsert: {
+        userId: deviceUserId,
+        normalizedPhoneNumber: normalized,
+        isArchived: false,
+        isBlocked: false,
+        isStarred: false,
+        createdAt: new Date(),
+      },
+    }
+
+    // If incoming message, ensure hasReceivedMessage is set
+    if (isIncoming) {
+      updateOps.$set.hasReceivedMessage = true
+    }
+
+    // If first campaign message, set campaign fields
+    if (sms.campaignId) {
+      updateOps.$setOnInsert.firstCampaignId = sms.campaignId
+      // Campaign name will be populated lazily or via migration
+    }
+
+    await this.conversationModel.findOneAndUpdate(
+      { userId: deviceUserId, normalizedPhoneNumber: normalized },
+      updateOps,
+      { upsert: true, new: true },
+    )
+  }
+
+  /**
+   * Update conversation when message status changes (sent, delivered, failed)
+   *
+   * Currently, we only update the lastMessageAt timestamp when a message
+   * is successfully sent. Failed messages don't update the conversation.
+   *
+   * @param sms - The SMS document with updated status
+   * @param deviceUserId - The user ID who owns the device
+   * @param newStatus - The new status of the message
+   */
+  async updateConversationOnStatusChange(
+    sms: any,
+    deviceUserId: Types.ObjectId,
+    newStatus: string,
+  ): Promise<void> {
+    // Only update lastMessageAt if status changes to sent/delivered
+    // This ensures failed messages don't appear as "last message"
+    if (newStatus === 'sent' && sms.sentAt) {
+      const phoneNumber = sms.sender || sms.recipient
+      const normalized = normalizePhoneNumber(phoneNumber)
+
+      await this.conversationModel.findOneAndUpdate(
+        {
+          userId: deviceUserId,
+          normalizedPhoneNumber: normalized,
+          lastMessageId: sms._id, // Only update if this is still the last message
+        },
+        {
+          $set: {
+            lastMessageAt: sms.sentAt, // Update with actual send time
+          },
+        },
+      )
+    }
+    // For failures, don't update conversation (keep previous successful message as last)
+  }
+
   // Shared function to build conversation aggregation pipeline
   private buildConversationsPipeline(
     deviceIds: any[],
     includeMessages: boolean = false,
+    pagination?: { skip: number; limit: number },
   ) {
     const matchStage: any = {
       device: { $in: deviceIds },
@@ -582,6 +779,12 @@ export class UsersService {
       $sort: { lastMessageDate: -1 },
     })
 
+    // Add pagination if specified (for getConversations)
+    if (pagination) {
+      pipeline.push({ $skip: pagination.skip })
+      pipeline.push({ $limit: pagination.limit })
+    }
+
     return pipeline
   }
 
@@ -593,295 +796,198 @@ export class UsersService {
     filter: string = 'all',
     campaignIds?: string[],
   ) {
-    const userObjectId = new Types.ObjectId(userId)
     const skip = (page - 1) * limit
+    const userObjectId = new Types.ObjectId(userId)
 
-    // Get user's devices to filter messages
-    const userDevices = await this.deviceModel
-      .find({ user: userObjectId })
-      .select('_id')
-    const deviceIds = userDevices.map((device) => device._id)
-
-    if (deviceIds.length === 0) {
-      return {
-        data: [],
-        meta: {
-          currentPage: page,
-          totalPages: 0,
-          totalConversations: 0,
-          hasNextPage: false,
-          hasPrevPage: false,
-        },
-      }
-    }
-
-    // Get conversation metadata and read statuses
-    const [conversationMetadata, readStatuses] = await Promise.all([
-      this.getConversationMetadata(userId),
-      this.getConversationReadStatuses(userId),
-    ])
-
-    // Use shared pipeline builder with messages included
-    const pipeline = this.buildConversationsPipeline(deviceIds, true)
-
-    // Execute the initial aggregation to get all conversations with basic data
-    const allConversations = await this.smsModel.aggregate(pipeline)
-
-    // Normalize phone numbers and deduplicate conversations
-    const conversationMap = new Map()
-
-    for (const conv of allConversations) {
-      const normalizedPhone = normalizePhoneNumber(conv.phoneNumber)
-
-      // If we already have a conversation for this normalized number, keep the one with more recent message
-      if (conversationMap.has(normalizedPhone)) {
-        const existing = conversationMap.get(normalizedPhone)
-        if (
-          new Date(conv.lastMessageDate) > new Date(existing.lastMessageDate)
-        ) {
-          conversationMap.set(normalizedPhone, {
-            ...conv,
-            normalizedPhoneNumber: normalizedPhone,
-          })
-        }
-      } else {
-        conversationMap.set(normalizedPhone, {
-          ...conv,
-          normalizedPhoneNumber: normalizedPhone,
-        })
-      }
-    }
-
-    const deduplicatedConversations = Array.from(conversationMap.values())
-
-    // Get contact information for both raw and normalized phone numbers
-    const rawPhoneNumbers = deduplicatedConversations.map(
-      (conv) => conv.phoneNumber,
-    )
-    const normalizedPhoneNumbers = deduplicatedConversations.map(
-      (conv) => conv.normalizedPhoneNumber,
-    )
-    const allPhoneNumbers = [...rawPhoneNumbers, ...normalizedPhoneNumbers]
-
-    const contacts = await this.contactModel.find({
-      userId: userObjectId,
-      phone: { $in: allPhoneNumbers },
-    })
-
-    const contactsByPhone = contacts.reduce((acc, contact) => {
-      acc[contact.phone] = contact
-      return acc
-    }, {})
-
-    // Check and populate first campaign information for conversations
-    await this.checkAndPopulateFirstCampaignInfo(
-      userId,
-      deviceIds,
-      conversationMetadata,
-      normalizedPhoneNumbers,
-    )
-
-    // Batch calculate unseen counts for all conversations in one query
-    const unseenCountsAggregation = await this.smsModel.aggregate([
-      {
-        $match: {
-          device: { $in: deviceIds },
-          sender: { $in: deduplicatedConversations.map((c) => c.phoneNumber) },
-          $or: deduplicatedConversations.map((conv) => {
-            const normalizedPhone = conv.normalizedPhoneNumber
-            const lastSeenAt = readStatuses[normalizedPhone] || new Date(0)
-            return {
-              sender: conv.phoneNumber,
-              $or: [
-                { receivedAt: { $gt: lastSeenAt } },
-                { requestedAt: { $gt: lastSeenAt } },
-              ],
-            }
-          }),
-        },
-      },
-      {
-        $group: {
-          _id: '$sender',
-          unseenCount: { $sum: 1 },
-        },
-      },
-    ])
-
-    // Create map for O(1) lookup
-    const unseenCountMap = new Map(
-      unseenCountsAggregation.map((c) => [c._id, c.unseenCount]),
-    )
-
-    // Process all conversations with contacts and metadata
-    const processedConversations = deduplicatedConversations.map((conv) => {
-      const normalizedPhone = conv.normalizedPhoneNumber
-      const contact =
-        contactsByPhone[conv.phoneNumber] || contactsByPhone[normalizedPhone]
-
-      // Apply metadata (archived, blocked, starred status)
-      const metadata = conversationMetadata[normalizedPhone] || {
-        isArchived: false,
-        isBlocked: false,
-        isStarred: false,
-        firstCampaignName: undefined,
-      }
-
-      // Get unseen count from map
-      const unseenCount = unseenCountMap.get(conv.phoneNumber) || 0
-
-      // Check if conversation has received messages (for engaged filter)
-      const hasReceivedMessage =
-        conv.messages?.some((msg) => msg.sender) || false
-
-      return {
-        phoneNumber: conv.phoneNumber,
-        normalizedPhoneNumber: normalizedPhone,
-        deviceId: conv.deviceId.toString(),
-        hasReceivedMessage,
-        contact: contact
-          ? {
-              id: contact._id.toString(),
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              email: contact.email,
-              propertyAddress: contact.propertyAddress,
-              propertyCity: contact.propertyCity,
-              propertyState: contact.propertyState,
-              propertyZip: contact.propertyZip,
-              parcelCounty: contact.parcelCounty,
-              parcelState: contact.parcelState,
-              parcelAcres: contact.parcelAcres,
-              apn: contact.apn,
-              mailingAddress: contact.mailingAddress,
-              mailingCity: contact.mailingCity,
-              mailingState: contact.mailingState,
-              mailingZip: contact.mailingZip,
-              dnc: contact.dnc,
-              dncUpdatedAt: contact.dncUpdatedAt,
-            }
-          : undefined,
-        lastMessage: {
-          message: conv.lastMessage || '',
-          timestamp: conv.lastMessageDate,
-          isIncoming: conv.lastMessageIsIncoming,
-        },
-        lastMessageDate: conv.lastMessageDate,
-        messageCount: conv.messageCount,
-        unseenCount,
-        isArchived: metadata.isArchived,
-        isBlocked: metadata.isBlocked,
-        isStarred: metadata.isStarred,
-        archivedAt: metadata.archivedAt,
-        firstCampaignName: metadata.firstCampaignName,
-      }
-    })
-
-    // Apply filtering based on filter parameter
-    let filteredConversations = processedConversations
+    // Build filter query for conversations collection
+    const query: any = { userId: userObjectId }
 
     switch (filter) {
       case 'unread':
-        filteredConversations = processedConversations.filter(
-          (conv) => conv.unseenCount > 0 && !conv.isArchived && !conv.isBlocked,
-        )
+        query.unseenCount = { $gt: 0 }
+        query.isArchived = false
+        query.isBlocked = false
         break
       case 'unreplied':
-        filteredConversations = processedConversations.filter(
-          (conv) =>
-            conv.lastMessage.isIncoming && !conv.isArchived && !conv.isBlocked,
-        )
+        query.lastSender = 'contact'
+        query.isArchived = false
+        query.isBlocked = false
         break
       case 'awaiting-reply':
-        filteredConversations = processedConversations.filter(
-          (conv) =>
-            !conv.lastMessage.isIncoming && !conv.isArchived && !conv.isBlocked,
-        )
+        query.lastSender = 'user'
+        query.isArchived = false
+        query.isBlocked = false
         break
       case 'starred':
-        filteredConversations = processedConversations.filter(
-          (conv) =>
-            conv.isStarred === true && !conv.isArchived && !conv.isBlocked,
-        )
+        query.isStarred = true
+        query.isArchived = false
+        query.isBlocked = false
         break
       case 'engaged':
-        filteredConversations = processedConversations.filter(
-          (conv) =>
-            conv.hasReceivedMessage && !conv.isArchived && !conv.isBlocked,
-        )
+        query.hasReceivedMessage = true
+        query.isArchived = false
+        query.isBlocked = false
         break
       case 'archived':
-        filteredConversations = processedConversations.filter(
-          (conv) => conv.isArchived === true,
-        )
+        query.isArchived = true
         break
       case 'spam':
-        filteredConversations = processedConversations.filter(
-          (conv) => conv.isBlocked === true,
-        )
+        query.isBlocked = true
         break
       case 'all':
       default:
-        // For 'all' view, exclude archived and blocked
-        filteredConversations = processedConversations.filter(
-          (conv) => !conv.isArchived && !conv.isBlocked,
-        )
+        query.isArchived = false
+        query.isBlocked = false
         break
     }
 
-    // Apply campaign filtering if specified (OR logic - conversations from any of the selected campaigns)
-    if (campaignIds && campaignIds.length > 0) {
-      // Get campaign names for all selected campaign IDs
-      const campaigns = await this.campaignModel
-        .find({
-          _id: { $in: campaignIds.map((id) => new Types.ObjectId(id)) },
-        })
-        .select('name')
-
-      if (campaigns.length > 0) {
-        const campaignNames = campaigns.map((campaign) => campaign.name)
-        filteredConversations = filteredConversations.filter((conv) =>
-          campaignNames.includes(conv.firstCampaignName),
-        )
-      } else {
-        // If no campaigns found, return empty results
-        filteredConversations = []
-      }
+    // Campaign filtering
+    if (campaignIds?.length > 0) {
+      query.firstCampaignId = { $in: campaignIds }
     }
 
-    // Apply sorting (MongoDB already sorted by newest, only need JS sort for firstName/lastName)
-    let sortedConversations = filteredConversations
+    // Get total count
+    const totalCount = await this.conversationModel.countDocuments(query)
 
-    if (sortBy === 'firstName' || sortBy === 'lastName') {
-      // Need to sort in JS since contact data is enriched after aggregation
-      sortedConversations = [...filteredConversations].sort((a, b) => {
-        const getNameField = (conv, field) => {
-          if (field === 'firstName') {
-            return conv.contact?.firstName || conv.normalizedPhoneNumber
-          } else {
-            return conv.contact?.lastName || conv.normalizedPhoneNumber
+    // Query conversations
+    const conversations = await this.conversationModel
+      .find(query)
+      .sort({ lastMessageAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean()
+
+    // Enrich with contacts
+    const contacts = await this.contactModel.find({
+      userId: userObjectId,
+      phone: { $in: conversations.map((c) => c.phoneNumber) },
+    })
+
+    const contactsByPhone = contacts.reduce((acc, c) => {
+      acc[c.phone] = c
+      return acc
+    }, {})
+
+    // Map to response format
+    let enriched = conversations.map((conv) => ({
+      phoneNumber: conv.phoneNumber,
+      normalizedPhoneNumber: conv.normalizedPhoneNumber,
+      deviceId: conv.device.toString(),
+      hasReceivedMessage: conv.hasReceivedMessage,
+      contact: contactsByPhone[conv.phoneNumber] ||
+        contactsByPhone[conv.normalizedPhoneNumber]
+        ? {
+            id: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            )._id.toString(),
+            firstName: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).firstName,
+            lastName: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).lastName,
+            email: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).email,
+            propertyAddress: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).propertyAddress,
+            propertyCity: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).propertyCity,
+            propertyState: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).propertyState,
+            propertyZip: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).propertyZip,
+            parcelCounty: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).parcelCounty,
+            parcelState: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).parcelState,
+            parcelAcres: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).parcelAcres,
+            apn: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).apn,
+            mailingAddress: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).mailingAddress,
+            mailingCity: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).mailingCity,
+            mailingState: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).mailingState,
+            mailingZip: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).mailingZip,
+            dnc: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).dnc,
+            dncUpdatedAt: (
+              contactsByPhone[conv.phoneNumber] ||
+              contactsByPhone[conv.normalizedPhoneNumber]
+            ).dncUpdatedAt,
           }
-        }
+        : undefined,
+      lastMessage: {
+        message: conv.lastMessage,
+        timestamp: conv.lastMessageAt,
+        isIncoming: conv.lastSender === 'contact',
+      },
+      lastMessageDate: conv.lastMessageAt,
+      messageCount: conv.messageCount,
+      unseenCount: conv.unseenCount,
+      isArchived: conv.isArchived,
+      isBlocked: conv.isBlocked,
+      isStarred: conv.isStarred,
+      archivedAt: conv.archivedAt,
+      firstCampaignName: conv.firstCampaignName,
+    }))
 
-        const nameA = getNameField(a, sortBy).toLowerCase()
-        const nameB = getNameField(b, sortBy).toLowerCase()
-        return nameA.localeCompare(nameB)
+    // Name sorting (after contact enrichment)
+    if (sortBy === 'firstName' || sortBy === 'lastName') {
+      enriched.sort((a, b) => {
+        const fieldA =
+          sortBy === 'firstName'
+            ? a.contact?.firstName || a.normalizedPhoneNumber
+            : a.contact?.lastName || a.normalizedPhoneNumber
+        const fieldB =
+          sortBy === 'firstName'
+            ? b.contact?.firstName || b.normalizedPhoneNumber
+            : b.contact?.lastName || b.normalizedPhoneNumber
+        return fieldA.toLowerCase().localeCompare(fieldB.toLowerCase())
       })
     }
-    // else: Already sorted by newest in MongoDB aggregation pipeline
-
-    // Apply pagination to filtered and sorted results
-    const totalFiltered = sortedConversations.length
-    const totalPages = Math.ceil(totalFiltered / limit)
-    const paginatedResults = sortedConversations.slice(skip, skip + limit)
 
     return {
-      data: paginatedResults,
+      data: enriched,
       meta: {
         currentPage: page,
-        totalPages,
-        totalConversations: totalFiltered,
-        hasNextPage: page < totalPages,
+        totalPages: Math.ceil(totalCount / limit),
+        totalConversations: totalCount,
+        hasNextPage: page < Math.ceil(totalCount / limit),
         hasPrevPage: page > 1,
         limit,
       },
@@ -890,127 +996,20 @@ export class UsersService {
 
   async getConversationCounts(userId: string) {
     const userObjectId = new Types.ObjectId(userId)
+    const baseQuery = { userId: userObjectId, isArchived: false, isBlocked: false }
 
-    // Get user's devices
-    const userDevices = await this.deviceModel
-      .find({ user: userObjectId })
-      .select('_id')
-    const deviceIds = userDevices.map((device) => device._id)
+    const [all, unread, unreplied, awaitingReply, starred, engaged, archived, spam] =
+      await Promise.all([
+        this.conversationModel.countDocuments(baseQuery),
+        this.conversationModel.countDocuments({ ...baseQuery, unseenCount: { $gt: 0 } }),
+        this.conversationModel.countDocuments({ ...baseQuery, lastSender: 'contact' }),
+        this.conversationModel.countDocuments({ ...baseQuery, lastSender: 'user' }),
+        this.conversationModel.countDocuments({ ...baseQuery, isStarred: true }),
+        this.conversationModel.countDocuments({ ...baseQuery, hasReceivedMessage: true }),
+        this.conversationModel.countDocuments({ userId: userObjectId, isArchived: true }),
+        this.conversationModel.countDocuments({ userId: userObjectId, isBlocked: true }),
+      ])
 
-    if (deviceIds.length === 0) {
-      return {
-        all: 0,
-        unread: 0,
-        unreplied: 0,
-        awaitingReply: 0,
-        starred: 0,
-        engaged: 0,
-        archived: 0,
-        spam: 0,
-      }
-    }
-
-    // Get conversation metadata and read statuses
-    const [conversationMetadata, readStatuses] = await Promise.all([
-      this.getConversationMetadata(userId),
-      this.getConversationReadStatuses(userId),
-    ])
-
-    // Use shared pipeline builder (no extra fields needed for counts)
-    const pipeline = this.buildConversationsPipeline(deviceIds, false)
-
-    // Execute the aggregation to get all conversations
-    const allConversations = await this.smsModel.aggregate(pipeline)
-
-    // Normalize phone numbers and deduplicate conversations
-    const conversationMap = new Map()
-
-    for (const conv of allConversations) {
-      const normalizedPhone = normalizePhoneNumber(conv.phoneNumber)
-
-      // If we already have a conversation for this normalized number, keep the one with more recent message
-      if (conversationMap.has(normalizedPhone)) {
-        const existing = conversationMap.get(normalizedPhone)
-        if (
-          new Date(conv.lastMessageDate) > new Date(existing.lastMessageDate)
-        ) {
-          conversationMap.set(normalizedPhone, {
-            ...conv,
-            normalizedPhoneNumber: normalizedPhone,
-          })
-        }
-      } else {
-        conversationMap.set(normalizedPhone, {
-          ...conv,
-          normalizedPhoneNumber: normalizedPhone,
-        })
-      }
-    }
-
-    const deduplicatedConversations = Array.from(conversationMap.values())
-
-    // Process conversations with metadata
-    const processedConversations = await Promise.all(
-      deduplicatedConversations.map(async (conv) => {
-        const normalizedPhone = conv.normalizedPhoneNumber
-        const metadata = conversationMetadata[normalizedPhone] || {
-          isArchived: false,
-          isBlocked: false,
-          isStarred: false,
-        }
-
-        // Calculate unseen count
-        const lastSeenAt = readStatuses[normalizedPhone] || new Date(0)
-        const unseenCount = await this.smsModel.countDocuments({
-          device: { $in: deviceIds },
-          sender: conv.phoneNumber,
-          $or: [
-            { receivedAt: { $gt: lastSeenAt } },
-            { requestedAt: { $gt: lastSeenAt } },
-          ],
-        })
-
-        // Check if conversation has received messages (engaged)
-        const hasReceivedMessage =
-          (await this.smsModel.countDocuments({
-            device: { $in: deviceIds },
-            sender: conv.phoneNumber,
-          })) > 0
-
-        return {
-          normalizedPhoneNumber: normalizedPhone,
-          lastMessageIsIncoming: conv.lastMessageIsIncoming,
-          unseenCount,
-          isArchived: metadata.isArchived,
-          isBlocked: metadata.isBlocked,
-          isStarred: metadata.isStarred,
-          hasReceivedMessage,
-        }
-      }),
-    )
-
-    // Calculate counts for each category
-    const inboxConversations = processedConversations.filter(
-      (conv) => !conv.isArchived && !conv.isBlocked,
-    )
-
-    return {
-      all: inboxConversations.length,
-      unread: inboxConversations.filter((conv) => conv.unseenCount > 0).length,
-      unreplied: inboxConversations.filter((conv) => conv.lastMessageIsIncoming)
-        .length,
-      awaitingReply: inboxConversations.filter(
-        (conv) => !conv.lastMessageIsIncoming,
-      ).length,
-      starred: inboxConversations.filter((conv) => conv.isStarred === true)
-        .length,
-      engaged: inboxConversations.filter((conv) => conv.hasReceivedMessage)
-        .length,
-      archived: processedConversations.filter(
-        (conv) => conv.isArchived === true,
-      ).length,
-      spam: processedConversations.filter((conv) => conv.isBlocked === true)
-        .length,
-    }
+    return { all, unread, unreplied, awaitingReply, starred, engaged, archived, spam }
   }
 }
