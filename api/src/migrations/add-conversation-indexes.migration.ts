@@ -24,39 +24,52 @@ async function migrate() {
     console.log(JSON.stringify(existingIndexes, null, 2));
     console.log('');
 
+    // Helper function to safely create index (skip if exists)
+    const createIndexSafely = async (keys: any, options: any, description: string) => {
+      try {
+        console.log(`Creating index: ${description}`);
+        await smsModel.collection.createIndex(keys, options);
+        console.log('✓ Created\n');
+      } catch (error: any) {
+        if (error.code === 85 || error.codeName === 'IndexOptionsConflict') {
+          console.log('⊘ Skipped (already exists with different configuration)\n');
+        } else if (error.code === 86 || error.codeName === 'IndexKeySpecsConflict') {
+          console.log('⊘ Skipped (already exists)\n');
+        } else {
+          throw error;
+        }
+      }
+    };
+
     // Index 1: Optimize the conversation aggregation grouping stage
     // Covers: { device: X, $or: [sender exists, recipient exists] } + sorting by date
-    console.log('Creating index: { device: 1, sender: 1, receivedAt: -1 }');
-    await smsModel.collection.createIndex(
+    await createIndexSafely(
       { device: 1, sender: 1, receivedAt: -1 },
-      { name: 'device_sender_receivedAt', background: true }
+      { name: 'device_sender_receivedAt_desc', background: true },
+      '{ device: 1, sender: 1, receivedAt: -1 }'
     );
-    console.log('✓ Created\n');
 
-    console.log('Creating index: { device: 1, recipient: 1, requestedAt: -1 }');
-    await smsModel.collection.createIndex(
+    await createIndexSafely(
       { device: 1, recipient: 1, requestedAt: -1 },
-      { name: 'device_recipient_requestedAt', background: true }
+      { name: 'device_recipient_requestedAt_desc', background: true },
+      '{ device: 1, recipient: 1, requestedAt: -1 }'
     );
-    console.log('✓ Created\n');
 
-    // Index 2: Optimize unseen message count queries
+    // Index 2: Optimize unseen message count queries (already exists, will skip)
     // Covers: { device: X, sender: Y, receivedAt > Z }
-    console.log('Creating index: { device: 1, sender: 1, receivedAt: 1 }');
-    await smsModel.collection.createIndex(
+    await createIndexSafely(
       { device: 1, sender: 1, receivedAt: 1 },
-      { name: 'device_sender_receivedAt_asc', background: true }
+      { name: 'device_sender_receivedAt_asc', background: true },
+      '{ device: 1, sender: 1, receivedAt: 1 }'
     );
-    console.log('✓ Created\n');
 
     // Index 3: Optimize first campaign lookup
     // Covers: { device: X, recipient: Y, campaignId: exists } + sort by requestedAt
-    console.log('Creating index: { device: 1, recipient: 1, campaignId: 1, requestedAt: 1 }');
-    await smsModel.collection.createIndex(
+    await createIndexSafely(
       { device: 1, recipient: 1, campaignId: 1, requestedAt: 1 },
-      { name: 'device_recipient_campaign_requestedAt', background: true }
+      { name: 'device_recipient_campaign_requestedAt', background: true },
+      '{ device: 1, recipient: 1, campaignId: 1, requestedAt: 1 }'
     );
-    console.log('✓ Created\n');
 
     console.log('Final indexes:');
     const finalIndexes = await smsModel.collection.getIndexes();
