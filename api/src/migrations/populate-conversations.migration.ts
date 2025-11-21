@@ -185,7 +185,7 @@ async function migrate() {
         }
 
         conversationDocs.push({
-          userId: userId,
+          user: userId,
           device: conv.device,
           phoneNumber: phoneNumber,
           normalizedPhoneNumber: normalized,

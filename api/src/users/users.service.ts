@@ -247,7 +247,7 @@ export class UsersService {
 
       // Update conversation with new unseen count
       await this.conversationModel.findOneAndUpdate(
-        { userId: userObjectId, normalizedPhoneNumber },
+        { user: userObjectId, normalizedPhoneNumber },
         { $set: { unseenCount } },
       )
     }
@@ -330,7 +330,7 @@ export class UsersService {
 
     // NEW: Also update conversations collection
     await this.conversationModel.updateMany(
-      { userId: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
+      { user: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
       { $set: { isArchived: true, archivedAt: new Date() } },
     )
 
@@ -359,7 +359,7 @@ export class UsersService {
 
     // NEW: Also update conversations collection
     await this.conversationModel.updateMany(
-      { userId: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
+      { user: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
       { $set: { isArchived: false, archivedAt: null } },
     )
 
@@ -391,7 +391,7 @@ export class UsersService {
 
     // NEW: Also update conversations collection
     await this.conversationModel.updateMany(
-      { userId: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
+      { user: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
       {
         $set: {
           isBlocked: true,
@@ -427,7 +427,7 @@ export class UsersService {
 
     // NEW: Also update conversations collection
     await this.conversationModel.updateMany(
-      { userId: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
+      { user: userObjectId, normalizedPhoneNumber: { $in: phoneNumbers } },
       { $set: { isBlocked: false, blockedAt: null } },
     )
 
@@ -453,7 +453,7 @@ export class UsersService {
 
     // NEW: Also update conversations collection
     await this.conversationModel.findOneAndUpdate(
-      { userId: userObjectId, normalizedPhoneNumber: phoneNumber },
+      { user: userObjectId, normalizedPhoneNumber: phoneNumber },
       { $set: { isStarred, starredAt: isStarred ? new Date() : null } },
     )
 
@@ -478,7 +478,7 @@ export class UsersService {
 
     // NEW: Also update conversations collection
     await this.conversationModel.findOneAndUpdate(
-      { userId: userObjectId, normalizedPhoneNumber: phoneNumber },
+      { user: userObjectId, normalizedPhoneNumber: phoneNumber },
       { $set: { preferredDeviceId: deviceId } },
     )
 
@@ -618,7 +618,7 @@ export class UsersService {
         unseenCount: isUnseen ? 1 : 0,
       },
       $setOnInsert: {
-        userId: deviceUserId,
+        user: deviceUserId,
         normalizedPhoneNumber: normalized,
         isArchived: false,
         isBlocked: false,
@@ -639,7 +639,7 @@ export class UsersService {
     }
 
     await this.conversationModel.findOneAndUpdate(
-      { userId: deviceUserId, normalizedPhoneNumber: normalized },
+      { user: deviceUserId, normalizedPhoneNumber: normalized },
       updateOps,
       { upsert: true, new: true },
     )
@@ -668,7 +668,7 @@ export class UsersService {
 
       await this.conversationModel.findOneAndUpdate(
         {
-          userId: deviceUserId,
+          user: deviceUserId,
           normalizedPhoneNumber: normalized,
           lastMessageId: sms._id, // Only update if this is still the last message
         },
@@ -800,7 +800,7 @@ export class UsersService {
     const userObjectId = new Types.ObjectId(userId)
 
     // Build filter query for conversations collection
-    const query: any = { userId: userObjectId }
+    const query: any = { user: userObjectId }
 
     switch (filter) {
       case 'unread':
@@ -996,7 +996,7 @@ export class UsersService {
 
   async getConversationCounts(userId: string) {
     const userObjectId = new Types.ObjectId(userId)
-    const baseQuery = { userId: userObjectId, isArchived: false, isBlocked: false }
+    const baseQuery = { user: userObjectId, isArchived: false, isBlocked: false }
 
     const [all, unread, unreplied, awaitingReply, starred, engaged, archived, spam] =
       await Promise.all([
@@ -1006,8 +1006,8 @@ export class UsersService {
         this.conversationModel.countDocuments({ ...baseQuery, lastSender: 'user' }),
         this.conversationModel.countDocuments({ ...baseQuery, isStarred: true }),
         this.conversationModel.countDocuments({ ...baseQuery, hasReceivedMessage: true }),
-        this.conversationModel.countDocuments({ userId: userObjectId, isArchived: true }),
-        this.conversationModel.countDocuments({ userId: userObjectId, isBlocked: true }),
+        this.conversationModel.countDocuments({ user: userObjectId, isArchived: true }),
+        this.conversationModel.countDocuments({ user: userObjectId, isBlocked: true }),
       ])
 
     return { all, unread, unreplied, awaitingReply, starred, engaged, archived, spam }
