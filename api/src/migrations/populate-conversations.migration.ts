@@ -113,16 +113,20 @@ async function migrate() {
             },
           },
         },
+        // Sort by date BEFORE grouping so $first gets the earliest message
+        {
+          $sort: { messageDate: 1 },
+        },
         {
           $group: {
             _id: '$phoneNumber',
             device: { $first: '$device' },
             lastMessageId: { $last: '$_id' },
             lastMessage: { $last: '$message' },
-            lastMessageAt: { $max: '$messageDate' },
+            lastMessageAt: { $last: '$messageDate' }, // Changed from $max to $last to get the last after sorting
             lastSender: { $last: '$isIncoming' },
             messageCount: { $sum: 1 },
-            firstCampaignId: { $first: '$campaignId' },
+            firstCampaignId: { $first: '$campaignId' }, // Now gets the earliest message's campaign
             // For hasReceivedMessage check
             hasAnyIncoming: {
               $max: {
