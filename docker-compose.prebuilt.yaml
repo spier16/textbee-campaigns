@@ -21,6 +21,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # MongoDB Express (optional admin UI)
   mongo-express:
@@ -38,6 +43,11 @@ services:
         condition: service_healthy
     networks:
       - textbee-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # NestJS API - Using pre-built image
   textbee-api:
@@ -57,6 +67,11 @@ services:
         condition: service_healthy
     networks:
       - textbee-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Next.js Web - Using pre-built image
   textbee-web:
@@ -75,6 +90,11 @@ services:
       - textbee-api
     networks:
       - textbee-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Redis (if SMS queue is needed)
   textbee-redis:
@@ -94,6 +114,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   textbee-network:
